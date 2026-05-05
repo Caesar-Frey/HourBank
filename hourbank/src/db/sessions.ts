@@ -142,3 +142,15 @@ export function autoVerifySweep(windowHours: number): number {
   );
   return result.changes;
 }
+
+export function sessionsThisWeek(): number {
+  const db = getDb();
+  const startOfWeek = new Date();
+  startOfWeek.setHours(0, 0, 0, 0);
+  startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+  const row = db.getFirstSync<{ total: number }>(
+    `SELECT COALESCE(SUM(duration_minutes), 0) as total FROM sessions WHERE status IN ('pending_verification','verified') AND ended_at >= ?`,
+    [startOfWeek.toISOString()]
+  );
+  return (row?.total ?? 0) / 60;
+}
