@@ -1,0 +1,29 @@
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './app/**/*.{js,jsx,ts,tsx}',
+    './src/**/*.{js,jsx,ts,tsx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        paper:       '#F4EFE6',
+        paperDeep:   '#ECE5D6',
+        paperEdge:   '#D9CFBF',
+        ink:         '#1B1714',
+        inkSoft:     '#4A413A',
+        inkFaint:    '#8A7E72',
+        oxblood:     '#7A2530',
+        oxbloodDeep: '#5C1B24',
+        moss:        '#3F5641',
+        amber:       '#B8743F',
+        crimson:     '#9A2A2A',
+        okFill:      '#E4EAE0',
+        warnFill:    '#F0E0CB',
+        badFill:     '#EFD7D7',
+        sessionBg:   '#1B1714',
+      },
+    },
+  },
+  plugins: [],
+};
