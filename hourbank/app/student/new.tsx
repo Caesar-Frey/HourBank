@@ -58,14 +58,17 @@ export default function NewStudentScreen() {
       return;
     }
 
-    createStudent({
-      fullName: fullName.trim(),
-      grade,
-      subject: subject.trim(),
-      curriculum,
-    });
-
-    router.back();
+    try {
+      createStudent({
+        fullName: fullName.trim(),
+        grade,
+        subject: subject.trim(),
+        curriculum,
+      });
+      router.back();
+    } catch (e) {
+      Alert.alert('Error', 'Could not save student. Please try again.');
+    }
   }
 
   const filteredSuggestions = SUBJECT_SUGGESTIONS.filter(s =>

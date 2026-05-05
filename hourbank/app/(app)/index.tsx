@@ -41,7 +41,13 @@ export default function HomeScreen() {
     AsyncStorage.getItem(SORT_KEY).then(v => {
       if (v) setSortMode(v as SortMode);
     });
-    setWeekHours(sessionsThisWeek());
+    let weekHoursValue = 0;
+    try {
+      weekHoursValue = sessionsThisWeek();
+    } catch {
+      weekHoursValue = 0;
+    }
+    setWeekHours(weekHoursValue);
   }, []);
 
   const sorted = useMemo(() => {
@@ -110,10 +116,10 @@ export default function HomeScreen() {
       >
         {/* Brand row */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <Text style={{ fontSize: 28, color: '#1B1714' }}>
-            <Text style={{ fontFamily: F.serif }}>Hour</Text>
-            <Text style={{ fontFamily: F.serifItalic, color: '#7A2530' }}>Bank</Text>
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+            <Text style={{ fontFamily: F.serif, fontSize: 22, color: '#1B1714' }}>Hour</Text>
+            <Text style={{ fontFamily: F.serifItalic, fontSize: 22, color: '#7A2530' }}>Bank</Text>
+          </View>
           <TouchableOpacity activeOpacity={0.7}>
             <Feather name="settings" size={20} color="#8A7E72" />
           </TouchableOpacity>
