@@ -105,7 +105,7 @@ export function initDb(): void {
   db.runSync(`
     CREATE TABLE IF NOT EXISTS ledger_entries (
       id TEXT PRIMARY KEY,
-      student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      student_id TEXT NOT NULL REFERENCES students(id) ON DELETE RESTRICT,
       type TEXT NOT NULL CHECK (type IN ('top_up','session_deduction','adjustment','refund')),
       hours_delta REAL NOT NULL,
       balance_after REAL NOT NULL,

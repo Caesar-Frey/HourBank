@@ -1,6 +1,5 @@
 import { getDb } from './client';
 import { Student, Session } from './schema';
-import { currentBalance } from './ledger';
 
 export function createStudent(data: {
   fullName: string;
@@ -31,22 +30,38 @@ export function createStudent(data: {
 
 export function listActiveStudents(): Array<Student & { current_balance: number; next_session: Session | null }> {
   const db = getDb();
-  const students = db.getAllSync<Student>(
-    `SELECT * FROM students WHERE status = 'active' ORDER BY full_name ASC`
-  );
+  const rows = db.getAllSync<Student & { current_balance: number; next_session_json: string | null }>(`
+    SELECT
+      s.*,
+      COALESCE((
+        SELECT SUM(le.hours_delta)
+        FROM ledger_entries le
+        WHERE le.student_id = s.id
+      ), 0) AS current_balance,
+      (
+        SELECT json_object(
+          'id', se.id, 'student_id', se.student_id, 'mode', se.mode,
+          'scheduled_for', se.scheduled_for, 'estimated_duration_minutes', se.estimated_duration_minutes,
+          'started_at', se.started_at, 'ended_at', se.ended_at, 'paused_seconds', se.paused_seconds,
+          'duration_minutes', se.duration_minutes, 'topics', se.topics, 'session_notes', se.session_notes,
+          'status', se.status, 'verified_at', se.verified_at, 'created_at', se.created_at
+        )
+        FROM sessions se
+        WHERE se.student_id = s.id
+          AND se.status = 'scheduled'
+          AND se.scheduled_for >= datetime('now')
+        ORDER BY se.scheduled_for ASC
+        LIMIT 1
+      ) AS next_session_json
+    FROM students s
+    WHERE s.status = 'active'
+    ORDER BY current_balance ASC
+  `);
 
-  return students.map((student) => {
-    const balance = currentBalance(student.id);
-    const nextSession = db.getFirstSync<Session>(
-      `SELECT * FROM sessions WHERE student_id = ? AND status = 'scheduled' AND scheduled_for >= datetime('now') ORDER BY scheduled_for ASC LIMIT 1`,
-      [student.id]
-    );
-    return {
-      ...student,
-      current_balance: balance,
-      next_session: nextSession ?? null,
-    };
-  });
+  return rows.map(row => ({
+    ...row,
+    next_session: row.next_session_json ? JSON.parse(row.next_session_json) as Session : null,
+  }));
 }
 
 export function getStudent(id: string): Student | null {

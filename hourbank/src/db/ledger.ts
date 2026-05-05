@@ -19,37 +19,44 @@ export function appendEntry(entry: {
   reason?: string;
 }): LedgerEntry {
   const db = getDb();
-  const id = crypto.randomUUID();
-  const balanceAfter = currentBalance(entry.studentId) + entry.hoursDelta;
-  const now = new Date().toISOString();
+  let result: LedgerEntry | null = null;
 
-  db.runSync(
-    `INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_session_id, related_package_id, reason, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
+  db.withTransactionSync(() => {
+    const currentBal = currentBalance(entry.studentId);
+    const balanceAfter = currentBal + entry.hoursDelta;
+    const id = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+
+    db.runSync(
+      `INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_session_id, related_package_id, reason, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        entry.studentId,
+        entry.type,
+        entry.hoursDelta,
+        balanceAfter,
+        entry.relatedSessionId ?? null,
+        entry.relatedPackageId ?? null,
+        entry.reason ?? null,
+        createdAt,
+      ]
+    );
+
+    result = {
       id,
-      entry.studentId,
-      entry.type,
-      entry.hoursDelta,
-      balanceAfter,
-      entry.relatedSessionId ?? null,
-      entry.relatedPackageId ?? null,
-      entry.reason ?? null,
-      now,
-    ]
-  );
+      student_id: entry.studentId,
+      type: entry.type,
+      hours_delta: entry.hoursDelta,
+      balance_after: balanceAfter,
+      related_session_id: entry.relatedSessionId ?? null,
+      related_package_id: entry.relatedPackageId ?? null,
+      reason: entry.reason ?? null,
+      created_at: createdAt,
+    };
+  });
 
-  return {
-    id,
-    student_id: entry.studentId,
-    type: entry.type,
-    hours_delta: entry.hoursDelta,
-    balance_after: balanceAfter,
-    related_session_id: entry.relatedSessionId ?? null,
-    related_package_id: entry.relatedPackageId ?? null,
-    reason: entry.reason ?? null,
-    created_at: now,
-  };
+  return result!;
 }
 
 export function lastNEntries(studentId: string, n: number): LedgerEntry[] {

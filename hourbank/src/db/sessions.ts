@@ -63,20 +63,21 @@ export function endSession(data: {
   sessionNotes?: string;
 }): { session: Session; entry: LedgerEntry } {
   const db = getDb();
-  const topicsJson = JSON.stringify(data.topics);
-
-  let session: Session;
-  let entry: LedgerEntry;
-
-  // Get student_id before transaction
-  const existing = db.getFirstSync<Session>('SELECT * FROM sessions WHERE id = ?', [data.sessionId]);
-  if (!existing) throw new Error(`Session ${data.sessionId} not found`);
+  let session: Session | null = null;
+  let entry: LedgerEntry | null = null;
 
   db.withTransactionSync(() => {
-    db.runSync(
-      `UPDATE sessions SET ended_at = ?, duration_minutes = ?, paused_seconds = ?, topics = ?, session_notes = ?, status = 'pending_verification' WHERE id = ?`,
+    // read inside transaction
+    const existing = db.getFirstSync<Session>('SELECT * FROM sessions WHERE id = ?', [data.sessionId]);
+    if (!existing) throw new Error(`Session ${data.sessionId} not found`);
+    if (existing.status !== 'active') throw new Error(`Session ${data.sessionId} is not active (status: ${existing.status})`);
+
+    const topicsJson = JSON.stringify(data.topics);
+    const result = db.runSync(
+      `UPDATE sessions SET ended_at = ?, duration_minutes = ?, paused_seconds = ?, topics = ?, session_notes = ?, status = 'pending_verification' WHERE id = ? AND status = 'active'`,
       [data.endedAt, data.durationMinutes, data.pausedSeconds, topicsJson, data.sessionNotes ?? null, data.sessionId]
     );
+    if (result.changes === 0) throw new Error(`Failed to end session ${data.sessionId} — status may have changed`);
 
     entry = appendEntry({
       studentId: existing.student_id,
