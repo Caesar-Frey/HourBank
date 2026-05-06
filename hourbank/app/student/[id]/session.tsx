@@ -235,8 +235,8 @@ export default function SessionScreen() {
                 borderRadius: 98,
                 borderWidth: 0.5,
                 borderColor: PAPER_12,
+                pointerEvents: 'none',
               }}
-              pointerEvents="none"
             />
 
             {/* ELAPSED label */}

@@ -156,10 +156,10 @@ export default function StudentLedgerScreen() {
         >
           {/* Inner inset ring */}
           <View
-            pointerEvents="none"
             style={{
               position: 'absolute',
               top: 12,
+              pointerEvents: 'none',
               left: 12,
               right: 12,
               bottom: 12,
