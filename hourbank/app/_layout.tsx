@@ -1,10 +1,11 @@
 import '../src/global.css';
 import { useEffect } from 'react';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import { Stack, useRouter, usePathname } from 'expo-router';
 import { initDb } from '../src/db/schema';
-import { getActiveSession } from '../src/db/sessions';
+import { getActiveSession, autoVerifySweep } from '../src/db/sessions';
 import { getDb } from '../src/db/client';
+import { VERIFICATION_WINDOW_HOURS } from '../src/config';
 import {
   useFonts,
   Fraunces_300Light_Italic,
@@ -19,6 +20,15 @@ import {
   GeistMono_500Medium,
 } from '@expo-google-fonts/geist-mono';
 
+function runAutoVerify() {
+  try {
+    const count = autoVerifySweep(VERIFICATION_WINDOW_HOURS);
+    if (count > 0) console.log(`[AutoVerify] Verified ${count} session(s)`);
+  } catch (e) {
+    console.error('[AutoVerify] error', e);
+  }
+}
+
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Fraunces_300Light_Italic,
@@ -32,9 +42,7 @@ export default function RootLayout() {
   const router = useRouter();
   const pathname = usePathname();
 
-  useEffect(() => {
-    initDb();
-
+  function checkOrphanSession() {
     // Orphan session recovery — only when not already on the session screen
     if (pathname.includes('/session')) return;
 
@@ -74,6 +82,24 @@ export default function RootLayout() {
     } catch (e) {
       console.error('orphan session check error', e);
     }
+  }
+
+  useEffect(() => {
+    initDb();
+
+    // Run auto-verify on launch
+    runAutoVerify();
+
+    // Check for orphan session on launch
+    checkOrphanSession();
+
+    // AppState listener: run auto-verify when app returns to foreground
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        runAutoVerify();
+      }
+    });
+    return () => sub.remove();
   }, []);
 
   if (!fontsLoaded) return null;

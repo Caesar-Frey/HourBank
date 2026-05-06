@@ -100,10 +100,10 @@ export function listUpcoming(studentId: string): Session[] {
   );
 }
 
-export function listAllUpcoming(): Array<Session & { student_full_name: string }> {
+export function listAllUpcoming(): Array<Session & { student_full_name: string; student_subject: string }> {
   const db = getDb();
-  return db.getAllSync<Session & { student_full_name: string }>(
-    `SELECT sessions.*, students.full_name AS student_full_name
+  return db.getAllSync<Session & { student_full_name: string; student_subject: string }>(
+    `SELECT sessions.*, students.full_name AS student_full_name, students.subject AS student_subject
      FROM sessions JOIN students ON sessions.student_id = students.id
      WHERE sessions.status = 'scheduled' AND sessions.scheduled_for >= datetime('now')
      ORDER BY sessions.scheduled_for ASC`
