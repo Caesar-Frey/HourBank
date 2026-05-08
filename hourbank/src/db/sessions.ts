@@ -46,6 +46,35 @@ export function createScheduled(data: {
   };
 }
 
+export function createUnscheduled(studentId: string, mode: Session['mode']): Session {
+  const db = getDb();
+  const id = newId();
+  const now = new Date().toISOString();
+
+  db.runSync(
+    `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, status, created_at)
+     VALUES (?, ?, ?, NULL, NULL, ?, NULL, 'scheduled', ?)`,
+    [id, studentId, mode, '[]', now]
+  );
+
+  return {
+    id,
+    student_id: studentId,
+    mode,
+    scheduled_for: null,
+    estimated_duration_minutes: null,
+    started_at: null,
+    ended_at: null,
+    paused_seconds: 0,
+    duration_minutes: null,
+    topics: '[]',
+    session_notes: null,
+    status: 'scheduled',
+    verified_at: null,
+    created_at: now,
+  };
+}
+
 export function startSession(sessionId: string): Session {
   const db = getDb();
   const now = new Date().toISOString();
