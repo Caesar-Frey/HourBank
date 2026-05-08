@@ -1,6 +1,7 @@
 import React from 'react';
 import { TouchableOpacity, Text } from 'react-native';
 import { F } from '../theme/fonts';
+import { COLORS } from '../theme/colors';
 
 interface TopicChipProps {
   label: string;
@@ -16,9 +17,9 @@ export function TopicChip({ label, selected, onPress, dark = false }: TopicChipP
       : 'border border-paper/30 rounded-full px-3 py-1.5'
     : selected
     ? 'border border-ink rounded-full px-3 py-1.5 bg-ink'
-    : 'border border-paperEdge rounded-full px-3 py-1.5 bg-white/40';
+    : 'border border-inkFaint rounded-full px-3 py-1.5';
 
-  const textColor = dark ? '#F4EFE6' : selected ? '#F4EFE6' : '#1B1714';
+  const textColor = dark ? COLORS.paper : selected ? COLORS.paper : COLORS.inkFaint;
 
   return (
     <TouchableOpacity className={containerStyle} onPress={onPress} activeOpacity={0.75}>

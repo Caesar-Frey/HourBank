@@ -349,7 +349,7 @@ export default function EndSessionScreen() {
                 onPress={() => setAddingTopic(true)}
                 style={{
                   borderWidth: 1,
-                  borderColor: PAPER_EDGE,
+                  borderColor: INK_FAINT,
                   borderStyle: 'dashed',
                   borderRadius: 999,
                   paddingHorizontal: 12,
