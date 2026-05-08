@@ -1,5 +1,6 @@
 import { getDb } from './client';
 import { LedgerEntry } from './schema';
+import { newId } from './uuid';
 
 export function currentBalance(studentId: string): number {
   const db = getDb();
@@ -10,52 +11,57 @@ export function currentBalance(studentId: string): number {
   return row?.balance ?? 0;
 }
 
-export function appendEntry(entry: {
+type AppendEntryInput = {
   studentId: string;
   type: LedgerEntry['type'];
   hoursDelta: number;
   relatedSessionId?: string;
   relatedPackageId?: string;
   reason?: string;
-}): LedgerEntry {
+};
+
+// Use this inside an existing withTransactionSync block to avoid nesting.
+export function appendEntryInTx(entry: AppendEntryInput): LedgerEntry {
   const db = getDb();
-  let result: LedgerEntry | null = null;
+  const currentBal = currentBalance(entry.studentId);
+  const balanceAfter = currentBal + entry.hoursDelta;
+  const id = newId();
+  const createdAt = new Date().toISOString();
 
-  db.withTransactionSync(() => {
-    const currentBal = currentBalance(entry.studentId);
-    const balanceAfter = currentBal + entry.hoursDelta;
-    const id = crypto.randomUUID();
-    const createdAt = new Date().toISOString();
-
-    db.runSync(
-      `INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_session_id, related_package_id, reason, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        entry.studentId,
-        entry.type,
-        entry.hoursDelta,
-        balanceAfter,
-        entry.relatedSessionId ?? null,
-        entry.relatedPackageId ?? null,
-        entry.reason ?? null,
-        createdAt,
-      ]
-    );
-
-    result = {
+  db.runSync(
+    `INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_session_id, related_package_id, reason, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
       id,
-      student_id: entry.studentId,
-      type: entry.type,
-      hours_delta: entry.hoursDelta,
-      balance_after: balanceAfter,
-      related_session_id: entry.relatedSessionId ?? null,
-      related_package_id: entry.relatedPackageId ?? null,
-      reason: entry.reason ?? null,
-      created_at: createdAt,
-    };
-  });
+      entry.studentId,
+      entry.type,
+      entry.hoursDelta,
+      balanceAfter,
+      entry.relatedSessionId ?? null,
+      entry.relatedPackageId ?? null,
+      entry.reason ?? null,
+      createdAt,
+    ]
+  );
 
+  return {
+    id,
+    student_id: entry.studentId,
+    type: entry.type,
+    hours_delta: entry.hoursDelta,
+    balance_after: balanceAfter,
+    related_session_id: entry.relatedSessionId ?? null,
+    related_package_id: entry.relatedPackageId ?? null,
+    reason: entry.reason ?? null,
+    created_at: createdAt,
+  };
+}
+
+export function appendEntry(entry: AppendEntryInput): LedgerEntry {
+  let result: LedgerEntry | null = null;
+  getDb().withTransactionSync(() => {
+    result = appendEntryInTx(entry);
+  });
   return result!;
 }
 

@@ -8,13 +8,14 @@ import {
   Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { F } from '../../../src/theme/fonts';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
 import { TopicChip } from '../../../src/components/TopicChip';
 import { getStudent } from '../../../src/db/students';
 import { currentBalance } from '../../../src/db/ledger';
-import { createScheduled } from '../../../src/db/sessions';
+import { createScheduled, updateScheduled, listUpcoming } from '../../../src/db/sessions';
 import { formatHours } from '../../../src/utils/format';
 import { DEFAULT_TOPICS } from '../../../src/config';
 import { Student } from '../../../src/db/schema';
@@ -23,7 +24,8 @@ const DURATIONS = [0.5, 1, 1.5, 2] as const;
 type Mode = 'in_person' | 'online';
 
 export default function ScheduleScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, sessionId } = useLocalSearchParams<{ id: string; sessionId?: string }>();
+  const isReschedule = !!sessionId;
   const router = useRouter();
 
   // Data
@@ -50,6 +52,22 @@ export default function ScheduleScreen() {
       setStudent(s);
       if (s) {
         setBalance(currentBalance(id));
+      }
+      if (isReschedule && sessionId) {
+        const upcoming = listUpcoming(id);
+        const existing = upcoming.find(sess => sess.id === sessionId);
+        if (existing) {
+          if (existing.scheduled_for) setDate(new Date(existing.scheduled_for));
+          if (existing.estimated_duration_minutes) {
+            setDuration(existing.estimated_duration_minutes / 60);
+          }
+          setMode(existing.mode);
+          try {
+            const parsed: string[] = JSON.parse(existing.topics);
+            if (Array.isArray(parsed)) setSelectedTopics(parsed);
+          } catch { /* ignore */ }
+          setNotes(existing.session_notes ?? '');
+        }
       }
     } catch (e) {
       console.error('Failed to load student', e);
@@ -91,14 +109,24 @@ export default function ScheduleScreen() {
 
   function handleConfirm() {
     try {
-      createScheduled({
-        studentId: id,
-        scheduledFor: date.toISOString(),
-        estimatedDurationMinutes: duration * 60,
-        mode,
-        topics: selectedTopics,
-        notes: notes.trim() || undefined,
-      });
+      if (isReschedule && sessionId) {
+        updateScheduled(sessionId, {
+          scheduledFor: date.toISOString(),
+          estimatedDurationMinutes: duration * 60,
+          mode,
+          topics: selectedTopics,
+          notes: notes.trim() || undefined,
+        });
+      } else {
+        createScheduled({
+          studentId: id,
+          scheduledFor: date.toISOString(),
+          estimatedDurationMinutes: duration * 60,
+          mode,
+          topics: selectedTopics,
+          notes: notes.trim() || undefined,
+        });
+      }
       router.back();
     } catch (_e) {
       Alert.alert('Error', 'Could not schedule lesson. Please try again.');
@@ -166,7 +194,7 @@ export default function ScheduleScreen() {
   };
 
   return (
-    <View className="flex-1 bg-paper">
+    <SafeAreaView className="flex-1 bg-paper" edges={['top']}>
       <ScreenHeader backLabel={firstName.toUpperCase()} onBack={() => router.back()} />
 
       <ScrollView
@@ -187,13 +215,13 @@ export default function ScheduleScreen() {
               marginBottom: 8,
             }}
           >
-            ★ SCHEDULE LESSON
+            {isReschedule ? '↺ RESCHEDULE LESSON' : '★ SCHEDULE LESSON'}
           </Text>
           <Text style={{ fontFamily: F.serif, fontSize: 28, color: '#1B1714', lineHeight: 32 }}>
-            When are
+            {isReschedule ? 'New time,' : 'When are'}
           </Text>
           <Text style={{ fontFamily: F.serifItalic, fontSize: 28, color: '#7A2530', lineHeight: 34 }}>
-            you meeting?
+            {isReschedule ? 'same student.' : 'you meeting?'}
           </Text>
         </View>
 
@@ -380,10 +408,10 @@ export default function ScheduleScreen() {
           }}
         >
           <Text style={{ fontFamily: F.sansMed, fontSize: 16, color: '#F4EFE6' }}>
-            Confirm lesson ▸
+            {isReschedule ? 'Reschedule ▸' : 'Confirm lesson ▸'}
           </Text>
         </TouchableOpacity>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }

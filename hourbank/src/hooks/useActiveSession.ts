@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getDb } from '../db/client';
 import { Session } from '../db/schema';
 
-export function useActiveSession(sessionId: string, initialBalance: number) {
+export function useActiveSession(sessionId: string, initialBalance: number, triggerKey = 0) {
   const [session, setSession] = useState<Session | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
@@ -22,7 +22,7 @@ export function useActiveSession(sessionId: string, initialBalance: number) {
     } catch (e) {
       console.error('useActiveSession load error', e);
     }
-  }, [sessionId]);
+  }, [sessionId, triggerKey]);
 
   // Timer tick
   useEffect(() => {

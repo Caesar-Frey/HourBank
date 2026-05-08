@@ -24,16 +24,14 @@ jest.mock('expo-sqlite', () => {
 
       runSync(sql, params) {
         const stmt = bsDb.prepare(sql);
-        const info = params !== undefined
-          ? stmt.run(...(Array.isArray(params) ? params : [params]))
-          : stmt.run();
+        const info = params !== undefined ? stmt.run(...params) : stmt.run();
         return { changes: info.changes };
       },
 
       getAllSync(sql, params) {
         const stmt = bsDb.prepare(sql);
         if (params !== undefined) {
-          return stmt.all(...(Array.isArray(params) ? params : [params]));
+          return stmt.all(...params);
         }
         return stmt.all();
       },
@@ -41,7 +39,7 @@ jest.mock('expo-sqlite', () => {
       getFirstSync(sql, params) {
         const stmt = bsDb.prepare(sql);
         if (params !== undefined) {
-          return stmt.get(...(Array.isArray(params) ? params : [params])) ?? null;
+          return stmt.get(...params) ?? null;
         }
         return stmt.get() ?? null;
       },

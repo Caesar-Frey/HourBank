@@ -22,6 +22,9 @@ export type { TestDb } from './wrapBetterSqlite';
  * Each call returns an independent isolated database.
  *
  * Uses initDb() from schema.ts directly — no manual SQL duplication.
+ *
+ * Also wires the getDb() singleton — no need to call mockGetDb() in beforeEach
+ * unless re-wiring mid-test.
  */
 export function createTestDb() {
   const bsDb = new BetterSQLite(':memory:');

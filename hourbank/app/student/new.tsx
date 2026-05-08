@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,18 +6,20 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  SafeAreaView,
-  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { F } from '../../src/theme/fonts';
+import { SHOW_ALL_GRADES_KEY } from '../(app)/profile';
 import { ScreenHeader } from '../../src/components/ScreenHeader';
 import { createStudent } from '../../src/db/students';
 import { SUBJECT_SUGGESTIONS } from '../../src/config';
 import { Student } from '../../src/db/schema';
 
 const CURRICULA: Student['curriculum'][] = ['CAPS', 'IEB', 'Cambridge', 'Other'];
-const GRADES = Array.from({ length: 12 }, (_, i) => i + 1);
+const ALL_GRADES = Array.from({ length: 12 }, (_, i) => i + 1);
+const HS_GRADES = [8, 9, 10, 11, 12];
 
 const LABEL_STYLE = {
   fontFamily: F.mono,
@@ -43,6 +45,15 @@ export default function NewStudentScreen() {
   const [subject, setSubject] = useState('');
   const [showSubjectSuggestions, setShowSubjectSuggestions] = useState(false);
   const [curriculum, setCurriculum] = useState<Student['curriculum']>('CAPS');
+  const [showAllGrades, setShowAllGrades] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(SHOW_ALL_GRADES_KEY).then(v => {
+      setShowAllGrades(v === 'true');
+    });
+  }, []);
+
+  const grades = showAllGrades ? ALL_GRADES : HS_GRADES;
 
   function handleSubmit() {
     if (!fullName.trim()) {
@@ -76,7 +87,7 @@ export default function NewStudentScreen() {
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F4EFE6' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F4EFE6' }} edges={['top']}>
       <ScreenHeader
         backLabel="ROSTER"
         onBack={() => router.back()}
@@ -120,7 +131,7 @@ export default function NewStudentScreen() {
           style={{ marginBottom: 24 }}
           contentContainerStyle={{ gap: 8 }}
         >
-          {GRADES.map(g => (
+          {grades.map(g => (
             <TouchableOpacity
               key={g}
               onPress={() => setGrade(g)}

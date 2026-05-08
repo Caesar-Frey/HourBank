@@ -19,7 +19,6 @@ describe('test harness smoke test', () => {
 
   beforeEach(() => {
     db = createTestDb();
-    mockGetDb(db);
   });
 
   afterEach(() => {

@@ -1,7 +1,8 @@
 import { getDb } from './client';
 import { Session } from './schema';
 import { LedgerEntry } from './schema';
-import { appendEntry } from './ledger';
+import { appendEntryInTx } from './ledger';
+import { newId } from './uuid';
 
 export function createScheduled(data: {
   studentId: string;
@@ -12,7 +13,7 @@ export function createScheduled(data: {
   notes?: string;
 }): Session {
   const db = getDb();
-  const id = crypto.randomUUID();
+  const id = newId();
   const now = new Date().toISOString();
   const topicsJson = JSON.stringify(data.topics ?? []);
 
@@ -79,7 +80,7 @@ export function endSession(data: {
     );
     if (result.changes === 0) throw new Error(`Failed to end session ${data.sessionId} — status may have changed`);
 
-    entry = appendEntry({
+    entry = appendEntryInTx({
       studentId: existing.student_id,
       type: 'session_deduction',
       hoursDelta: -(data.durationMinutes / 60),
@@ -90,6 +91,29 @@ export function endSession(data: {
   });
 
   return { session: session!, entry: entry! };
+}
+
+export function cancelSession(sessionId: string): void {
+  getDb().runSync(
+    `UPDATE sessions SET status = 'cancelled' WHERE id = ?`,
+    [sessionId]
+  );
+}
+
+export function updateScheduled(
+  sessionId: string,
+  data: {
+    scheduledFor: string;
+    estimatedDurationMinutes: number;
+    mode: Session['mode'];
+    topics: string[];
+    notes?: string;
+  }
+): void {
+  getDb().runSync(
+    `UPDATE sessions SET scheduled_for = ?, estimated_duration_minutes = ?, mode = ?, topics = ?, session_notes = ? WHERE id = ? AND status = 'scheduled'`,
+    [data.scheduledFor, data.estimatedDurationMinutes, data.mode, JSON.stringify(data.topics), data.notes ?? null, sessionId]
+  );
 }
 
 export function listUpcoming(studentId: string): Session[] {

@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { F } from '../../../src/theme/fonts';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
@@ -125,7 +126,7 @@ export default function TopUpScreen() {
   const firstName = student?.full_name?.split(' ')[0] ?? 'BACK';
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F4EFE6' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F4EFE6' }} edges={['top']}>
       <ScreenHeader
         backLabel={firstName.toUpperCase()}
         onBack={() => router.back()}
@@ -338,6 +339,6 @@ export default function TopUpScreen() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }

@@ -1,6 +1,7 @@
 import { getDb } from './client';
 import { CreditPackage, LedgerEntry } from './schema';
-import { appendEntry } from './ledger';
+import { appendEntryInTx } from './ledger';
+import { newId } from './uuid';
 
 export function createPackage(data: {
   studentId: string;
@@ -12,7 +13,7 @@ export function createPackage(data: {
   notes?: string;
 }): { pkg: CreditPackage; entry: LedgerEntry } {
   const db = getDb();
-  const id = crypto.randomUUID();
+  const id = newId();
   const now = new Date().toISOString();
 
   let pkg: CreditPackage;
@@ -47,7 +48,7 @@ export function createPackage(data: {
       created_at: now,
     };
 
-    entry = appendEntry({
+    entry = appendEntryInTx({
       studentId: data.studentId,
       type: 'top_up',
       hoursDelta: data.hoursAdded,

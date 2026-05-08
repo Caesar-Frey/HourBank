@@ -1,9 +1,9 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Alert, SafeAreaView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { F } from '../../src/theme/fonts';
 import { useUpcomingSessions } from '../../src/hooks/useUpcomingSessions';
-import { startSession } from '../../src/db/sessions';
 import { formatScheduledTime } from '../../src/utils/format';
 
 export default function SessionsScreen() {
@@ -16,17 +16,12 @@ export default function SessionsScreen() {
     year: 'numeric',
   });
 
-  const handleStart = (session: (typeof sessions)[number]) => {
-    try {
-      startSession(session.id);
-      router.push(`/student/${session.student_id}/session?sessionId=${session.id}`);
-    } catch (e) {
-      Alert.alert('Error', 'Could not start session.');
-    }
+  const handleOpen = (session: (typeof sessions)[number]) => {
+    router.push(`/student/${session.student_id}/session?sessionId=${session.id}`);
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F4EFE6' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F4EFE6' }} edges={['top']}>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 40 }}>
         {/* Heading */}
         <Text
@@ -71,7 +66,7 @@ export default function SessionsScreen() {
         {sessions.map((session) => (
           <TouchableOpacity
             key={session.id}
-            onPress={() => handleStart(session)}
+            onPress={() => handleOpen(session)}
             style={{
               borderBottomWidth: 1,
               borderBottomColor: '#E8E0D5',

@@ -6,8 +6,8 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
@@ -108,7 +108,7 @@ export default function HomeScreen() {
   const activeCount = students.length;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F4EFE6' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F4EFE6' }} edges={['top']}>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 }}

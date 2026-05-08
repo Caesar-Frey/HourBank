@@ -5,15 +5,16 @@ import {
   ScrollView,
   TouchableOpacity,
   Pressable,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { F } from '../../../src/theme/fonts';
 import { useStudent } from '../../../src/hooks/useStudent';
 import { LedgerRow } from '../../../src/components/LedgerRow';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
 import { formatHoursDisplay, formatScheduledTime } from '../../../src/utils/format';
-import { startSession } from '../../../src/db/sessions';
 import { Session } from '../../../src/db/schema';
 import { LedgerEntry } from '../../../src/db/schema';
 
@@ -65,8 +66,7 @@ export default function StudentLedgerScreen() {
   const firstName = nameParts.slice(0, -1).join(' ') || nameParts[0];
   const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
 
-  function handleStartSession(session: Session) {
-    startSession(session.id);
+  function handleOpenSession(session: Session) {
     router.push(`/student/${id}/session?sessionId=${session.id}`);
   }
 
@@ -91,12 +91,29 @@ export default function StudentLedgerScreen() {
   }
 
   return (
-    <View className="flex-1 bg-paper">
+    <SafeAreaView className="flex-1 bg-paper" edges={['top']}>
       <ScreenHeader
         backLabel="ROSTER"
         onBack={() => router.back()}
         rightElement={
-          <Feather name="more-horizontal" size={20} color="#4A413A" />
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              Alert.alert(
+                student.full_name,
+                undefined,
+                [
+                  {
+                    text: 'Edit details',
+                    onPress: () => router.push(`/student/${id}/edit`),
+                  },
+                  { text: 'Cancel', style: 'cancel' },
+                ]
+              );
+            }}
+          >
+            <Feather name="more-horizontal" size={20} color="#4A413A" />
+          </TouchableOpacity>
         }
       />
 
@@ -156,10 +173,10 @@ export default function StudentLedgerScreen() {
         >
           {/* Inner inset ring */}
           <View
+            pointerEvents="none"
             style={{
               position: 'absolute',
               top: 12,
-              pointerEvents: 'none',
               left: 12,
               right: 12,
               bottom: 12,
@@ -329,7 +346,7 @@ export default function StudentLedgerScreen() {
               {upcoming.map(session => (
                 <TouchableOpacity
                   key={session.id}
-                  onPress={() => handleStartSession(session)}
+                  onPress={() => handleOpenSession(session)}
                   activeOpacity={0.7}
                 >
                   <View
@@ -418,6 +435,6 @@ export default function StudentLedgerScreen() {
           )}
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }

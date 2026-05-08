@@ -8,18 +8,19 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getDb } from '../../../src/db/client';
 import { getStudent } from '../../../src/db/students';
 import { currentBalance } from '../../../src/db/ledger';
+import { startSession, cancelSession } from '../../../src/db/sessions';
 import { DEFAULT_TOPICS } from '../../../src/config';
 import { TopicChip } from '../../../src/components/TopicChip';
 import { F } from '../../../src/theme/fonts';
-import { formatDuration, formatHours } from '../../../src/utils/format';
+import { formatDuration, formatHours, formatScheduledTime } from '../../../src/utils/format';
 import { useActiveSession } from '../../../src/hooks/useActiveSession';
-import { Student } from '../../../src/db/schema';
+import { Session, Student } from '../../../src/db/schema';
 
 const PAPER = '#F4EFE6';
 const OXBLOOD = '#7A2530';
@@ -33,6 +34,9 @@ export default function SessionScreen() {
   const { id, sessionId } = useLocalSearchParams<{ id: string; sessionId: string }>();
   const router = useRouter();
 
+  const [sessionStatus, setSessionStatus] = useState<Session['status'] | null>(null);
+  const [scheduledFor, setScheduledFor] = useState<string | null>(null);
+  const [estimatedMinutes, setEstimatedMinutes] = useState<number | null>(null);
   const [mode, setMode] = useState<'in_person' | 'online'>('in_person');
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [addingTopic, setAddingTopic] = useState(false);
@@ -41,18 +45,15 @@ export default function SessionScreen() {
   const [balance, setBalance] = useState(0);
   const [sessionCount, setSessionCount] = useState(1);
   const [availableTopics, setAvailableTopics] = useState<string[]>([]);
+  const [timerKey, setTimerKey] = useState(0);
 
-  // Load student, balance, session count, and initial topics on mount
   useEffect(() => {
     try {
       const s = getStudent(id);
       if (!s) return;
       setStudent(s);
+      setBalance(currentBalance(id));
 
-      const bal = currentBalance(id);
-      setBalance(bal);
-
-      // Session count (completed + pending, +1 for current)
       const db = getDb();
       const row = db.getFirstSync<{ count: number }>(
         `SELECT COUNT(*) AS count FROM sessions WHERE student_id = ? AND status IN ('verified','pending_verification')`,
@@ -60,32 +61,36 @@ export default function SessionScreen() {
       );
       setSessionCount((row?.count ?? 0) + 1);
 
-      // Available topics from DEFAULT_TOPICS for this subject
       const topics = DEFAULT_TOPICS[s.subject] ?? [];
       setAvailableTopics(topics);
 
-      // Load pre-selected topics and mode from the session record
-      const sessionRow = db.getFirstSync<{ topics: string; mode: string }>(
-        'SELECT topics, mode FROM sessions WHERE id = ?',
+      const sessionRow = db.getFirstSync<{
+        topics: string;
+        mode: string;
+        status: Session['status'];
+        scheduled_for: string | null;
+        estimated_duration_minutes: number | null;
+      }>(
+        'SELECT topics, mode, status, scheduled_for, estimated_duration_minutes FROM sessions WHERE id = ?',
         [sessionId]
       );
       if (sessionRow) {
+        setSessionStatus(sessionRow.status);
+        setScheduledFor(sessionRow.scheduled_for);
+        setEstimatedMinutes(sessionRow.estimated_duration_minutes);
+        if (sessionRow.mode === 'online' || sessionRow.mode === 'in_person') {
+          setMode(sessionRow.mode as 'in_person' | 'online');
+        }
         try {
           const prePicked: string[] = JSON.parse(sessionRow.topics);
           if (Array.isArray(prePicked) && prePicked.length > 0) {
             setSelectedTopics(prePicked);
-            // Merge any pre-picked topics not in the default list
             setAvailableTopics(prev => {
               const extras = prePicked.filter(t => !prev.includes(t));
               return extras.length > 0 ? [...prev, ...extras] : prev;
             });
           }
-        } catch {
-          // ignore malformed JSON
-        }
-        if (sessionRow.mode === 'online' || sessionRow.mode === 'in_person') {
-          setMode(sessionRow.mode as 'in_person' | 'online');
-        }
+        } catch { /* ignore */ }
       }
     } catch (e) {
       console.error('SessionScreen mount error', e);
@@ -93,9 +98,45 @@ export default function SessionScreen() {
   }, [id, sessionId]);
 
   const { elapsedSeconds, isPaused, pause, resume, remainingHours, totalPausedSeconds } =
-    useActiveSession(sessionId, balance);
+    useActiveSession(sessionId, balance, timerKey);
 
-  const handleCancel = () => {
+  function handleStartSession() {
+    try {
+      startSession(sessionId);
+      setSessionStatus('active');
+      setTimerKey(k => k + 1);
+    } catch (e) {
+      Alert.alert('Error', 'Could not start session. Please try again.');
+    }
+  }
+
+  function handleCancelScheduled() {
+    Alert.alert(
+      'Cancel session?',
+      'The scheduled session will be removed.',
+      [
+        { text: 'Keep it', style: 'cancel' },
+        {
+          text: 'Cancel session',
+          style: 'destructive',
+          onPress: () => {
+            try {
+              cancelSession(sessionId);
+            } catch (e) {
+              console.error(e);
+            }
+            router.back();
+          },
+        },
+      ]
+    );
+  }
+
+  function handleReschedule() {
+    router.replace(`/student/${id}/schedule?sessionId=${sessionId}`);
+  }
+
+  function handleCancelActive() {
     Alert.alert('Cancel session?', 'This session will be discarded.', [
       { text: 'Keep going', style: 'cancel' },
       {
@@ -115,9 +156,9 @@ export default function SessionScreen() {
         },
       },
     ]);
-  };
+  }
 
-  const handleEndSession = () => {
+  function handleEndSession() {
     if (selectedTopics.length < 1) {
       Alert.alert('Select a topic', 'Select at least one topic before ending the session.');
       return;
@@ -126,29 +167,106 @@ export default function SessionScreen() {
     router.push(
       `/student/${id}/end-session?sessionId=${sessionId}&elapsedSeconds=${elapsedSeconds}&pausedSeconds=${totalPausedSeconds}&mode=${mode}&topics=${topicsParam}`
     );
-  };
+  }
 
-  const toggleTopic = (topic: string) => {
+  function toggleTopic(topic: string) {
     setSelectedTopics(prev =>
       prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
     );
-  };
+  }
 
-  const submitCustomTopic = () => {
+  function submitCustomTopic() {
     const trimmed = customTopic.trim();
-    if (!trimmed) {
-      setAddingTopic(false);
-      setCustomTopic('');
-      return;
-    }
+    if (!trimmed) { setAddingTopic(false); setCustomTopic(''); return; }
     if (!availableTopics.includes(trimmed)) {
       setAvailableTopics(prev => [...prev, trimmed]);
     }
     setSelectedTopics(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
     setCustomTopic('');
     setAddingTopic(false);
-  };
+  }
 
+  // Loading state
+  if (sessionStatus === null) {
+    return <View style={{ flex: 1, backgroundColor: BG }} />;
+  }
+
+  // Pre-start view for scheduled sessions
+  if (sessionStatus === 'scheduled') {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: BG }} edges={['top']}>
+        <View style={{ flex: 1 }}>
+          {/* Top bar */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 }}>
+            <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 13, color: PAPER, letterSpacing: 0.5 }}>← BACK</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleCancelScheduled} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 13, color: '#9A2A2A', letterSpacing: 0.5 }}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Student name */}
+          <View style={{ alignItems: 'center', paddingTop: 24, paddingBottom: 12, paddingHorizontal: 24 }}>
+            <Text style={{ fontFamily: F.serif, fontSize: 26, color: PAPER }}>{student?.full_name ?? ''}</Text>
+            <Text style={{ fontFamily: F.mono, fontSize: 11, color: PAPER_60, letterSpacing: 1, marginTop: 6 }}>
+              {student ? `GR ${student.grade} ${student.subject.toUpperCase()}` : ''}
+            </Text>
+          </View>
+
+          {/* Session details card */}
+          <View style={{ marginHorizontal: 24, borderWidth: 1, borderColor: PAPER_20, borderRadius: 16, padding: 20, marginBottom: 32 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 10, color: PAPER_60, letterSpacing: 1.5, marginBottom: 16 }}>SCHEDULED SESSION</Text>
+            <View style={{ gap: 10 }}>
+              {scheduledFor && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>WHEN</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER, flex: 1 }}>{formatScheduledTime(scheduledFor)}</Text>
+                </View>
+              )}
+              {estimatedMinutes && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>DURATION</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER }}>{formatHours(estimatedMinutes / 60)}</Text>
+                </View>
+              )}
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>MODE</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER }}>{mode === 'in_person' ? '📍 In-Person' : '💻 Online'}</Text>
+              </View>
+              {selectedTopics.length > 0 && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>TOPICS</Text>
+                  <Text style={{ fontFamily: F.sans, fontSize: 12, color: PAPER, flex: 1 }}>{selectedTopics.join(', ')}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Action buttons */}
+          <View style={{ paddingHorizontal: 24, gap: 12 }}>
+            <TouchableOpacity
+              onPress={handleStartSession}
+              style={{ backgroundColor: OXBLOOD, borderRadius: 16, paddingVertical: 18, alignItems: 'center' }}
+              activeOpacity={0.85}
+            >
+              <Text style={{ fontFamily: F.mono, fontSize: 15, color: PAPER }}>▶ Start session</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleReschedule}
+              style={{ borderWidth: 1, borderColor: PAPER_40, borderRadius: 16, paddingVertical: 14, alignItems: 'center' }}
+              activeOpacity={0.75}
+            >
+              <Text style={{ fontFamily: F.mono, fontSize: 13, color: PAPER }}>↺ Reschedule</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Active timer view
   const parts = formatDuration(elapsedSeconds).split(':');
 
   return (
@@ -156,249 +274,238 @@ export default function SessionScreen() {
       style={{ flex: 1, backgroundColor: BG }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <StatusBar barStyle="light-content" />
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 40 }}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Top bar: cancel + mode toggle */}
-        <View
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            paddingHorizontal: 24,
-            paddingTop: 60,
-            paddingBottom: 8,
-          }}
+      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          keyboardShouldPersistTaps="handled"
         >
-          <TouchableOpacity
-            onPress={handleCancel}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Text style={{ fontFamily: F.mono, fontSize: 13, color: PAPER, letterSpacing: 0.5 }}>
-              × CANCEL
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setMode(m => (m === 'in_person' ? 'online' : 'in_person'))}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER }}>
-              {mode === 'in_person' ? '📍 IN-PERSON' : '💻 ONLINE'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Student name + session label */}
-        <View style={{ alignItems: 'center', paddingTop: 16, paddingBottom: 28 }}>
-          <Text style={{ fontFamily: F.serif, fontSize: 26, color: PAPER }}>
-            {student?.full_name ?? ''}
-          </Text>
-          <Text
-            style={{
-              fontFamily: F.mono,
-              fontSize: 11,
-              color: PAPER_60,
-              letterSpacing: 1,
-              marginTop: 6,
-            }}
-          >
-            {student
-              ? `GR ${student.grade} ${student.subject.toUpperCase()} · SESSION ${sessionCount}`
-              : ''}
-          </Text>
-        </View>
-
-        {/* Timer circle */}
-        <View style={{ alignItems: 'center', marginBottom: 36 }}>
+          {/* Top bar: cancel + mode toggle */}
           <View
             style={{
-              width: 220,
-              height: 220,
-              borderRadius: 110,
-              borderWidth: 1,
-              borderColor: PAPER_20,
+              flexDirection: 'row',
+              justifyContent: 'space-between',
               alignItems: 'center',
-              justifyContent: 'center',
+              paddingHorizontal: 24,
+              paddingTop: 16,
+              paddingBottom: 8,
             }}
           >
-            {/* Inner ring */}
-            <View
-              style={{
-                position: 'absolute',
-                top: 12,
-                left: 12,
-                right: 12,
-                bottom: 12,
-                borderRadius: 98,
-                borderWidth: 0.5,
-                borderColor: PAPER_12,
-                pointerEvents: 'none',
-              }}
-            />
-
-            {/* ELAPSED label */}
-            <Text
-              style={{
-                fontFamily: F.mono,
-                fontSize: 10,
-                color: PAPER_60,
-                letterSpacing: 2,
-                marginBottom: 8,
-              }}
+            <TouchableOpacity
+              onPress={handleCancelActive}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             >
-              ELAPSED
+              <Text style={{ fontFamily: F.mono, fontSize: 13, color: PAPER, letterSpacing: 0.5 }}>
+                × CANCEL
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setMode(m => (m === 'in_person' ? 'online' : 'in_person'))}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER }}>
+                {mode === 'in_person' ? '📍 IN-PERSON' : '💻 ONLINE'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Student name + session label */}
+          <View style={{ alignItems: 'center', paddingTop: 16, paddingBottom: 28 }}>
+            <Text style={{ fontFamily: F.serif, fontSize: 26, color: PAPER }}>
+              {student?.full_name ?? ''}
             </Text>
-
-            {/* Timer digits: HH:MM in paper, :SS in oxblood */}
-            <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-              <Text
-                style={{
-                  fontFamily: F.mono,
-                  fontSize: 40,
-                  color: PAPER,
-                  includeFontPadding: false,
-                }}
-              >
-                {parts[0]}:{parts[1]}:
-              </Text>
-              <Text
-                style={{
-                  fontFamily: F.mono,
-                  fontSize: 40,
-                  color: OXBLOOD,
-                  includeFontPadding: false,
-                }}
-              >
-                {parts[2]}
-              </Text>
-            </View>
-
-            {/* LIVE / PAUSED indicator */}
             <Text
               style={{
                 fontFamily: F.mono,
                 fontSize: 11,
                 color: PAPER_60,
                 letterSpacing: 1,
-                marginTop: 10,
+                marginTop: 6,
               }}
             >
-              {isPaused
-                ? '⏸ PAUSED'
-                : `· LIVE · ${formatHours(remainingHours).toUpperCase()} REMAINING`}
+              {student
+                ? `GR ${student.grade} ${student.subject.toUpperCase()} · SESSION ${sessionCount}`
+                : ''}
             </Text>
           </View>
-        </View>
 
-        {/* Topics section */}
-        <View style={{ paddingHorizontal: 24, marginBottom: 32 }}>
-          <Text
-            style={{
-              fontFamily: F.mono,
-              fontSize: 11,
-              color: PAPER_60,
-              letterSpacing: 1.5,
-              marginBottom: 12,
-            }}
-          >
-            TOPICS COVERED
-          </Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {availableTopics.map(topic => (
-              <TopicChip
-                key={topic}
-                label={topic}
-                selected={selectedTopics.includes(topic)}
-                onPress={() => toggleTopic(topic)}
-                dark={true}
-              />
-            ))}
-
-            {/* + add chip */}
-            {addingTopic ? (
-              <TextInput
-                autoFocus
-                value={customTopic}
-                onChangeText={setCustomTopic}
-                onSubmitEditing={submitCustomTopic}
-                onBlur={submitCustomTopic}
-                placeholder="Topic name…"
-                placeholderTextColor={PAPER_40}
-                returnKeyType="done"
+          {/* Timer circle */}
+          <View style={{ alignItems: 'center', marginBottom: 36 }}>
+            <View
+              style={{
+                width: 220,
+                height: 220,
+                borderRadius: 110,
+                borderWidth: 1,
+                borderColor: PAPER_20,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <View
+                pointerEvents="none"
                 style={{
-                  fontFamily: F.sans,
-                  fontSize: 13,
-                  color: PAPER,
-                  borderWidth: 1,
-                  borderColor: PAPER_40,
-                  borderRadius: 999,
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  minWidth: 120,
+                  position: 'absolute',
+                  top: 12,
+                  left: 12,
+                  right: 12,
+                  bottom: 12,
+                  borderRadius: 98,
+                  borderWidth: 0.5,
+                  borderColor: PAPER_12,
                 }}
               />
-            ) : (
-              <TouchableOpacity
-                onPress={() => setAddingTopic(true)}
+              <Text
                 style={{
-                  borderWidth: 1,
-                  borderColor: PAPER_40,
-                  borderStyle: 'dashed',
-                  borderRadius: 999,
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
+                  fontFamily: F.mono,
+                  fontSize: 10,
+                  color: PAPER_60,
+                  letterSpacing: 2,
+                  marginBottom: 8,
                 }}
-                activeOpacity={0.75}
               >
-                <Text style={{ fontFamily: F.sans, fontSize: 13, color: PAPER_60 }}>+ add</Text>
-              </TouchableOpacity>
-            )}
+                ELAPSED
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                <Text
+                  style={{
+                    fontFamily: F.mono,
+                    fontSize: 40,
+                    color: PAPER,
+                    includeFontPadding: false,
+                  }}
+                >
+                  {parts[0]}:{parts[1]}:
+                </Text>
+                <Text
+                  style={{
+                    fontFamily: F.mono,
+                    fontSize: 40,
+                    color: OXBLOOD,
+                    includeFontPadding: false,
+                  }}
+                >
+                  {parts[2]}
+                </Text>
+              </View>
+              <Text
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 11,
+                  color: PAPER_60,
+                  letterSpacing: 1,
+                  marginTop: 10,
+                }}
+              >
+                {isPaused
+                  ? '⏸ PAUSED'
+                  : `· LIVE · ${formatHours(remainingHours).toUpperCase()} REMAINING`}
+              </Text>
+            </View>
           </View>
-        </View>
 
-        {/* Action buttons */}
-        <View style={{ flexDirection: 'row', paddingHorizontal: 24, gap: 12 }}>
-          {/* Pause / Resume */}
-          <TouchableOpacity
-            onPress={isPaused ? resume : pause}
-            style={{
-              flex: 1,
-              borderWidth: 1,
-              borderColor: PAPER_40,
-              borderRadius: 16,
-              paddingVertical: 16,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={{ fontFamily: F.mono, fontSize: 14, color: PAPER }}>
-              {isPaused ? '▶ Resume' : '▮▮ Pause'}
+          {/* Topics section */}
+          <View style={{ paddingHorizontal: 24, marginBottom: 32 }}>
+            <Text
+              style={{
+                fontFamily: F.mono,
+                fontSize: 11,
+                color: PAPER_60,
+                letterSpacing: 1.5,
+                marginBottom: 12,
+              }}
+            >
+              TOPICS COVERED
             </Text>
-          </TouchableOpacity>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {availableTopics.map(topic => (
+                <TopicChip
+                  key={topic}
+                  label={topic}
+                  selected={selectedTopics.includes(topic)}
+                  onPress={() => toggleTopic(topic)}
+                  dark={true}
+                />
+              ))}
+              {addingTopic ? (
+                <TextInput
+                  autoFocus
+                  value={customTopic}
+                  onChangeText={setCustomTopic}
+                  onSubmitEditing={submitCustomTopic}
+                  onBlur={submitCustomTopic}
+                  placeholder="Topic name…"
+                  placeholderTextColor={PAPER_40}
+                  returnKeyType="done"
+                  style={{
+                    fontFamily: F.sans,
+                    fontSize: 13,
+                    color: PAPER,
+                    borderWidth: 1,
+                    borderColor: PAPER_40,
+                    borderRadius: 999,
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    minWidth: 120,
+                  }}
+                />
+              ) : (
+                <TouchableOpacity
+                  onPress={() => setAddingTopic(true)}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: PAPER_40,
+                    borderStyle: 'dashed',
+                    borderRadius: 999,
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Text style={{ fontFamily: F.sans, fontSize: 13, color: PAPER_60 }}>+ add</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
 
-          {/* End Session */}
-          <TouchableOpacity
-            onPress={handleEndSession}
-            style={{
-              flex: 2,
-              backgroundColor: OXBLOOD,
-              borderRadius: 16,
-              paddingVertical: 16,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={{ fontFamily: F.mono, fontSize: 14, color: PAPER }}>
-              End Session ▸
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+          {/* Action buttons */}
+          <View style={{ flexDirection: 'row', paddingHorizontal: 24, gap: 12 }}>
+            <TouchableOpacity
+              onPress={isPaused ? resume : pause}
+              style={{
+                flex: 1,
+                borderWidth: 1,
+                borderColor: PAPER_40,
+                borderRadius: 16,
+                paddingVertical: 16,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={{ fontFamily: F.mono, fontSize: 14, color: PAPER }}>
+                {isPaused ? '▶ Resume' : '▮▮ Pause'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleEndSession}
+              style={{
+                flex: 2,
+                backgroundColor: OXBLOOD,
+                borderRadius: 16,
+                paddingVertical: 16,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={{ fontFamily: F.mono, fontSize: 14, color: PAPER }}>
+                End Session ▸
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
     </KeyboardAvoidingView>
   );
 }

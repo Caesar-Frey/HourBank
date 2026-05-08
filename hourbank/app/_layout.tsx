@@ -1,6 +1,7 @@
 import '../src/global.css';
 import { useEffect } from 'react';
 import { Alert, AppState } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack, useRouter, usePathname } from 'expo-router';
 import { initDb } from '../src/db/schema';
 import { getActiveSession, autoVerifySweep } from '../src/db/sessions';
@@ -104,5 +105,9 @@ export default function RootLayout() {
 
   if (!fontsLoaded) return null;
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <SafeAreaProvider>
+      <Stack screenOptions={{ headerShown: false }} />
+    </SafeAreaProvider>
+  );
 }

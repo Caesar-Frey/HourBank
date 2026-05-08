@@ -1,5 +1,6 @@
 import { getDb } from './client';
 import { Student, Session } from './schema';
+import { newId } from './uuid';
 
 export function createStudent(data: {
   fullName: string;
@@ -8,7 +9,7 @@ export function createStudent(data: {
   curriculum: Student['curriculum'];
 }): Student {
   const db = getDb();
-  const id = crypto.randomUUID();
+  const id = newId();
   const now = new Date().toISOString();
 
   db.runSync(
@@ -67,6 +68,18 @@ export function listActiveStudents(): Array<Student & { current_balance: number;
 export function getStudent(id: string): Student | null {
   const db = getDb();
   return db.getFirstSync<Student>('SELECT * FROM students WHERE id = ?', [id]) ?? null;
+}
+
+export function updateStudent(id: string, data: {
+  fullName: string;
+  grade: number;
+  subject: string;
+  curriculum: Student['curriculum'];
+}): void {
+  getDb().runSync(
+    'UPDATE students SET full_name=?, grade=?, subject=?, curriculum=? WHERE id=?',
+    [data.fullName, data.grade, data.subject, data.curriculum, id]
+  );
 }
 
 export function archiveStudent(id: string): void {
