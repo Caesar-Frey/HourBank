@@ -13,6 +13,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { F } from '../../../../src/theme/fonts';
 import { ScreenHeader } from '../../../../src/components/ScreenHeader';
 import { TopicChip } from '../../../../src/components/TopicChip';
+import { ErrorBoundary } from '../../../../src/components/ErrorBoundary';
 import { getStudent } from '../../../../src/db/students';
 import { currentBalance } from '../../../../src/db/ledger';
 import { createScheduled, updateScheduled, listUpcoming } from '../../../../src/db/sessions';
@@ -24,6 +25,14 @@ const DURATIONS = [0.5, 1, 1.5, 2] as const;
 type Mode = 'in_person' | 'online';
 
 export default function ScheduleScreen() {
+  return (
+    <ErrorBoundary>
+      <ScheduleScreenInner />
+    </ErrorBoundary>
+  );
+}
+
+function ScheduleScreenInner() {
   const { id, sessionId } = useLocalSearchParams<{ id: string; sessionId?: string }>();
   const isReschedule = !!sessionId;
   const router = useRouter();
@@ -62,10 +71,12 @@ export default function ScheduleScreen() {
             setDuration(existing.estimated_duration_minutes / 60);
           }
           setMode(existing.mode);
-          try {
-            const parsed: string[] = JSON.parse(existing.topics);
-            if (Array.isArray(parsed)) setSelectedTopics(parsed);
-          } catch { /* ignore */ }
+          if (typeof existing.topics === 'string' && existing.topics !== 'null') {
+            try {
+              const parsed: string[] = JSON.parse(existing.topics);
+              if (Array.isArray(parsed)) setSelectedTopics(parsed);
+            } catch { /* ignore malformed */ }
+          }
           setNotes(existing.session_notes ?? '');
         }
       }
