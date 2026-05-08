@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import {
   View,
   Text,
@@ -138,6 +139,15 @@ export default function SessionScreen() {
       };
     }, [navigation])
   );
+
+  useEffect(() => {
+    if (sessionStatus === 'active') {
+      activateKeepAwakeAsync();
+    } else {
+      deactivateKeepAwake();
+    }
+    return () => { deactivateKeepAwake(); };
+  }, [sessionStatus]);
 
   // Use context elapsed when the context is tracking this session; fall back to hook
   const elapsedSeconds =
