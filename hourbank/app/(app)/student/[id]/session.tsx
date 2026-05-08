@@ -11,16 +11,16 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { getDb } from '../../../src/db/client';
-import { getStudent } from '../../../src/db/students';
-import { currentBalance } from '../../../src/db/ledger';
-import { startSession, cancelSession } from '../../../src/db/sessions';
-import { DEFAULT_TOPICS } from '../../../src/config';
-import { TopicChip } from '../../../src/components/TopicChip';
-import { F } from '../../../src/theme/fonts';
-import { formatDuration, formatHours, formatScheduledTime } from '../../../src/utils/format';
-import { useActiveSession } from '../../../src/hooks/useActiveSession';
-import { Session, Student } from '../../../src/db/schema';
+import { getDb } from '../../../../src/db/client';
+import { getStudent } from '../../../../src/db/students';
+import { currentBalance } from '../../../../src/db/ledger';
+import { startSession, cancelSession } from '../../../../src/db/sessions';
+import { DEFAULT_TOPICS } from '../../../../src/config';
+import { TopicChip } from '../../../../src/components/TopicChip';
+import { F } from '../../../../src/theme/fonts';
+import { formatDuration, formatHours, formatScheduledTime } from '../../../../src/utils/format';
+import { useActiveSession } from '../../../../src/hooks/useActiveSession';
+import { Session, Student } from '../../../../src/db/schema';
 
 const PAPER = '#F4EFE6';
 const OXBLOOD = '#7A2530';

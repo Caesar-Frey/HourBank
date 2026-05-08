@@ -11,18 +11,18 @@ import {
   StatusBar,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { getDb } from '../../../src/db/client';
-import { getStudent } from '../../../src/db/students';
-import { currentBalance as fetchBalance } from '../../../src/db/ledger';
-import { endSession } from '../../../src/db/sessions';
-import { TopicChip } from '../../../src/components/TopicChip';
-import { ScreenHeader } from '../../../src/components/ScreenHeader';
-import { F } from '../../../src/theme/fonts';
-import { formatHours } from '../../../src/utils/format';
-import { balanceStatus, balanceColour } from '../../../src/utils/balance';
-import { sendReceipt } from '../../../src/utils/notifications';
-import { DEFAULT_TOPICS } from '../../../src/config';
-import { Student } from '../../../src/db/schema';
+import { getDb } from '../../../../src/db/client';
+import { getStudent } from '../../../../src/db/students';
+import { currentBalance as fetchBalance } from '../../../../src/db/ledger';
+import { endSession } from '../../../../src/db/sessions';
+import { TopicChip } from '../../../../src/components/TopicChip';
+import { ScreenHeader } from '../../../../src/components/ScreenHeader';
+import { F } from '../../../../src/theme/fonts';
+import { formatHours } from '../../../../src/utils/format';
+import { balanceStatus, balanceColour } from '../../../../src/utils/balance';
+import { sendReceipt } from '../../../../src/utils/notifications';
+import { DEFAULT_TOPICS } from '../../../../src/config';
+import { Student } from '../../../../src/db/schema';
 
 const PAPER = '#F4EFE6';
 const OXBLOOD = '#7A2530';

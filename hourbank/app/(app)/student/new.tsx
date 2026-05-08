@@ -10,12 +10,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { F } from '../../src/theme/fonts';
-import { SHOW_ALL_GRADES_KEY } from '../(app)/profile';
-import { ScreenHeader } from '../../src/components/ScreenHeader';
-import { createStudent } from '../../src/db/students';
-import { SUBJECT_SUGGESTIONS } from '../../src/config';
-import { Student } from '../../src/db/schema';
+import { F } from '../../../src/theme/fonts';
+import { SHOW_ALL_GRADES_KEY } from '../profile';
+import { ScreenHeader } from '../../../src/components/ScreenHeader';
+import { createStudent } from '../../../src/db/students';
+import { SUBJECT_SUGGESTIONS } from '../../../src/config';
+import { Student } from '../../../src/db/schema';
 
 const CURRICULA: Student['curriculum'][] = ['CAPS', 'IEB', 'Cambridge', 'Other'];
 const ALL_GRADES = Array.from({ length: 12 }, (_, i) => i + 1);

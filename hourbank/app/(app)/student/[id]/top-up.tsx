@@ -11,15 +11,15 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import { F } from '../../../src/theme/fonts';
-import { ScreenHeader } from '../../../src/components/ScreenHeader';
-import { PackageCard } from '../../../src/components/PackageCard';
-import { getStudent } from '../../../src/db/students';
-import { createPackage } from '../../../src/db/packages';
-import { DEFAULT_PACKAGES } from '../../../src/config';
-import { formatRand, formatHours } from '../../../src/utils/format';
-import { sendTopUpConfirmation } from '../../../src/utils/notifications';
-import { Student } from '../../../src/db/schema';
+import { F } from '../../../../src/theme/fonts';
+import { ScreenHeader } from '../../../../src/components/ScreenHeader';
+import { PackageCard } from '../../../../src/components/PackageCard';
+import { getStudent } from '../../../../src/db/students';
+import { createPackage } from '../../../../src/db/packages';
+import { DEFAULT_PACKAGES } from '../../../../src/config';
+import { formatRand, formatHours } from '../../../../src/utils/format';
+import { sendTopUpConfirmation } from '../../../../src/utils/notifications';
+import { Student } from '../../../../src/db/schema';
 
 type PaymentMethod = 'eft' | 'cash' | 'card' | 'other';
 

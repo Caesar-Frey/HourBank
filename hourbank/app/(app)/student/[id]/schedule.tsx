@@ -10,15 +10,15 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { F } from '../../../src/theme/fonts';
-import { ScreenHeader } from '../../../src/components/ScreenHeader';
-import { TopicChip } from '../../../src/components/TopicChip';
-import { getStudent } from '../../../src/db/students';
-import { currentBalance } from '../../../src/db/ledger';
-import { createScheduled, updateScheduled, listUpcoming } from '../../../src/db/sessions';
-import { formatHours } from '../../../src/utils/format';
-import { DEFAULT_TOPICS } from '../../../src/config';
-import { Student } from '../../../src/db/schema';
+import { F } from '../../../../src/theme/fonts';
+import { ScreenHeader } from '../../../../src/components/ScreenHeader';
+import { TopicChip } from '../../../../src/components/TopicChip';
+import { getStudent } from '../../../../src/db/students';
+import { currentBalance } from '../../../../src/db/ledger';
+import { createScheduled, updateScheduled, listUpcoming } from '../../../../src/db/sessions';
+import { formatHours } from '../../../../src/utils/format';
+import { DEFAULT_TOPICS } from '../../../../src/config';
+import { Student } from '../../../../src/db/schema';
 
 const DURATIONS = [0.5, 1, 1.5, 2] as const;
 type Mode = 'in_person' | 'online';

@@ -10,13 +10,13 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import { F } from '../../../src/theme/fonts';
-import { useStudent } from '../../../src/hooks/useStudent';
-import { LedgerRow } from '../../../src/components/LedgerRow';
-import { ScreenHeader } from '../../../src/components/ScreenHeader';
-import { formatHoursDisplay, formatScheduledTime } from '../../../src/utils/format';
-import { Session } from '../../../src/db/schema';
-import { LedgerEntry } from '../../../src/db/schema';
+import { F } from '../../../../src/theme/fonts';
+import { useStudent } from '../../../../src/hooks/useStudent';
+import { LedgerRow } from '../../../../src/components/LedgerRow';
+import { ScreenHeader } from '../../../../src/components/ScreenHeader';
+import { formatHoursDisplay, formatScheduledTime } from '../../../../src/utils/format';
+import { Session } from '../../../../src/db/schema';
+import { LedgerEntry } from '../../../../src/db/schema';
 
 export default function StudentLedgerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
