@@ -76,7 +76,6 @@ export function ActionSheet({ visible, onDismiss, items, theme = 'paper' }: Acti
         }),
       ]).start(() => {
         setModalVisible(false);
-        onDismiss();
       });
     }
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
