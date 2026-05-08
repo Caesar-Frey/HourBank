@@ -21,6 +21,7 @@ import { F } from '../../../../src/theme/fonts';
 import { formatHours } from '../../../../src/utils/format';
 import { balanceStatus, balanceColour } from '../../../../src/utils/balance';
 import { sendReceipt } from '../../../../src/utils/notifications';
+import { roundToBilledMinutes } from '../../../../src/utils/duration';
 import { DEFAULT_TOPICS } from '../../../../src/config';
 import { Student } from '../../../../src/db/schema';
 
@@ -63,6 +64,7 @@ export default function EndSessionScreen() {
   const [customTopic, setCustomTopic] = useState('');
   const [notes, setNotes] = useState('');
   const [topicError, setTopicError] = useState(false);
+  const [billedMinutes, setBilledMinutes] = useState(() => roundToBilledMinutes(elapsed));
 
   useEffect(() => {
     try {
@@ -81,7 +83,7 @@ export default function EndSessionScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const balanceAfter = bal - durationMinutes / 60;
+  const balanceAfter = bal - billedMinutes / 60;
   const bColour = balanceColour(balanceStatus(balanceAfter));
 
   const dateDisplay = new Date().toLocaleDateString('en-ZA', {
@@ -144,7 +146,7 @@ export default function EndSessionScreen() {
       endSession({
         sessionId: sessionId as string,
         endedAt,
-        durationMinutes,
+        durationMinutes: billedMinutes,
         pausedSeconds: paused,
         topics: selectedTopics,
         sessionNotes: notes.trim(),
@@ -152,7 +154,7 @@ export default function EndSessionScreen() {
 
       await sendReceipt({
         studentName: student?.full_name ?? '',
-        durationMinutes,
+        durationMinutes: billedMinutes,
         topics: selectedTopics,
         notes: notes.trim(),
         balanceAfter,
@@ -198,12 +200,6 @@ export default function EndSessionScreen() {
       label: 'SUBJECT',
       value: student?.subject ?? '—',
       valueFamily: F.sans,
-      valueColour: INK,
-    },
-    {
-      label: 'DURATION',
-      value: formatHours(elapsed / 3600),
-      valueFamily: F.monoMed,
       valueColour: INK,
     },
     {
@@ -253,9 +249,9 @@ export default function EndSessionScreen() {
           </Text>
         </View>
 
-        {/* Receipt rows */}
-        <View style={{ paddingHorizontal: 24, marginBottom: 28 }}>
-          {rows.map((row, idx) => (
+        {/* Receipt rows — before DURATION */}
+        <View style={{ paddingHorizontal: 24, marginBottom: 0 }}>
+          {rows.slice(0, 4).map((row, idx) => (
             <View
               key={row.label}
               style={{
@@ -269,27 +265,73 @@ export default function EndSessionScreen() {
                 borderTopColor: idx === 0 ? PAPER_EDGE : undefined,
               }}
             >
-              <Text
-                style={{
-                  fontFamily: F.mono,
-                  fontSize: 11,
-                  color: INK_FAINT,
-                  letterSpacing: 1,
-                  textTransform: 'uppercase',
-                }}
-              >
+              <Text style={{ fontFamily: F.mono, fontSize: 11, color: INK_FAINT, letterSpacing: 1, textTransform: 'uppercase' }}>
                 {row.label}
               </Text>
-              <Text
-                style={{
-                  fontFamily: row.valueFamily,
-                  fontSize: 14,
-                  color: row.valueColour,
-                  textAlign: 'right',
-                  flexShrink: 1,
-                  marginLeft: 16,
-                }}
-              >
+              <Text style={{ fontFamily: row.valueFamily, fontSize: 14, color: row.valueColour, textAlign: 'right', flexShrink: 1, marginLeft: 16 }}>
+                {row.value}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {/* DURATION stepper */}
+        <View
+          style={{
+            paddingHorizontal: 24,
+            paddingVertical: 10,
+            borderBottomWidth: 1,
+            borderBottomColor: PAPER_EDGE,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <View>
+            <Text style={{ fontFamily: F.mono, fontSize: 11, color: INK_FAINT, letterSpacing: 1, textTransform: 'uppercase' }}>
+              DURATION
+            </Text>
+            <Text style={{ fontFamily: F.mono, fontSize: 11, color: INK_FAINT, marginTop: 2 }}>
+              {`Actual: ${formatHours(elapsed / 3600)}`}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              onPress={() => setBilledMinutes(m => Math.max(0, m - 30))}
+              style={{ paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: PAPER_EDGE, borderRadius: 8 }}
+            >
+              <Text style={{ fontFamily: F.mono, fontSize: 13, color: INK }}>−30m</Text>
+            </TouchableOpacity>
+            <Text style={{ fontFamily: F.monoMed, fontSize: 14, color: INK, minWidth: 60, textAlign: 'center' }}>
+              {formatHours(billedMinutes / 60)}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setBilledMinutes(m => m + 30)}
+              style={{ paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: PAPER_EDGE, borderRadius: 8 }}
+            >
+              <Text style={{ fontFamily: F.mono, fontSize: 13, color: INK }}>+30m</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Receipt rows — after DURATION */}
+        <View style={{ paddingHorizontal: 24, marginBottom: 28 }}>
+          {rows.slice(4).map((row) => (
+            <View
+              key={row.label}
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingVertical: 10,
+                borderBottomWidth: 1,
+                borderBottomColor: PAPER_EDGE,
+              }}
+            >
+              <Text style={{ fontFamily: F.mono, fontSize: 11, color: INK_FAINT, letterSpacing: 1, textTransform: 'uppercase' }}>
+                {row.label}
+              </Text>
+              <Text style={{ fontFamily: row.valueFamily, fontSize: 14, color: row.valueColour, textAlign: 'right', flexShrink: 1, marginLeft: 16 }}>
                 {row.value}
               </Text>
             </View>
