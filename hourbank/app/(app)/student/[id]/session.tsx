@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,9 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
+import { COLORS } from '../../../../src/theme/colors';
 import { getDb } from '../../../../src/db/client';
 import { getStudent } from '../../../../src/db/students';
 import { currentBalance } from '../../../../src/db/ledger';
@@ -34,6 +36,7 @@ const PAPER_60 = 'rgba(244,239,230,0.6)';
 export default function SessionScreen() {
   const { id, sessionId } = useLocalSearchParams<{ id: string; sessionId: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
 
   const [sessionStatus, setSessionStatus] = useState<Session['status'] | null>(null);
   const [scheduledFor, setScheduledFor] = useState<string | null>(null);
@@ -116,6 +119,25 @@ export default function SessionScreen() {
     resumeTimer,
     endTimer,
   } = useSessionTimer();
+
+  // Darken tab bar while this screen is focused; restore on blur.
+  useFocusEffect(
+    useCallback(() => {
+      const parent = navigation.getParent();
+      parent?.setOptions({
+        tabBarStyle: { backgroundColor: COLORS.sessionBg, borderTopColor: PAPER_12 },
+        tabBarActiveTintColor: COLORS.paper,
+        tabBarInactiveTintColor: PAPER_40,
+      });
+      return () => {
+        parent?.setOptions({
+          tabBarStyle: { backgroundColor: COLORS.paper, borderTopColor: COLORS.paperEdge },
+          tabBarActiveTintColor: COLORS.oxblood,
+          tabBarInactiveTintColor: COLORS.inkFaint,
+        });
+      };
+    }, [navigation])
+  );
 
   // Use context elapsed when the context is tracking this session; fall back to hook
   const elapsedSeconds =
