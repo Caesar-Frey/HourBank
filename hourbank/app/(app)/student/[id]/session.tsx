@@ -12,8 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../../../../src/theme/colors';
+import { useDarkTabBar } from '../../../../src/hooks/useDarkTabBar';
 import { getDb } from '../../../../src/db/client';
 import { getStudent } from '../../../../src/db/students';
 import { currentBalance } from '../../../../src/db/ledger';
@@ -26,9 +26,6 @@ import { useActiveSession } from '../../../../src/hooks/useActiveSession';
 import { Session, Student } from '../../../../src/db/schema';
 import { useSessionTimer } from '../../../../src/contexts/SessionTimerContext';
 
-const PAPER = '#F4EFE6';
-const OXBLOOD = '#7A2530';
-const BG = '#1B1714';
 const PAPER_40 = 'rgba(244,239,230,0.4)';
 const PAPER_20 = 'rgba(244,239,230,0.2)';
 const PAPER_12 = 'rgba(244,239,230,0.12)';
@@ -37,7 +34,6 @@ const PAPER_60 = 'rgba(244,239,230,0.6)';
 export default function SessionScreen() {
   const { id, sessionId } = useLocalSearchParams<{ id: string; sessionId: string }>();
   const router = useRouter();
-  const navigation = useNavigation();
 
   const [sessionStatus, setSessionStatus] = useState<Session['status'] | null>(null);
   const [scheduledFor, setScheduledFor] = useState<string | null>(null);
@@ -121,24 +117,7 @@ export default function SessionScreen() {
     endTimer,
   } = useSessionTimer();
 
-  // Darken tab bar while this screen is focused; restore on blur.
-  useFocusEffect(
-    useCallback(() => {
-      const parent = navigation.getParent();
-      parent?.setOptions({
-        tabBarStyle: { backgroundColor: COLORS.sessionBg, borderTopColor: PAPER_12 },
-        tabBarActiveTintColor: COLORS.paper,
-        tabBarInactiveTintColor: PAPER_40,
-      });
-      return () => {
-        parent?.setOptions({
-          tabBarStyle: { backgroundColor: COLORS.paper, borderTopColor: COLORS.paperEdge },
-          tabBarActiveTintColor: COLORS.oxblood,
-          tabBarInactiveTintColor: COLORS.inkFaint,
-        });
-      };
-    }, [navigation])
-  );
+  useDarkTabBar();
 
   useEffect(() => {
     if (sessionStatus === 'active') {
@@ -258,27 +237,27 @@ export default function SessionScreen() {
 
   // Loading state
   if (sessionStatus === null) {
-    return <View style={{ flex: 1, backgroundColor: BG }} />;
+    return <View style={{ flex: 1, backgroundColor: COLORS.sessionBg }} />;
   }
 
   // Pre-start view for scheduled sessions
   if (sessionStatus === 'scheduled') {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: BG }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.sessionBg }} edges={['top']}>
         <View style={{ flex: 1 }}>
           {/* Top bar */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 }}>
             <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 13, color: PAPER, letterSpacing: 0.5 }}>← BACK</Text>
+              <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.paper, letterSpacing: 0.5 }}>← BACK</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={handleCancelScheduled} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 13, color: '#9A2A2A', letterSpacing: 0.5 }}>CANCEL</Text>
+              <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.crimson, letterSpacing: 0.5 }}>CANCEL</Text>
             </TouchableOpacity>
           </View>
 
           {/* Student name */}
           <View style={{ alignItems: 'center', paddingTop: 24, paddingBottom: 12, paddingHorizontal: 24 }}>
-            <Text style={{ fontFamily: F.serif, fontSize: 26, color: PAPER }}>{student?.full_name ?? ''}</Text>
+            <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.paper }}>{student?.full_name ?? ''}</Text>
             <Text style={{ fontFamily: F.mono, fontSize: 11, color: PAPER_60, letterSpacing: 1, marginTop: 6 }}>
               {student ? `GR ${student.grade} ${student.subject.toUpperCase()}` : ''}
             </Text>
@@ -291,23 +270,23 @@ export default function SessionScreen() {
               {scheduledFor && (
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>WHEN</Text>
-                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER, flex: 1 }}>{formatScheduledTime(scheduledFor)}</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper, flex: 1 }}>{formatScheduledTime(scheduledFor)}</Text>
                 </View>
               )}
               {estimatedMinutes && (
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>DURATION</Text>
-                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER }}>{formatHours(estimatedMinutes / 60)}</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper }}>{formatHours(estimatedMinutes / 60)}</Text>
                 </View>
               )}
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>MODE</Text>
-                <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER }}>{mode === 'in_person' ? '📍 In-Person' : '💻 Online'}</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper }}>{mode === 'in_person' ? '📍 In-Person' : '💻 Online'}</Text>
               </View>
               {selectedTopics.length > 0 && (
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>TOPICS</Text>
-                  <Text style={{ fontFamily: F.sans, fontSize: 12, color: PAPER, flex: 1 }}>{selectedTopics.join(', ')}</Text>
+                  <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.paper, flex: 1 }}>{selectedTopics.join(', ')}</Text>
                 </View>
               )}
             </View>
@@ -317,10 +296,10 @@ export default function SessionScreen() {
           <View style={{ paddingHorizontal: 24, gap: 12 }}>
             <TouchableOpacity
               onPress={handleStartSession}
-              style={{ backgroundColor: OXBLOOD, borderRadius: 16, paddingVertical: 18, alignItems: 'center' }}
+              style={{ backgroundColor: COLORS.oxblood, borderRadius: 16, paddingVertical: 18, alignItems: 'center' }}
               activeOpacity={0.85}
             >
-              <Text style={{ fontFamily: F.mono, fontSize: 15, color: PAPER }}>▶ Start session</Text>
+              <Text style={{ fontFamily: F.mono, fontSize: 15, color: COLORS.paper }}>▶ Start session</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -328,7 +307,7 @@ export default function SessionScreen() {
               style={{ borderWidth: 1, borderColor: PAPER_40, borderRadius: 16, paddingVertical: 14, alignItems: 'center' }}
               activeOpacity={0.75}
             >
-              <Text style={{ fontFamily: F.mono, fontSize: 13, color: PAPER }}>↺ Reschedule</Text>
+              <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.paper }}>↺ Reschedule</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -341,7 +320,7 @@ export default function SessionScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: BG }}
+      style={{ flex: 1, backgroundColor: COLORS.sessionBg }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
@@ -365,7 +344,7 @@ export default function SessionScreen() {
               onPress={handleCancelActive}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             >
-              <Text style={{ fontFamily: F.mono, fontSize: 13, color: PAPER, letterSpacing: 0.5 }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.paper, letterSpacing: 0.5 }}>
                 × CANCEL
               </Text>
             </TouchableOpacity>
@@ -373,7 +352,7 @@ export default function SessionScreen() {
               onPress={() => setMode(m => (m === 'in_person' ? 'online' : 'in_person'))}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             >
-              <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper }}>
                 {mode === 'in_person' ? '📍 IN-PERSON' : '💻 ONLINE'}
               </Text>
             </TouchableOpacity>
@@ -381,7 +360,7 @@ export default function SessionScreen() {
 
           {/* Student name + session label */}
           <View style={{ alignItems: 'center', paddingTop: 16, paddingBottom: 28 }}>
-            <Text style={{ fontFamily: F.serif, fontSize: 26, color: PAPER }}>
+            <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.paper }}>
               {student?.full_name ?? ''}
             </Text>
             <Text
@@ -441,7 +420,7 @@ export default function SessionScreen() {
                   style={{
                     fontFamily: F.mono,
                     fontSize: 40,
-                    color: PAPER,
+                    color: COLORS.paper,
                     includeFontPadding: false,
                   }}
                 >
@@ -451,7 +430,7 @@ export default function SessionScreen() {
                   style={{
                     fontFamily: F.mono,
                     fontSize: 40,
-                    color: OXBLOOD,
+                    color: COLORS.oxblood,
                     includeFontPadding: false,
                   }}
                 >
@@ -510,7 +489,7 @@ export default function SessionScreen() {
                   style={{
                     fontFamily: F.sans,
                     fontSize: 13,
-                    color: PAPER,
+                    color: COLORS.paper,
                     borderWidth: 1,
                     borderColor: PAPER_40,
                     borderRadius: 999,
@@ -553,7 +532,7 @@ export default function SessionScreen() {
               }}
               activeOpacity={0.8}
             >
-              <Text style={{ fontFamily: F.mono, fontSize: 14, color: PAPER }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.paper }}>
                 {isPaused ? '▶ Resume' : '▮▮ Pause'}
               </Text>
             </TouchableOpacity>
@@ -561,7 +540,7 @@ export default function SessionScreen() {
               onPress={handleEndSession}
               style={{
                 flex: 2,
-                backgroundColor: OXBLOOD,
+                backgroundColor: COLORS.oxblood,
                 borderRadius: 16,
                 paddingVertical: 16,
                 alignItems: 'center',
@@ -569,7 +548,7 @@ export default function SessionScreen() {
               }}
               activeOpacity={0.8}
             >
-              <Text style={{ fontFamily: F.mono, fontSize: 14, color: PAPER }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.paper }}>
                 End Session ▸
               </Text>
             </TouchableOpacity>
