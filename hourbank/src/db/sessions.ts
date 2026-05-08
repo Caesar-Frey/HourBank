@@ -4,6 +4,11 @@ import { LedgerEntry } from './schema';
 import { appendEntryInTx } from './ledger';
 import { newId } from './uuid';
 
+export function getSession(sessionId: string): Session | null {
+  const db = getDb();
+  return db.getFirstSync<Session>('SELECT * FROM sessions WHERE id = ?', [sessionId]) ?? null;
+}
+
 export function createScheduled(data: {
   studentId: string;
   scheduledFor: string;

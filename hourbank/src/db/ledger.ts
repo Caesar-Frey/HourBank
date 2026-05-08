@@ -65,6 +65,15 @@ export function appendEntry(entry: AppendEntryInput): LedgerEntry {
   return result!;
 }
 
+export function getBalanceAt(studentId: string, isoTimestamp: string): number {
+  const db = getDb();
+  const row = db.getFirstSync<{ balance: number }>(
+    'SELECT COALESCE(SUM(hours_delta), 0) AS balance FROM ledger_entries WHERE student_id = ? AND created_at <= ?',
+    [studentId, isoTimestamp]
+  );
+  return row?.balance ?? 0;
+}
+
 export function lastNEntries(studentId: string, n: number): LedgerEntry[] {
   const db = getDb();
   return db.getAllSync<LedgerEntry>(

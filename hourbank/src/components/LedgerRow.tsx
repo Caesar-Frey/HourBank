@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { F } from '../theme/fonts';
+import { COLORS } from '../theme/colors';
 import { formatLedgerDate } from '../utils/format';
 import { VerificationBadge } from './VerificationBadge';
 
@@ -18,6 +19,7 @@ interface LedgerEntry {
 
 interface LedgerRowProps {
   entry: LedgerEntry;
+  onPress?: () => void;
 }
 
 function getDescription(entry: LedgerEntry): string {
@@ -45,35 +47,33 @@ function isVerificationStatus(
   return s === 'pending_verification' || s === 'verified' || s === 'disputed';
 }
 
-export function LedgerRow({ entry }: LedgerRowProps) {
+export function LedgerRow({ entry, onPress }: LedgerRowProps) {
   const { day, month } = formatLedgerDate(entry.created_at);
   const description = getDescription(entry);
   const isPositive = entry.hours_delta >= 0;
   const deltaLabel = `${isPositive ? '+' : ''}${entry.hours_delta.toFixed(1)}h`;
-  const deltaColor = isPositive ? '#3F5641' : '#1B1714';
+  const deltaColor = isPositive ? COLORS.moss : COLORS.ink;
 
   const sessionStatus =
     entry.session && isVerificationStatus(entry.session.status)
       ? entry.session.status
       : null;
 
-  return (
-    <View
-      className="border-b border-paperEdge py-2.5 flex-row items-start"
-    >
+  const inner = (
+    <>
       {/* Date column */}
       <View style={{ width: 40 }}>
-        <Text style={{ fontFamily: F.mono, fontSize: 12, color: '#1B1714' }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>
           {day}
         </Text>
-        <Text style={{ fontFamily: F.mono, fontSize: 10, color: '#8A7E72' }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>
           {month}
         </Text>
       </View>
 
       {/* Description column */}
       <View style={{ flex: 1, paddingHorizontal: 8 }}>
-        <Text style={{ fontFamily: F.sans, fontSize: 14, color: '#1B1714' }}>
+        <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }}>
           {description}
         </Text>
         {sessionStatus && (
@@ -92,6 +92,24 @@ export function LedgerRow({ entry }: LedgerRowProps) {
       >
         {deltaLabel}
       </Text>
+    </>
+  );
+
+  if (onPress) {
+    return (
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={onPress}
+        className="border-b border-paperEdge py-2.5 flex-row items-start"
+      >
+        {inner}
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <View className="border-b border-paperEdge py-2.5 flex-row items-start">
+      {inner}
     </View>
   );
 }
