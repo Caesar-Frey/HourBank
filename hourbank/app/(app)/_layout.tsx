@@ -1,8 +1,10 @@
 import { Tabs } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
+import { SessionTimerProvider } from '../../src/contexts/SessionTimerContext';
 
 export default function AppLayout() {
   return (
+    <SessionTimerProvider>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -40,5 +42,6 @@ export default function AppLayout() {
         }}
       />
     </Tabs>
+    </SessionTimerProvider>
   );
 }

@@ -21,6 +21,7 @@ import { F } from '../../../../src/theme/fonts';
 import { formatDuration, formatHours, formatScheduledTime } from '../../../../src/utils/format';
 import { useActiveSession } from '../../../../src/hooks/useActiveSession';
 import { Session, Student } from '../../../../src/db/schema';
+import { useSessionTimer } from '../../../../src/contexts/SessionTimerContext';
 
 const PAPER = '#F4EFE6';
 const OXBLOOD = '#7A2530';
@@ -97,14 +98,49 @@ export default function SessionScreen() {
     }
   }, [id, sessionId]);
 
-  const { elapsedSeconds, isPaused, pause, resume, remainingHours, totalPausedSeconds } =
-    useActiveSession(sessionId, balance, timerKey);
+  const {
+    elapsedSeconds: hookElapsed,
+    isPaused,
+    pause: hookPause,
+    resume: hookResume,
+    remainingHours,
+    totalPausedSeconds,
+  } = useActiveSession(sessionId, balance, timerKey);
+
+  const {
+    status: ctxStatus,
+    sessionId: ctxSessionId,
+    elapsedSeconds: ctxElapsed,
+    startTimer,
+    pauseTimer,
+    resumeTimer,
+    endTimer,
+  } = useSessionTimer();
+
+  // Use context elapsed when the context is tracking this session; fall back to hook
+  const elapsedSeconds =
+    ctxStatus === 'active' && ctxSessionId === sessionId ? ctxElapsed : hookElapsed;
+
+  // Wrap pause/resume to sync context
+  function pause() {
+    hookPause();
+    const accumulated = ctxStatus === 'active' && ctxSessionId === sessionId
+      ? ctxElapsed
+      : hookElapsed;
+    pauseTimer(accumulated);
+  }
+
+  function resume() {
+    hookResume();
+    resumeTimer(new Date().toISOString());
+  }
 
   function handleStartSession() {
     try {
-      startSession(sessionId);
+      const session = startSession(sessionId);
       setSessionStatus('active');
       setTimerKey(k => k + 1);
+      startTimer(sessionId, id, session.started_at!, 0);
     } catch (e) {
       Alert.alert('Error', 'Could not start session. Please try again.');
     }
@@ -152,6 +188,7 @@ export default function SessionScreen() {
           } catch (e) {
             console.error(e);
           }
+          endTimer();
           router.back();
         },
       },
@@ -164,6 +201,7 @@ export default function SessionScreen() {
       return;
     }
     const topicsParam = encodeURIComponent(JSON.stringify(selectedTopics));
+    endTimer();
     router.push(
       `/student/${id}/end-session?sessionId=${sessionId}&elapsedSeconds=${elapsedSeconds}&pausedSeconds=${totalPausedSeconds}&mode=${mode}&topics=${topicsParam}`
     );

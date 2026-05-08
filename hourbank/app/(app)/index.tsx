@@ -15,7 +15,12 @@ import { F } from '../../src/theme/fonts';
 import { StudentCard } from '../../src/components/StudentCard';
 import { useStudents } from '../../src/hooks/useStudents';
 import { sessionsThisWeek } from '../../src/db/sessions';
-import { formatHours } from '../../src/utils/format';
+import { formatHours, formatDuration } from '../../src/utils/format';
+import { useSessionTimer } from '../../src/contexts/SessionTimerContext';
+
+// Design-token colours (match tailwind.config.js)
+const SESSION_BG = '#1B1714';
+const PAPER = '#F4EFE6';
 
 const SORT_KEY = '@hourbank/roster_sort';
 type SortMode = 'balance' | 'next_session' | 'name' | 'grade';
@@ -32,6 +37,7 @@ function getDateEyebrow(): string {
 
 export default function HomeScreen() {
   const { students, loading } = useStudents();
+  const { status: timerStatus, sessionId: liveSessionId, studentId: liveStudentId, elapsedSeconds } = useSessionTimer();
   const [sortMode, setSortMode] = useState<SortMode>('balance');
   const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState('');
@@ -131,6 +137,29 @@ export default function HomeScreen() {
         <Text style={{ fontFamily: F.mono, fontSize: 11, color: '#8A7E72', marginBottom: 16 }}>
           {getDateEyebrow()}
         </Text>
+
+        {/* Live session pill */}
+        {timerStatus === 'active' && liveSessionId && liveStudentId && (
+          <TouchableOpacity
+            onPress={() => router.push(`/student/${liveStudentId}/session?sessionId=${liveSessionId}`)}
+            activeOpacity={0.85}
+            style={{
+              backgroundColor: SESSION_BG,
+              borderRadius: 14,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 16,
+            }}
+          >
+            <Text style={{ fontFamily: F.mono, fontSize: 13, color: PAPER }}>
+              {'● LIVE · ' + formatDuration(elapsedSeconds)}
+            </Text>
+            <Feather name="arrow-right" size={14} color={PAPER} />
+          </TouchableOpacity>
+        )}
 
         {/* Stat tiles */}
         <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
