@@ -9,14 +9,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { COLORS } from '../../src/theme/colors';
-import { F } from '../../src/theme/fonts';
-import { formatDuration, formatScheduledTime } from '../../src/utils/format';
-import { useSessionTimer } from '../../src/contexts/SessionTimerContext';
-import { useStudents } from '../../src/hooks/useStudents';
-import { listAllUpcoming, startSession, cancelSession } from '../../src/db/sessions';
-import { ActionSheet } from '../../src/components/ActionSheet';
-import { Session } from '../../src/db/schema';
+import { COLORS } from '../../../src/theme/colors';
+import { F } from '../../../src/theme/fonts';
+import { formatDuration, formatScheduledTime } from '../../../src/utils/format';
+import { useSessionTimer } from '../../../src/contexts/SessionTimerContext';
+import { useStudents } from '../../../src/hooks/useStudents';
+import { listAllUpcoming, startSession, cancelSession } from '../../../src/db/sessions';
+import { ActionSheet } from '../../../src/components/ActionSheet';
+import { Session } from '../../../src/db/schema';
 
 type UpcomingRow = Session & { student_full_name: string; student_subject: string };
 
