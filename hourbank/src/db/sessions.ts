@@ -212,3 +212,15 @@ export function sessionsThisWeek(): number {
   );
   return (row?.total ?? 0) / 60;
 }
+
+export function sessionsThisWeekCount(): number {
+  const db = getDb();
+  const startOfWeek = new Date();
+  startOfWeek.setHours(0, 0, 0, 0);
+  startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+  const row = db.getFirstSync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM sessions WHERE status IN ('pending_verification','verified') AND ended_at >= ?`,
+    [startOfWeek.toISOString()]
+  );
+  return row?.count ?? 0;
+}

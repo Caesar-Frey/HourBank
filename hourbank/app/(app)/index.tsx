@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,13 +8,13 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import { F } from '../../src/theme/fonts';
 import { StudentCard } from '../../src/components/StudentCard';
 import { useStudents } from '../../src/hooks/useStudents';
-import { sessionsThisWeek } from '../../src/db/sessions';
+import { sessionsThisWeekCount } from '../../src/db/sessions';
 import { formatHours, formatDuration } from '../../src/utils/format';
 import { useSessionTimer } from '../../src/contexts/SessionTimerContext';
 import { COLORS } from '../../src/theme/colors';
@@ -38,21 +38,25 @@ export default function HomeScreen() {
   const [sortMode, setSortMode] = useState<SortMode>('balance');
   const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState('');
-  const [weekHours, setWeekHours] = useState(0);
+  const [weekLessons, setWeekLessons] = useState(0);
 
-  // Load sort preference and this-week stat on mount
+  // Load sort preference once on mount
   useEffect(() => {
     AsyncStorage.getItem(SORT_KEY).then(v => {
       if (v) setSortMode(v as SortMode);
     });
-    let weekHoursValue = 0;
-    try {
-      weekHoursValue = sessionsThisWeek();
-    } catch {
-      weekHoursValue = 0;
-    }
-    setWeekHours(weekHoursValue);
   }, []);
+
+  // Refresh lesson count whenever the screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      try {
+        setWeekLessons(sessionsThisWeekCount());
+      } catch {
+        setWeekLessons(0);
+      }
+    }, [])
+  );
 
   const sorted = useMemo(() => {
     const arr = [...students];
@@ -108,7 +112,6 @@ export default function HomeScreen() {
     );
   }
 
-  const weekHoursDisplay = weekHours.toFixed(1);
   const activeCount = students.length;
   const totalCredits = useMemo(() => students.reduce((sum, s) => sum + s.current_balance, 0), [students]);
 
@@ -170,13 +173,13 @@ export default function HomeScreen() {
             padding: 16,
           }}>
             <Text style={{ fontFamily: F.mono, fontSize: 9, color: '#8A7E72', textTransform: 'uppercase', marginBottom: 4 }}>
-              THIS WEEK
+              LESSONS
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
               <Text style={{ fontFamily: F.mono, fontSize: 18, color: '#1B1714' }}>
-                {weekHoursDisplay}
+                {weekLessons}
               </Text>
-              <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: '#4A413A' }}>hrs</Text>
+              <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: '#4A413A' }}>lessons</Text>
             </View>
           </View>
 
@@ -216,7 +219,6 @@ export default function HomeScreen() {
               <Text style={{ fontFamily: F.mono, fontSize: 18, color: '#1B1714' }}>
                 {formatHours(totalCredits)}
               </Text>
-              <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: '#4A413A' }}>hrs</Text>
             </View>
           </View>
         </View>

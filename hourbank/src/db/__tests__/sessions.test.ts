@@ -1,6 +1,6 @@
 import { createTestDb, resetDbSingleton } from './testDb';
 import type { TestDb } from './testDb';
-import { createUnscheduled, startSession } from '../sessions';
+import { createUnscheduled, startSession, sessionsThisWeekCount } from '../sessions';
 
 describe('sessions', () => {
   let db: TestDb;
@@ -38,6 +38,54 @@ describe('sessions', () => {
       const active = startSession(session.id);
       expect(active.status).toBe('active');
       expect(active.started_at).not.toBeNull();
+    });
+  });
+
+  describe('sessionsThisWeekCount', () => {
+    it('returns 0 when no sessions exist', () => {
+      expect(sessionsThisWeekCount()).toBe(0);
+    });
+
+    it('returns count of sessions ended this week with pending_verification or verified status', () => {
+      const now = new Date().toISOString();
+      db.runSync(
+        `INSERT INTO sessions (id, student_id, mode, status, started_at, ended_at, created_at) VALUES (?, ?, 'in_person', ?, ?, ?, ?)`,
+        ['sess-1', 'student-1', 'pending_verification', now, now, now]
+      );
+      db.runSync(
+        `INSERT INTO sessions (id, student_id, mode, status, started_at, ended_at, created_at) VALUES (?, ?, 'in_person', ?, ?, ?, ?)`,
+        ['sess-2', 'student-1', 'verified', now, now, now]
+      );
+      expect(sessionsThisWeekCount()).toBe(2);
+    });
+
+    it('excludes sessions ended before this week', () => {
+      const now = new Date().toISOString();
+      const lastWeek = new Date();
+      lastWeek.setDate(lastWeek.getDate() - 8);
+      const lastWeekIso = lastWeek.toISOString();
+      db.runSync(
+        `INSERT INTO sessions (id, student_id, mode, status, started_at, ended_at, created_at) VALUES (?, ?, 'in_person', ?, ?, ?, ?)`,
+        ['sess-old', 'student-1', 'pending_verification', lastWeekIso, lastWeekIso, lastWeekIso]
+      );
+      db.runSync(
+        `INSERT INTO sessions (id, student_id, mode, status, started_at, ended_at, created_at) VALUES (?, ?, 'in_person', ?, ?, ?, ?)`,
+        ['sess-new', 'student-1', 'verified', now, now, now]
+      );
+      expect(sessionsThisWeekCount()).toBe(1);
+    });
+
+    it('excludes cancelled sessions', () => {
+      const now = new Date().toISOString();
+      db.runSync(
+        `INSERT INTO sessions (id, student_id, mode, status, started_at, ended_at, created_at) VALUES (?, ?, 'in_person', ?, ?, ?, ?)`,
+        ['sess-cancelled', 'student-1', 'cancelled', now, now, now]
+      );
+      db.runSync(
+        `INSERT INTO sessions (id, student_id, mode, status, started_at, ended_at, created_at) VALUES (?, ?, 'in_person', ?, ?, ?, ?)`,
+        ['sess-ok', 'student-1', 'pending_verification', now, now, now]
+      );
+      expect(sessionsThisWeekCount()).toBe(1);
     });
   });
 });
