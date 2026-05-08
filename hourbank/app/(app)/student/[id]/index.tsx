@@ -52,7 +52,8 @@ export default function StudentLedgerScreen() {
   }
 
   // Derive display values
-  const { integer, decimal } = formatHoursDisplay(balance);
+  const { integer, decimal } = formatHoursDisplay(Math.abs(balance));
+  const isOwes = balance < 0;
   const nextSession: Session | undefined = upcoming[0];
   const modeDisplay = nextSession
     ? nextSession.mode === 'online' ? 'Online' : 'In-person'
@@ -60,7 +61,8 @@ export default function StudentLedgerScreen() {
 
   // Status tip
   let statusTip: string | null = null;
-  if (balance < 1) statusTip = '— Top-up due.';
+  if (balance < 0) statusTip = '— Owes hours. Top-up required.';
+  else if (balance < 1) statusTip = '— Top-up due.';
   else if (balance < 3) statusTip = '— Running low.';
 
   // Split full_name into first/last for display
@@ -186,13 +188,13 @@ export default function StudentLedgerScreen() {
             style={{
               fontFamily: F.mono,
               fontSize: 11,
-              color: '#8A7E72',
+              color: isOwes ? COLORS.oxblood : '#8A7E72',
               textTransform: 'uppercase',
               letterSpacing: 0.5,
               marginBottom: 12,
             }}
           >
-            ★ REMAINING BALANCE
+            {isOwes ? '★ HOURS OWED' : '★ REMAINING BALANCE'}
           </Text>
 
           {/* Hero number */}
@@ -226,7 +228,7 @@ export default function StudentLedgerScreen() {
                 marginLeft: 6,
               }}
             >
-              hours
+              {isOwes ? 'hrs owed' : 'hours'}
             </Text>
           </View>
 

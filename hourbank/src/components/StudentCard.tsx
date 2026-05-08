@@ -26,6 +26,7 @@ interface StudentCardProps {
 
 export function StudentCard({ student, onPress }: StudentCardProps) {
   const showStripe = student.current_balance < 1;
+  const stripeColor = student.current_balance < 0 ? '#7A2530' : '#9A2A2A';
   const modeLabel = student.next_session?.mode === 'in_person' ? 'In-person' : 'Online';
 
   return (
@@ -41,7 +42,7 @@ export function StudentCard({ student, onPress }: StudentCardProps) {
           alignSelf: 'stretch',
           borderRadius: 2,
           marginRight: 12,
-          backgroundColor: showStripe ? '#9A2A2A' : 'transparent',
+          backgroundColor: showStripe ? stripeColor : 'transparent',
         }}
       />
 

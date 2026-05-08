@@ -1,5 +1,6 @@
 export function formatHours(h: number): string {
   // 1.5 → "1h 30m", 0.5 → "30m", 7 → "7h", 0.083 → "5m"
+  if (h < 0) return `-${formatHours(-h)}`;
   const totalMinutes = Math.round(h * 60);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
