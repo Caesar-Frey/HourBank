@@ -1,14 +1,18 @@
 /**
  * smoke.test.ts — verifies the in-memory test harness works end-to-end.
  *
- * This is NOT a feature test — it only confirms that:
- *   1. createTestDb() opens an in-memory DB with the full schema
- *   2. We can insert and read back a student row
+ * Confirms:
+ *   1. createTestDb() opens an in-memory DB with the full schema (via initDb())
+ *   2. Basic CRUD works through the wrapped bridge
+ *   3. withTransactionSync works via appendEntry() and createPackage()
+ *   4. runSync returns { changes: number }
  */
 
 import { createTestDb, mockGetDb, resetDbSingleton } from './testDb';
 import type { TestDb } from './testDb';
 import type { Student } from '../schema';
+import { appendEntry } from '../ledger';
+import { createPackage } from '../packages';
 
 describe('test harness smoke test', () => {
   let db: TestDb;
@@ -73,5 +77,83 @@ describe('test harness smoke test', () => {
     const rows = db.getAllSync<Student>(`SELECT * FROM students WHERE status = 'active'`);
     expect(rows.length).toBe(2);
     expect(rows.map((r) => r.id).sort()).toEqual(['s1', 's2']);
+  });
+
+  it('runSync returns { changes: number }', () => {
+    const now = new Date().toISOString();
+    db.runSync(
+      `INSERT INTO students (id, full_name, grade, subject, created_at) VALUES (?, ?, ?, ?, ?)`,
+      ['s-chg', 'Delta Test', 7, 'Physics', now]
+    );
+    const result = db.runSync(
+      `UPDATE students SET subject = 'Chemistry' WHERE id = ?`,
+      ['s-chg']
+    );
+    expect(result).toHaveProperty('changes');
+    expect(result.changes).toBe(1);
+  });
+
+  it('appendEntry uses withTransactionSync and writes a ledger row', () => {
+    const now = new Date().toISOString();
+    // Seed a student
+    db.runSync(
+      `INSERT INTO students (id, full_name, grade, subject, created_at) VALUES (?, ?, ?, ?, ?)`,
+      ['s-ledger', 'Ledger Student', 9, 'Maths', now]
+    );
+
+    const entry = appendEntry({
+      studentId: 's-ledger',
+      type: 'top_up',
+      hoursDelta: 5,
+    });
+
+    expect(entry.student_id).toBe('s-ledger');
+    expect(entry.hours_delta).toBe(5);
+    expect(entry.balance_after).toBe(5);
+
+    const rows = db.getAllSync<{ id: string }>(
+      `SELECT id FROM ledger_entries WHERE student_id = ?`,
+      ['s-ledger']
+    );
+    expect(rows.length).toBe(1);
+    expect(rows[0].id).toBe(entry.id);
+  });
+
+  it('createPackage uses withTransactionSync and writes package + ledger row atomically', () => {
+    const now = new Date().toISOString();
+    db.runSync(
+      `INSERT INTO students (id, full_name, grade, subject, created_at) VALUES (?, ?, ?, ?, ?)`,
+      ['s-pkg', 'Package Student', 11, 'English', now]
+    );
+
+    const { pkg, entry } = createPackage({
+      studentId: 's-pkg',
+      hoursAdded: 10,
+      amountPaid: 1500,
+      paymentMethod: 'eft',
+      paymentRef: 'REF-001',
+    });
+
+    expect(pkg.student_id).toBe('s-pkg');
+    expect(pkg.hours_added).toBe(10);
+    expect(pkg.amount_paid).toBe(1500);
+
+    expect(entry.type).toBe('top_up');
+    expect(entry.hours_delta).toBe(10);
+    expect(entry.balance_after).toBe(10);
+    expect(entry.related_package_id).toBe(pkg.id);
+
+    // Verify both rows persisted
+    const pkgRow = db.getFirstSync<{ id: string }>(
+      `SELECT id FROM credit_packages WHERE id = ?`,
+      [pkg.id]
+    );
+    expect(pkgRow).not.toBeNull();
+
+    const ledgerRow = db.getFirstSync<{ id: string }>(
+      `SELECT id FROM ledger_entries WHERE related_package_id = ?`,
+      [pkg.id]
+    );
+    expect(ledgerRow).not.toBeNull();
   });
 });

@@ -5,45 +5,11 @@
 
 // ─── expo-sqlite → better-sqlite3 bridge ──────────────────────────────────
 // expo-sqlite v16 API used in this project:
-//   db.runSync(sql, params?)
+//   db.runSync(sql, params?)       → { changes: number }
 //   db.getAllSync(sql, params?)
 //   db.getFirstSync(sql, params?)
+//   db.withTransactionSync(fn)
 // We bridge these to better-sqlite3's synchronous API.
-
-/**
- * Wrap a better-sqlite3 Database instance in an object that matches the
- * expo-sqlite SQLiteDatabase API surface used by src/db/*.
- */
-function wrapBetterSqlite(bsDb) {
-  return {
-    _bsDb: bsDb,
-
-    runSync(sql, params) {
-      const stmt = bsDb.prepare(sql);
-      if (params !== undefined) {
-        stmt.run(...(Array.isArray(params) ? params : [params]));
-      } else {
-        stmt.run();
-      }
-    },
-
-    getAllSync(sql, params) {
-      const stmt = bsDb.prepare(sql);
-      if (params !== undefined) {
-        return stmt.all(...(Array.isArray(params) ? params : [params]));
-      }
-      return stmt.all();
-    },
-
-    getFirstSync(sql, params) {
-      const stmt = bsDb.prepare(sql);
-      if (params !== undefined) {
-        return stmt.get(...(Array.isArray(params) ? params : [params])) ?? null;
-      }
-      return stmt.get() ?? null;
-    },
-  };
-}
 
 // Use require() inside the factory so Babel hoisting doesn't cause
 // "out-of-scope variable" errors. Variable name starts with "mock" per
@@ -55,14 +21,15 @@ jest.mock('expo-sqlite', () => {
   function mockWrap(bsDb) {
     return {
       _bsDb: bsDb,
+
       runSync(sql, params) {
         const stmt = bsDb.prepare(sql);
-        if (params !== undefined) {
-          stmt.run(...(Array.isArray(params) ? params : [params]));
-        } else {
-          stmt.run();
-        }
+        const info = params !== undefined
+          ? stmt.run(...(Array.isArray(params) ? params : [params]))
+          : stmt.run();
+        return { changes: info.changes };
       },
+
       getAllSync(sql, params) {
         const stmt = bsDb.prepare(sql);
         if (params !== undefined) {
@@ -70,12 +37,17 @@ jest.mock('expo-sqlite', () => {
         }
         return stmt.all();
       },
+
       getFirstSync(sql, params) {
         const stmt = bsDb.prepare(sql);
         if (params !== undefined) {
           return stmt.get(...(Array.isArray(params) ? params : [params])) ?? null;
         }
         return stmt.get() ?? null;
+      },
+
+      withTransactionSync(fn) {
+        bsDb.transaction(fn)();
       },
     };
   }
@@ -90,9 +62,10 @@ jest.mock('expo-sqlite', () => {
   };
 });
 
-// Expose helpers on global for testDb.ts to reuse (optional — testDb.ts
-// creates its own instances directly via better-sqlite3 import).
-global.__wrapBetterSqlite = wrapBetterSqlite;
+// ─── expo-crypto ──────────────────────────────────────────────────────────
+jest.mock('expo-crypto', () => ({
+  randomUUID: () => require('crypto').randomUUID(),
+}));
 
 // ─── Silence expo-font warnings ───────────────────────────────────────────
 jest.mock('expo-font', () => ({
