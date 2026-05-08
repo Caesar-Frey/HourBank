@@ -17,10 +17,7 @@ import { useStudents } from '../../src/hooks/useStudents';
 import { sessionsThisWeek } from '../../src/db/sessions';
 import { formatHours, formatDuration } from '../../src/utils/format';
 import { useSessionTimer } from '../../src/contexts/SessionTimerContext';
-
-// Design-token colours (match tailwind.config.js)
-const SESSION_BG = '#1B1714';
-const PAPER = '#F4EFE6';
+import { COLORS } from '../../src/theme/colors';
 
 const SORT_KEY = '@hourbank/roster_sort';
 type SortMode = 'balance' | 'next_session' | 'name' | 'grade';
@@ -144,7 +141,7 @@ export default function HomeScreen() {
             onPress={() => router.push(`/student/${liveStudentId}/session?sessionId=${liveSessionId}`)}
             activeOpacity={0.85}
             style={{
-              backgroundColor: SESSION_BG,
+              backgroundColor: COLORS.sessionBg,
               borderRadius: 14,
               paddingHorizontal: 16,
               paddingVertical: 12,
@@ -154,10 +151,10 @@ export default function HomeScreen() {
               marginBottom: 16,
             }}
           >
-            <Text style={{ fontFamily: F.mono, fontSize: 13, color: PAPER }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.paper }}>
               {'● LIVE · ' + formatDuration(elapsedSeconds)}
             </Text>
-            <Feather name="arrow-right" size={14} color={PAPER} />
+            <Feather name="arrow-right" size={14} color={COLORS.paper} />
           </TouchableOpacity>
         )}
 
