@@ -1,6 +1,6 @@
 import { createTestDb, resetDbSingleton } from './testDb';
 import type { TestDb } from './testDb';
-import { createUnscheduled, startSession, sessionsThisWeekCount } from '../sessions';
+import { createUnscheduled, startSession, verifySession, sessionsThisWeekCount } from '../sessions';
 
 describe('sessions', () => {
   let db: TestDb;
@@ -86,6 +86,36 @@ describe('sessions', () => {
         ['sess-ok', 'student-1', 'pending_verification', now, now, now]
       );
       expect(sessionsThisWeekCount()).toBe(1);
+    });
+  });
+
+  describe('verifySession', () => {
+    function seedPendingSession(db: TestDb, id: string): void {
+      const now = new Date().toISOString();
+      db.runSync(
+        `INSERT INTO sessions (id, student_id, mode, status, started_at, ended_at, created_at)
+         VALUES (?, 'student-1', 'in_person', 'pending_verification', ?, ?, ?)`,
+        [id, now, now, now]
+      );
+    }
+
+    it('flips pending_verification to verified and sets verified_at', () => {
+      seedPendingSession(db, 'sess-1');
+      const result = verifySession('sess-1');
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe('verified');
+      expect(result!.verified_at).not.toBeNull();
+    });
+
+    it('is idempotent — calling on an already verified session returns null', () => {
+      seedPendingSession(db, 'sess-2');
+      verifySession('sess-2');
+      const second = verifySession('sess-2');
+      expect(second).toBeNull();
+    });
+
+    it('returns null for a non-existent session', () => {
+      expect(verifySession('nonexistent')).toBeNull();
     });
   });
 });

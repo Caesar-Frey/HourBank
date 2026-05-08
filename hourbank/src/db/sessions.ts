@@ -150,6 +150,18 @@ export function updateScheduled(
   );
 }
 
+export function verifySession(sessionId: string): Session | null {
+  const db = getDb();
+  const verifiedAt = new Date().toISOString();
+  const result = db.runSync(
+    `UPDATE sessions SET status = 'verified', verified_at = ? WHERE id = ? AND status = 'pending_verification'`,
+    [verifiedAt, sessionId]
+  );
+  if (result.changes === 0) return null;
+  const updated = db.getFirstSync<Session>(`SELECT * FROM sessions WHERE id = ? AND status = 'verified'`, [sessionId]);
+  return updated ?? null;
+}
+
 export function listUpcoming(studentId: string): Session[] {
   const db = getDb();
   return db.getAllSync<Session>(

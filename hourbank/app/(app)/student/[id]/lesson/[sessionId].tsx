@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { F } from '../../../../../src/theme/fonts';
 import { COLORS } from '../../../../../src/theme/colors';
-import { getSession } from '../../../../../src/db/sessions';
+import { getSession, verifySession } from '../../../../../src/db/sessions';
 import { getStudent } from '../../../../../src/db/students';
 import { getBalanceAt } from '../../../../../src/db/ledger';
 import { getDb } from '../../../../../src/db/client';
@@ -67,6 +67,11 @@ export default function LessonDetailScreen() {
       setBalanceAt(getBalanceAt(id, s.ended_at));
     }
   }, [id, sessionId]);
+
+  function handleConfirm() {
+    const updated = verifySession(sessionId);
+    if (updated) setSession(updated);
+  }
 
   if (!session) {
     return (
@@ -142,6 +147,24 @@ export default function LessonDetailScreen() {
             <VerificationBadge status={verificationStatus} />
           )}
         </View>
+
+        {session.status === 'pending_verification' && (
+          <TouchableOpacity
+            onPress={handleConfirm}
+            activeOpacity={0.85}
+            style={{
+              backgroundColor: COLORS.oxblood,
+              borderRadius: 14,
+              paddingVertical: 14,
+              alignItems: 'center',
+              marginBottom: 24,
+            }}
+          >
+            <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.paper }}>
+              Confirm session
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Stats row */}
         <View style={{ flexDirection: 'row', gap: 12, marginBottom: 28 }}>
