@@ -17,6 +17,58 @@ export type MonthSummary = {
   perStudent: StudentMonthRow[];
 };
 
+export type TopUpRow = {
+  id: string;
+  created_at: string;
+  student_id: string;
+  student_full_name: string;
+  hours_delta: number;
+  notes: string | null;
+};
+
+export type SessionListRow = {
+  id: string;
+  ended_at: string;
+  student_id: string;
+  student_full_name: string;
+  duration: number;
+  mode: 'in_person' | 'online';
+  status: string;
+};
+
+export function listTopUpsForMonth(year: number, monthIdx: number): TopUpRow[] {
+  const db = getDb();
+  const start = new Date(Date.UTC(year, monthIdx, 1)).toISOString();
+  const end = new Date(Date.UTC(year, monthIdx + 1, 1)).toISOString();
+  return db.getAllSync<TopUpRow>(
+    `SELECT le.id, le.created_at, le.student_id, st.full_name AS student_full_name,
+            le.hours_delta, le.reason AS notes
+     FROM ledger_entries le
+     JOIN students st ON le.student_id = st.id
+     WHERE le.type = 'top_up'
+       AND le.created_at >= ? AND le.created_at < ?
+     ORDER BY le.created_at DESC`,
+    [start, end]
+  );
+}
+
+export function listSessionsForMonth(year: number, monthIdx: number): SessionListRow[] {
+  const db = getDb();
+  const start = new Date(Date.UTC(year, monthIdx, 1)).toISOString();
+  const end = new Date(Date.UTC(year, monthIdx + 1, 1)).toISOString();
+  return db.getAllSync<SessionListRow>(
+    `SELECT s.id, s.ended_at, s.student_id, st.full_name AS student_full_name,
+            s.mode, s.status,
+            CAST(ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400) AS INTEGER) AS duration
+     FROM sessions s
+     JOIN students st ON s.student_id = st.id
+     WHERE s.status IN ('pending_verification','verified')
+       AND s.ended_at >= ? AND s.ended_at < ?
+     ORDER BY s.ended_at DESC`,
+    [start, end]
+  );
+}
+
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
