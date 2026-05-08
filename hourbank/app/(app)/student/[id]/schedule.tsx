@@ -9,7 +9,14 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import DateTimePicker from '@react-native-community/datetimepicker';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let DateTimePicker: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  DateTimePicker = require('@react-native-community/datetimepicker').default;
+} catch {
+  // Native module absent from this dev-client build — date/time inputs fall back to text
+}
 import { F } from '../../../../src/theme/fonts';
 import { ScreenHeader } from '../../../../src/components/ScreenHeader';
 import { TopicChip } from '../../../../src/components/TopicChip';
@@ -35,6 +42,8 @@ export default function ScheduleScreen() {
 function ScheduleScreenInner() {
   const { id, sessionId } = useLocalSearchParams<{ id: string; sessionId?: string }>();
   const isReschedule = !!sessionId;
+  // Diagnostic: if this log never appears, the module failed before mounting
+  console.log('[schedule] mount', { id, sessionId, pickerAvailable: !!DateTimePicker });
   const router = useRouter();
 
   // Data
@@ -247,25 +256,38 @@ function ScheduleScreenInner() {
         </View>
 
         {showDatePicker && (
-          <DateTimePicker
-            value={date}
-            mode="date"
-            minimumDate={new Date()}
-            onChange={(_event, selectedDate) => {
-              setShowDatePicker(false);
-              if (selectedDate) {
-                setDate(prev => {
-                  const d = new Date(prev);
-                  d.setFullYear(
-                    selectedDate.getFullYear(),
-                    selectedDate.getMonth(),
-                    selectedDate.getDate()
-                  );
-                  return d;
-                });
-              }
-            }}
-          />
+          DateTimePicker ? (
+            <DateTimePicker
+              value={date}
+              mode="date"
+              minimumDate={new Date()}
+              onChange={(_event: unknown, selectedDate: Date | undefined) => {
+                setShowDatePicker(false);
+                if (selectedDate) {
+                  setDate(prev => {
+                    const d = new Date(prev);
+                    d.setFullYear(
+                      selectedDate.getFullYear(),
+                      selectedDate.getMonth(),
+                      selectedDate.getDate()
+                    );
+                    return d;
+                  });
+                }
+              }}
+            />
+          ) : (
+            <TextInput
+              placeholder="YYYY-MM-DD"
+              defaultValue={date.toISOString().slice(0, 10)}
+              onSubmitEditing={e => {
+                const d = new Date(e.nativeEvent.text);
+                if (!isNaN(d.getTime())) setDate(prev => { const n = new Date(prev); n.setFullYear(d.getFullYear(), d.getMonth(), d.getDate()); return n; });
+                setShowDatePicker(false);
+              }}
+              style={{ fontFamily: F.mono, fontSize: 14, color: '#1B1714', paddingVertical: 8, paddingHorizontal: 4 }}
+            />
+          )
         )}
 
         {/* TIME */}
@@ -283,21 +305,34 @@ function ScheduleScreenInner() {
         </View>
 
         {showTimePicker && (
-          <DateTimePicker
-            value={date}
-            mode="time"
-            is24Hour={true}
-            onChange={(_event, selectedDate) => {
-              setShowTimePicker(false);
-              if (selectedDate) {
-                setDate(prev => {
-                  const d = new Date(prev);
-                  d.setHours(selectedDate.getHours(), selectedDate.getMinutes(), 0, 0);
-                  return d;
-                });
-              }
-            }}
-          />
+          DateTimePicker ? (
+            <DateTimePicker
+              value={date}
+              mode="time"
+              is24Hour={true}
+              onChange={(_event: unknown, selectedDate: Date | undefined) => {
+                setShowTimePicker(false);
+                if (selectedDate) {
+                  setDate(prev => {
+                    const d = new Date(prev);
+                    d.setHours(selectedDate.getHours(), selectedDate.getMinutes(), 0, 0);
+                    return d;
+                  });
+                }
+              }}
+            />
+          ) : (
+            <TextInput
+              placeholder="HH:MM"
+              defaultValue={`${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`}
+              onSubmitEditing={e => {
+                const [hh, mm] = e.nativeEvent.text.split(':').map(Number);
+                if (!isNaN(hh) && !isNaN(mm)) setDate(prev => { const n = new Date(prev); n.setHours(hh, mm, 0, 0); return n; });
+                setShowTimePicker(false);
+              }}
+              style={{ fontFamily: F.mono, fontSize: 14, color: '#1B1714', paddingVertical: 8, paddingHorizontal: 4 }}
+            />
+          )
         )}
 
         {/* DURATION */}
