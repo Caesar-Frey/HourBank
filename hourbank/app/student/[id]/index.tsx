@@ -301,26 +301,12 @@ export default function StudentLedgerScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* History section */}
+        {/* Upcoming section — above history */}
         <View style={{ marginTop: 32 }}>
           <Text
             style={{
               fontFamily: F.mono,
               fontSize: 11,
-              color: '#8A7E72',
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              marginBottom: 16,
-            }}
-          >
-            HISTORY
-          </Text>
-
-          {/* Upcoming sub-section */}
-          <Text
-            style={{
-              fontFamily: F.mono,
-              fontSize: 10,
               color: '#8A7E72',
               textTransform: 'uppercase',
               letterSpacing: 0.5,
@@ -336,13 +322,13 @@ export default function StudentLedgerScreen() {
                 fontFamily: F.serifItalic,
                 fontSize: 13,
                 color: '#8A7E72',
-                marginBottom: 20,
+                marginBottom: 8,
               }}
             >
               No upcoming sessions scheduled.
             </Text>
           ) : (
-            <View style={{ marginBottom: 20 }}>
+            <View style={{ marginBottom: 8 }}>
               {upcoming.map(session => (
                 <TouchableOpacity
                   key={session.id}
@@ -387,6 +373,22 @@ export default function StudentLedgerScreen() {
               ))}
             </View>
           )}
+        </View>
+
+        {/* History section */}
+        <View style={{ marginTop: 32 }}>
+          <Text
+            style={{
+              fontFamily: F.mono,
+              fontSize: 11,
+              color: '#8A7E72',
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+              marginBottom: 16,
+            }}
+          >
+            HISTORY
+          </Text>
 
           {/* Ledger sub-section */}
           <View

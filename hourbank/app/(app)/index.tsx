@@ -15,6 +15,7 @@ import { F } from '../../src/theme/fonts';
 import { StudentCard } from '../../src/components/StudentCard';
 import { useStudents } from '../../src/hooks/useStudents';
 import { sessionsThisWeek } from '../../src/db/sessions';
+import { formatHours } from '../../src/utils/format';
 
 const SORT_KEY = '@hourbank/roster_sort';
 type SortMode = 'balance' | 'next_session' | 'name' | 'grade';
@@ -106,6 +107,7 @@ export default function HomeScreen() {
 
   const weekHoursDisplay = weekHours.toFixed(1);
   const activeCount = students.length;
+  const totalCredits = useMemo(() => students.reduce((sum, s) => sum + s.current_balance, 0), [students]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F4EFE6' }} edges={['top']}>
@@ -145,7 +147,7 @@ export default function HomeScreen() {
               THIS WEEK
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 20, color: '#1B1714' }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 18, color: '#1B1714' }}>
                 {weekHoursDisplay}
               </Text>
               <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: '#4A413A' }}>hrs</Text>
@@ -165,10 +167,30 @@ export default function HomeScreen() {
               ACTIVE
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 20, color: '#1B1714' }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 18, color: '#1B1714' }}>
                 {activeCount}
               </Text>
               <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: '#4A413A' }}>students</Text>
+            </View>
+          </View>
+
+          {/* Total credits */}
+          <View style={{
+            flex: 1,
+            borderWidth: 1,
+            borderColor: '#D9CFBF',
+            borderRadius: 16,
+            backgroundColor: 'rgba(255,255,255,0.4)',
+            padding: 16,
+          }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 9, color: '#8A7E72', textTransform: 'uppercase', marginBottom: 4 }}>
+              TOTAL CRED
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 18, color: '#1B1714' }}>
+                {formatHours(totalCredits)}
+              </Text>
+              <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: '#4A413A' }}>hrs</Text>
             </View>
           </View>
         </View>

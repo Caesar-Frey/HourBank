@@ -32,23 +32,18 @@ export function StudentCard({ student, onPress }: StudentCardProps) {
     <TouchableOpacity
       onPress={onPress}
       className="border border-paperEdge rounded-2xl bg-white/40 p-4 flex-row"
-      style={{ overflow: 'hidden' }}
       activeOpacity={0.75}
     >
-      {/* Left-edge red stripe for low balance */}
-      {showStripe && (
-        <View
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 14,
-            bottom: 14,
-            width: 2,
-            backgroundColor: '#9A2A2A',
-            borderRadius: 1,
-          }}
-        />
-      )}
+      {/* Inline left rail — colored when low balance, transparent otherwise */}
+      <View
+        style={{
+          width: 3,
+          alignSelf: 'stretch',
+          borderRadius: 2,
+          marginRight: 12,
+          backgroundColor: showStripe ? '#9A2A2A' : 'transparent',
+        }}
+      />
 
       {/* Left content */}
       <View style={{ flex: 1 }}>
