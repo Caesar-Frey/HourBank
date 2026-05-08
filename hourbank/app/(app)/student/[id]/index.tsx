@@ -5,15 +5,16 @@ import {
   ScrollView,
   TouchableOpacity,
   Pressable,
-  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { F } from '../../../../src/theme/fonts';
+import { COLORS } from '../../../../src/theme/colors';
 import { useStudent } from '../../../../src/hooks/useStudent';
 import { LedgerRow } from '../../../../src/components/LedgerRow';
 import { ScreenHeader } from '../../../../src/components/ScreenHeader';
+import { ActionSheet } from '../../../../src/components/ActionSheet';
 import { formatHoursDisplay, formatScheduledTime } from '../../../../src/utils/format';
 import { Session } from '../../../../src/db/schema';
 import { LedgerEntry } from '../../../../src/db/schema';
@@ -23,6 +24,7 @@ export default function StudentLedgerScreen() {
   const router = useRouter();
   const { student, balance, ledger, upcoming, pastSessions, loading } = useStudent(id);
   const [showAllLedger, setShowAllLedger] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
 
   if (loading) {
     return (
@@ -90,6 +92,11 @@ export default function StudentLedgerScreen() {
     };
   }
 
+  function handleArchive() {
+    // TODO: implement archive logic (soft-delete: status = 'archived')
+    router.back();
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-paper" edges={['top']}>
       <ScreenHeader
@@ -98,21 +105,9 @@ export default function StudentLedgerScreen() {
         rightElement={
           <TouchableOpacity
             activeOpacity={0.7}
-            onPress={() => {
-              Alert.alert(
-                student.full_name,
-                undefined,
-                [
-                  {
-                    text: 'Edit details',
-                    onPress: () => router.push(`/student/${id}/edit`),
-                  },
-                  { text: 'Cancel', style: 'cancel' },
-                ]
-              );
-            }}
+            onPress={() => setShowMenu(true)}
           >
-            <Feather name="more-horizontal" size={20} color="#4A413A" />
+            <Feather name="more-horizontal" size={20} color={COLORS.inkSoft} />
           </TouchableOpacity>
         }
       />
@@ -437,6 +432,30 @@ export default function StudentLedgerScreen() {
           )}
         </View>
       </ScrollView>
+
+      <ActionSheet
+        visible={showMenu}
+        onDismiss={() => setShowMenu(false)}
+        items={[
+          {
+            label: 'Edit details',
+            onPress: () => { setShowMenu(false); router.push(`/student/${id}/edit`); },
+          },
+          {
+            label: 'Top up',
+            onPress: () => { setShowMenu(false); router.push(`/student/${id}/top-up`); },
+          },
+          {
+            label: 'Schedule lesson',
+            onPress: () => { setShowMenu(false); router.push(`/student/${id}/schedule`); },
+          },
+          {
+            label: 'Archive student',
+            destructive: true,
+            onPress: () => { setShowMenu(false); handleArchive(); },
+          },
+        ]}
+      />
     </SafeAreaView>
   );
 }
