@@ -13,7 +13,7 @@ import {
   TopUpRow,
   SessionListRow,
 } from '../../src/db/reports';
-import { formatRand, formatHours, formatDuration, formatLedgerDate } from '../../src/utils/format';
+import { formatRand, formatHours, formatBilledDuration, formatLedgerDate } from '../../src/utils/format';
 
 type Tab = 'cash' | 'sessions';
 
@@ -205,7 +205,7 @@ export default function ReportsScreen() {
                     </View>
                   </View>
                   <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.inkSoft }}>
-                    {formatDuration(row.duration)}
+                    {formatBilledDuration(row.duration)}
                   </Text>
                 </TouchableOpacity>
               );

@@ -45,3 +45,7 @@ export function formatHoursDisplay(h: number): { integer: string; decimal: strin
   const [int, dec] = fixed.split('.');
   return { integer: int, decimal: `.${dec}` };
 }
+
+export function formatBilledDuration(seconds: number): string {
+  return formatHours(seconds / 3600);
+}

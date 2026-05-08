@@ -9,7 +9,7 @@ import { getSession } from '../../../../../src/db/sessions';
 import { getStudent } from '../../../../../src/db/students';
 import { getBalanceAt } from '../../../../../src/db/ledger';
 import { getDb } from '../../../../../src/db/client';
-import { formatHours, formatDuration } from '../../../../../src/utils/format';
+import { formatHours, formatBilledDuration } from '../../../../../src/utils/format';
 import { VerificationBadge } from '../../../../../src/components/VerificationBadge';
 import { Session, Student, LedgerEntry } from '../../../../../src/db/schema';
 
@@ -157,7 +157,7 @@ export default function LessonDetailScreen() {
                 Duration
               </Text>
               <Text style={{ fontFamily: F.mono, fontSize: 16, color: COLORS.ink }}>
-                {formatDuration(duration)}
+                {formatBilledDuration(duration)}
               </Text>
             </View>
           )}
