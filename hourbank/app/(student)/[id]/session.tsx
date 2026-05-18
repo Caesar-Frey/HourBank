@@ -175,7 +175,7 @@ export default function SessionScreen() {
           try {
             const db = getDb();
             db.runSync(
-              `UPDATE sessions SET status = 'cancelled' WHERE id = ? AND status = 'active'`,
+              `UPDATE sessions SET status = 'cancelled' WHERE id = ? AND status IN ('active', 'paused')`,
               [sessionId]
             );
           } catch (e) {

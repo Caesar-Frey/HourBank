@@ -8,7 +8,8 @@ import React, {
   useRef,
 } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import { getActiveSession } from '../db/sessions';
+import { getDb } from '../db/client';
+import { getActiveOrPausedSession } from '../db/sessions';
 import { timerReducer, initialState, TimerStatus } from './sessionTimerReducer';
 
 // ─── Context value type ────────────────────────────────────────────────────
@@ -22,32 +23,22 @@ interface SessionTimerContextValue {
     sessionId: string,
     studentId: string,
     startedAt: string,
-    accumulatedSeconds?: number,
+    pausedSeconds?: number,
   ) => void;
-  pauseTimer: (accumulatedSeconds: number) => void;
-  resumeTimer: (startedAt: string) => void;
+  pauseTimer: () => void;
+  resumeTimer: () => void;
+  resumeFromDb: (sessionId: string, studentId: string) => void;
   endTimer: () => void;
 }
 
 const SessionTimerContext = createContext<SessionTimerContextValue | null>(null);
 
-// ─── Elapsed seconds helper ────────────────────────────────────────────────
+// ─── Elapsed computation helpers ──────────────────────────────────────────
 
-function computeElapsed(
-  status: TimerStatus,
-  startedAt: string | null,
-  accumulatedSeconds: number,
-): number {
-  if (status === 'active' && startedAt) {
-    const sinceResume = Math.floor(
-      (Date.now() - new Date(startedAt).getTime()) / 1000,
-    );
-    return Math.max(0, accumulatedSeconds + sinceResume);
-  }
-  if (status === 'paused') {
-    return accumulatedSeconds;
-  }
-  return 0;
+function computeElapsedFromDb(startedAt: string, pausedSeconds: number): number {
+  const wallMs = Date.now() - new Date(startedAt).getTime();
+  const wallSeconds = Math.floor(wallMs / 1000);
+  return Math.max(0, wallSeconds - pausedSeconds);
 }
 
 // ─── Provider ─────────────────────────────────────────────────────────────
@@ -55,25 +46,44 @@ function computeElapsed(
 export function SessionTimerProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(timerReducer, initialState);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Tick counter purely to drive re-renders while active
-  const [tick, setTick] = React.useState(0);
 
   // ── Sync from DB (mount + AppState active) ─────────────────────────────
   const syncFromDb = useCallback(() => {
     try {
-      const active = getActiveSession();
+      const active = getActiveOrPausedSession();
       if (active) {
-        // accumulatedSeconds = time from started_at minus already-paused seconds
-        const accumulatedSeconds = active.paused_seconds ?? 0;
-        dispatch({
-          type: 'START',
-          sessionId: active.id,
-          studentId: active.student_id,
-          startedAt: active.started_at!,
-          accumulatedSeconds,
-        });
+        // If session ended or was cancelled, reset and bail
+        if (active.status === 'cancelled' || active.status === 'completed') {
+          dispatch({ type: 'RESET' });
+          return;
+        }
+        const pausedSeconds = active.paused_seconds ?? 0;
+        if (active.status === 'paused' && active.paused_at) {
+          // Session is paused — compute elapsed at the moment of pause, not now
+          const pausedAtMs = new Date(active.paused_at).getTime();
+          const startedAtMs = new Date(active.started_at!).getTime();
+          const wallSeconds = Math.floor((pausedAtMs - startedAtMs) / 1000);
+          const elapsed = Math.max(0, wallSeconds - pausedSeconds);
+          dispatch({
+            type: 'START',
+            sessionId: active.id,
+            studentId: active.student_id,
+            elapsedSeconds: elapsed,
+          });
+          // Immediately pause in reducer
+          dispatch({ type: 'PAUSE' });
+        } else {
+          // Session is active
+          const elapsed = computeElapsedFromDb(active.started_at!, pausedSeconds);
+          dispatch({
+            type: 'START',
+            sessionId: active.id,
+            studentId: active.student_id,
+            elapsedSeconds: elapsed,
+          });
+        }
       } else {
-        // No active session in DB — reset if we thought there was one
+        // No active/paused session in DB — reset if we thought there was one
         dispatch({ type: 'RESET' });
       }
     } catch (e) {
@@ -96,11 +106,11 @@ export function SessionTimerProvider({ children }: { children: React.ReactNode }
     return () => sub.remove();
   }, [syncFromDb]);
 
-  // ── Interval — runs only when active ──────────────────────────────────
+  // ── Interval — TICK only when active ──────────────────────────────────
   useEffect(() => {
     if (state.status === 'active') {
       intervalRef.current = setInterval(() => {
-        setTick(t => t + 1);
+        dispatch({ type: 'TICK' });
       }, 1000);
     } else {
       if (intervalRef.current) {
@@ -116,32 +126,113 @@ export function SessionTimerProvider({ children }: { children: React.ReactNode }
     };
   }, [state.status]);
 
-  // ── Derived elapsed (recalculated on every tick) ───────────────────────
-  const elapsedSeconds = useMemo(
-    () => computeElapsed(state.status, state.startedAt, state.accumulatedSeconds),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.status, state.startedAt, state.accumulatedSeconds, tick],
-  );
-
   // ── Action creators ────────────────────────────────────────────────────
+
+  /**
+   * Call after creating a new session row. Computes elapsed from DB values.
+   * pausedSeconds defaults to 0 for brand-new sessions.
+   */
   const startTimer = useCallback(
     (
       sessionId: string,
       studentId: string,
       startedAt: string,
-      accumulatedSeconds = 0,
+      pausedSeconds = 0,
     ) => {
-      dispatch({ type: 'START', sessionId, studentId, startedAt, accumulatedSeconds });
+      const elapsed = computeElapsedFromDb(startedAt, pausedSeconds);
+      dispatch({ type: 'START', sessionId, studentId, elapsedSeconds: elapsed });
     },
     [],
   );
 
-  const pauseTimer = useCallback((accumulatedSeconds: number) => {
-    dispatch({ type: 'PAUSE', accumulatedSeconds });
-  }, []);
+  /**
+   * Pause: writes paused_at + status = 'paused' to DB, then updates reducer.
+   */
+  const pauseTimer = useCallback(() => {
+    if (state.status !== 'active' || !state.sessionId) return;
+    const now = new Date().toISOString();
+    try {
+      const db = getDb();
+      db.runSync(
+        `UPDATE sessions SET paused_at = ?, status = 'paused' WHERE id = ?`,
+        [now, state.sessionId],
+      );
+    } catch (e) {
+      console.error('SessionTimerContext pauseTimer DB error', e);
+    }
+    dispatch({ type: 'PAUSE' });
+  }, [state.status, state.sessionId]);
 
-  const resumeTimer = useCallback((startedAt: string) => {
-    dispatch({ type: 'RESUME', startedAt });
+  /**
+   * Resume: reads paused_at from DB, accumulates paused time, writes back,
+   * recomputes elapsed, then updates reducer.
+   */
+  const resumeTimer = useCallback(() => {
+    if (state.status !== 'paused' || !state.sessionId) return;
+    try {
+      const db = getDb();
+      const row = db.getFirstSync<{
+        paused_at: string | null;
+        paused_seconds: number;
+        started_at: string | null;
+      }>(
+        'SELECT paused_at, paused_seconds, started_at FROM sessions WHERE id = ?',
+        [state.sessionId],
+      );
+      if (!row || !row.started_at) return;
+
+      const now = new Date().toISOString();
+      let newPausedSeconds = row.paused_seconds ?? 0;
+      if (row.paused_at) {
+        const pausedMs = Date.now() - new Date(row.paused_at).getTime();
+        newPausedSeconds += Math.floor(pausedMs / 1000);
+      }
+
+      db.runSync(
+        `UPDATE sessions SET paused_at = NULL, paused_seconds = ?, status = 'active' WHERE id = ?`,
+        [newPausedSeconds, state.sessionId],
+      );
+
+      const elapsed = computeElapsedFromDb(row.started_at, newPausedSeconds);
+      dispatch({ type: 'RESUME', elapsedSeconds: elapsed });
+    } catch (e) {
+      console.error('SessionTimerContext resumeTimer DB error', e);
+    }
+  }, [state.status, state.sessionId]);
+
+  /**
+   * Orphan recovery: called when user taps "Continue" in orphan modal.
+   * Reads session from DB and sets up timer state accordingly.
+   */
+  const resumeFromDb = useCallback((sessionId: string, studentId: string) => {
+    try {
+      const db = getDb();
+      const row = db.getFirstSync<{
+        status: string;
+        started_at: string | null;
+        paused_at: string | null;
+        paused_seconds: number;
+      }>(
+        'SELECT status, started_at, paused_at, paused_seconds FROM sessions WHERE id = ?',
+        [sessionId],
+      );
+      if (!row || !row.started_at) return;
+
+      const pausedSeconds = row.paused_seconds ?? 0;
+
+      if (row.status === 'paused') {
+        // Compute elapsed at the moment of pause
+        const elapsed = computeElapsedFromDb(row.started_at, pausedSeconds);
+        dispatch({ type: 'START', sessionId, studentId, elapsedSeconds: elapsed });
+        dispatch({ type: 'PAUSE' });
+      } else {
+        // Active — compute current elapsed
+        const elapsed = computeElapsedFromDb(row.started_at, pausedSeconds);
+        dispatch({ type: 'START', sessionId, studentId, elapsedSeconds: elapsed });
+      }
+    } catch (e) {
+      console.error('SessionTimerContext resumeFromDb error', e);
+    }
   }, []);
 
   const endTimer = useCallback(() => {
@@ -153,13 +244,14 @@ export function SessionTimerProvider({ children }: { children: React.ReactNode }
       status: state.status,
       sessionId: state.sessionId,
       studentId: state.studentId,
-      elapsedSeconds,
+      elapsedSeconds: state.elapsedSeconds,
       startTimer,
       pauseTimer,
       resumeTimer,
+      resumeFromDb,
       endTimer,
     }),
-    [state.status, state.sessionId, state.studentId, elapsedSeconds, startTimer, pauseTimer, resumeTimer, endTimer],
+    [state.status, state.sessionId, state.studentId, state.elapsedSeconds, startTimer, pauseTimer, resumeTimer, resumeFromDb, endTimer],
   );
 
   return (

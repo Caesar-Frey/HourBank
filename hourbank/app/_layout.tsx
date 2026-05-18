@@ -6,7 +6,7 @@ import { Stack, useRouter, usePathname } from 'expo-router';
 import { initDb } from '../src/db/schema';
 import { runMigrations, MIGRATION_002, MIGRATION_003_SESSION_TYPE, MIGRATION_004_CALENDAR_EVENTS } from '../src/db/migrations';
 import { seedCatalog } from '../src/db/catalog';
-import { getActiveSession } from '../src/db/sessions';
+import { getActiveOrPausedSession } from '../src/db/sessions';
 import { getDb } from '../src/db/client';
 import {
   useFonts,
@@ -40,7 +40,7 @@ export default function RootLayout() {
     if (currentPath.includes('/session')) return;
 
     try {
-      const active = getActiveSession();
+      const active = getActiveOrPausedSession();
       if (active) {
         Alert.alert(
           'Unfinished session',
