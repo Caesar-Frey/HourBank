@@ -79,6 +79,7 @@ function ScheduleScreenInner() {
   const [addingTopic, setAddingTopic] = useState(false);
   const [customTopicInput, setCustomTopicInput] = useState('');
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     try {
@@ -177,6 +178,8 @@ function ScheduleScreenInner() {
   }
 
   function handleConfirm() {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       if (isReschedule && sessionId) {
         updateScheduled(sessionId, {
@@ -201,6 +204,8 @@ function ScheduleScreenInner() {
       router.back();
     } catch (_e) {
       Alert.alert('Error', 'Could not schedule lesson. Please try again.');
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -343,6 +348,7 @@ function ScheduleScreenInner() {
             value={date}
             mode="time"
             is24Hour
+            minimumDate={new Date()}
             onChange={(_event, selectedDate) => {
               setShowTimePicker(false);
               if (selectedDate) {
@@ -574,15 +580,17 @@ function ScheduleScreenInner() {
           </View>
         )}
 
-        {/* Confirm button — always enabled */}
+        {/* Confirm button */}
         <TouchableOpacity
           onPress={handleConfirm}
+          disabled={submitting}
           activeOpacity={0.85}
           style={{
             backgroundColor: COLORS.oxblood,
             borderRadius: 16,
             paddingVertical: 16,
             alignItems: 'center',
+            opacity: submitting ? 0.5 : 1,
           }}
         >
           <Text style={{ fontFamily: F.sansMed, fontSize: 16, color: COLORS.paper }}>

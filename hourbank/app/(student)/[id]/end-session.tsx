@@ -66,6 +66,7 @@ export default function EndSessionScreen() {
   const [notes, setNotes] = useState('');
   const [topicError, setTopicError] = useState(false);
   const [billedMinutes, setBilledMinutes] = useState(() => roundToBilledMinutes(elapsed));
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     try {
@@ -128,7 +129,7 @@ export default function EndSessionScreen() {
     try {
       const db = getDb();
       db.runSync(
-        `UPDATE sessions SET session_notes = ?, topics = ? WHERE id = ? AND status = 'active'`,
+        `UPDATE sessions SET session_notes = ?, topics = ? WHERE id = ? AND (status = 'active' OR status = 'paused')`,
         [notes.trim() || null, JSON.stringify(selectedTopics), sessionId as string]
       );
     } catch (e) {
@@ -142,6 +143,7 @@ export default function EndSessionScreen() {
   const isZeroBilling = billedMinutes === 0;
 
   const handleSaveAndSend = async () => {
+    if (submitting) return;
     if (selectedTopics.length < 1) {
       setTopicError(true);
       return;
@@ -161,6 +163,8 @@ export default function EndSessionScreen() {
   };
 
   const doSave = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const endedAt = new Date().toISOString();
       endSession({
@@ -190,6 +194,8 @@ export default function EndSessionScreen() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert('Error', msg);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -240,7 +246,7 @@ export default function EndSessionScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: PAPER }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <StatusBar barStyle="dark-content" />
       <ScrollView
@@ -513,6 +519,7 @@ export default function EndSessionScreen() {
           {/* Save & send — oxblood */}
           <TouchableOpacity
             onPress={handleSaveAndSend}
+            disabled={submitting}
             style={{
               flex: 2,
               backgroundColor: OXBLOOD,
@@ -520,6 +527,7 @@ export default function EndSessionScreen() {
               paddingVertical: 14,
               alignItems: 'center',
               justifyContent: 'center',
+              opacity: submitting ? 0.5 : 1,
             }}
             activeOpacity={0.8}
           >

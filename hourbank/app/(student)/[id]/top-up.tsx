@@ -58,6 +58,7 @@ export default function TopUpScreen() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('eft');
   const [reference, setReference] = useState('');
   const [proofUri, setProofUri] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     try {
@@ -146,6 +147,8 @@ export default function TopUpScreen() {
       }
     }
 
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const result = createPackage({
         studentId: id,
@@ -169,6 +172,8 @@ export default function TopUpScreen() {
     } catch (e) {
       console.error('Top-up failed', e);
       Alert.alert('Error', 'Failed to add credits. Please try again.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -435,6 +440,7 @@ export default function TopUpScreen() {
         {/* CTA */}
         <TouchableOpacity
           onPress={handleConfirm}
+          disabled={submitting}
           activeOpacity={0.85}
           style={{
             backgroundColor: COLORS.oxblood,
@@ -442,6 +448,7 @@ export default function TopUpScreen() {
             paddingVertical: 16,
             alignItems: 'center',
             marginTop: 28,
+            opacity: submitting ? 0.5 : 1,
           }}
         >
           <Text
