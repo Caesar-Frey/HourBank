@@ -14,7 +14,7 @@ import { F } from '../../../src/theme/fonts';
 import { formatDuration, formatScheduledTime } from '../../../src/utils/format';
 import { useSessionTimer } from '../../../src/contexts/SessionTimerContext';
 import { useStudents } from '../../../src/hooks/useStudents';
-import { listAllUpcoming, startSession, cancelSession } from '../../../src/db/sessions';
+import { listAllUpcoming, startSession, cancelSession, getActiveOrPausedSession, endSession } from '../../../src/db/sessions';
 import { ActionSheet } from '../../../src/components/ActionSheet';
 import { Session } from '../../../src/db/schema';
 
@@ -39,6 +39,39 @@ export default function SessionsTab() {
     : '—';
 
   function handleStartNow(session: UpcomingRow) {
+    const existing = getActiveOrPausedSession();
+    if (existing && existing.id !== session.id) {
+      Alert.alert(
+        'Session already active',
+        `You have an active session with ${existing.student_full_name}. What would you like to do?`,
+        [
+          {
+            text: 'Switch to it',
+            onPress: () => {
+              setShowMenu(false);
+              router.push(`/student/${existing.student_id}/session?sessionId=${existing.id}`);
+            },
+          },
+          {
+            text: 'End & start new',
+            onPress: () => {
+              cancelSession(existing.id);
+              const started = startSession(session.id);
+              startTimer(session.id, session.student_id, started.started_at!, 0);
+              setShowMenu(false);
+              loadUpcoming();
+              router.push(`/student/${session.student_id}/session?sessionId=${session.id}`);
+            },
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => setShowMenu(false),
+          },
+        ]
+      );
+      return;
+    }
     const started = startSession(session.id);
     startTimer(session.id, session.student_id, started.started_at!, 0);
     setShowMenu(false);
@@ -51,7 +84,7 @@ export default function SessionsTab() {
       'Cancel session',
       `Cancel session with ${session.student_full_name}?`,
       [
-        { text: 'Keep', style: 'cancel' },
+        { text: 'Keep', style: 'cancel', onPress: () => setShowMenu(false) },
         {
           text: 'Cancel session',
           style: 'destructive',
@@ -161,9 +194,17 @@ export default function SessionsTab() {
                     <Text style={{ color: COLORS.inkFaint }}>
                       {session.mode === 'online' ? 'ONLINE' : 'IN-PERSON'}
                     </Text>
+                    {(() => {
+                      try {
+                        const topics: string[] = JSON.parse(session.topics);
+                        return topics.length > 0
+                          ? <Text style={{ color: COLORS.inkFaint }}>{'  · ' + topics[0]}</Text>
+                          : null;
+                      } catch { return null; }
+                    })()}
                   </Text>
                 </View>
-                <Feather name="more-vertical" size={16} color={COLORS.inkFaint} />
+                <Feather name="chevron-right" size={16} color={COLORS.inkFaint} />
               </TouchableOpacity>
             ))}
           </View>

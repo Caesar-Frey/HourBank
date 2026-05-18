@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -44,10 +44,8 @@ export default function ReportsScreen() {
     }
   }, [year, monthIdx]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
+  // useFocusEffect handles both initial load and reload on tab focus;
+  // no separate useEffect needed — prevents double-load on mount
   useFocusEffect(loadData);
 
   function goPrev() {

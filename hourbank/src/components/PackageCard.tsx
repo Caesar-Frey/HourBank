@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { F } from '../theme/fonts';
+import { COLORS } from '../theme/colors';
 
 interface PackageCardProps {
   hours: number;
@@ -31,34 +32,30 @@ export function PackageCard({
       {/* Top row: badge + checkmark */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 18 }}>
         {badge ? (
-          <Text
-            style={{
-              fontFamily: F.serifItalic,
-              fontSize: 11,
-              color: '#7A2530',
-            }}
-          >
-            {badge}
-          </Text>
+          <View style={{ backgroundColor: COLORS.oxblood, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.paper, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              {badge}
+            </Text>
+          </View>
         ) : (
           <View />
         )}
         {selected && (
-          <Feather name="check" size={16} color="#7A2530" />
+          <Feather name="check" size={16} color={COLORS.oxblood} />
         )}
       </View>
 
       {/* Hours display */}
       {isCustom ? (
         <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'baseline' }}>
-          <Text style={{ fontFamily: F.serif, fontSize: 28, color: '#1B1714' }}>
+          <Text style={{ fontFamily: F.serif, fontSize: 28, color: COLORS.ink }}>
             Other
           </Text>
           <Text
             style={{
               fontFamily: F.sans,
               fontSize: 13,
-              color: '#4A413A',
+              color: COLORS.inkSoft,
               marginLeft: 6,
             }}
           >
@@ -68,14 +65,14 @@ export function PackageCard({
       ) : (
         <>
           <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'baseline' }}>
-            <Text style={{ fontFamily: F.serif, fontSize: 28, color: '#1B1714' }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 28, color: COLORS.ink }}>
               {hours}
             </Text>
             <Text
               style={{
                 fontFamily: F.serifItalic,
                 fontSize: 14,
-                color: '#4A413A',
+                color: COLORS.inkSoft,
                 marginLeft: 2,
               }}
             >
@@ -88,7 +85,7 @@ export function PackageCard({
               style={{
                 fontFamily: F.mono,
                 fontSize: 14,
-                color: '#1B1714',
+                color: COLORS.ink,
                 marginTop: 4,
               }}
             >
@@ -101,7 +98,7 @@ export function PackageCard({
               style={{
                 fontFamily: F.serifItalic,
                 fontSize: 12,
-                color: '#3F5641',
+                color: COLORS.moss,
                 marginTop: 2,
               }}
             >

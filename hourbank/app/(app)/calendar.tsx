@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, type Href } from 'expo-router';
+import { useRouter, useFocusEffect, type Href } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -582,7 +582,7 @@ export default function CalendarScreen() {
   }, [cursor]);
 
   // B1 + B5: Fetch events when cursor / view / filters change (skip until filters loaded)
-  useEffect(() => {
+  const fetchEvents = useCallback(() => {
     if (!filtersLoaded) return;
 
     let startISO: string;
@@ -609,6 +609,13 @@ export default function CalendarScreen() {
       setEvents([]);
     }
   }, [cursor, view, filters, filtersLoaded, monthGrid]);
+
+  useEffect(() => {
+    fetchEvents();
+  }, [fetchEvents]);
+
+  // Reload events when navigating back from create/edit screens
+  useFocusEffect(useCallback(() => { fetchEvents(); }, [fetchEvents]));
 
   // ── Navigation ──────────────────────────────────────────────────────────────
 

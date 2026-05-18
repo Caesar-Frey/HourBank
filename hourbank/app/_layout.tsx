@@ -78,12 +78,17 @@ export default function RootLayout() {
   }
 
   useEffect(() => {
-    initDb();
-    runMigrations([MIGRATION_002, MIGRATION_003_SESSION_TYPE, MIGRATION_004_CALENDAR_EVENTS, MIGRATION_005_LEDGER_CONSTRAINTS]);
-    seedCatalog();
+    try {
+      initDb();
+      runMigrations([MIGRATION_002, MIGRATION_003_SESSION_TYPE, MIGRATION_004_CALENDAR_EVENTS, MIGRATION_005_LEDGER_CONSTRAINTS]);
+      seedCatalog();
 
-    // Check for orphan session on launch
-    checkOrphanSession(pathname);
+      // Check for orphan session on launch
+      checkOrphanSession(pathname);
+    } catch (e) {
+      console.error('DB init failed', e);
+      // Surface to user if needed — for now log is sufficient for MVP
+    }
   }, []);
 
   // Separate effect so AppState listener always has the current pathname
