@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { getStudent } from '../db/students';
 import { Student } from '../db/schema';
@@ -18,7 +18,10 @@ export function useStudent(id: string) {
   const load = useCallback(() => {
     try {
       const s = getStudent(id);
-      if (!s) return;
+      if (!s) {
+        setStudent(null);
+        return;
+      }
       setStudent(s);
       setBalance(currentBalance(id));
       setLedger(lastNEntries(id, 5));
@@ -31,6 +34,18 @@ export function useStudent(id: string) {
     }
   }, [id]);
 
+  // Reset stale state immediately when id changes, then reload
+  useEffect(() => {
+    setStudent(null);
+    setBalance(0);
+    setLedger([]);
+    setUpcoming([]);
+    setPastSessions([]);
+    setLoading(true);
+    load();
+  }, [id]);
+
+  // Refresh on focus (returning from top-up, edit, etc.)
   useFocusEffect(load);
 
   const canStartSession = balance > 0;
