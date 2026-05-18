@@ -105,6 +105,7 @@ export default function RootLayout() {
         <Stack.Screen name="(student)" options={{ headerShown: false }} />
         <Stack.Screen name="(calendar-event)" options={{ headerShown: false }} />
         <Stack.Screen name="transaction" options={{ headerShown: false }} />
+        <Stack.Screen name="lesson" options={{ headerShown: false }} />
       </Stack>
     </SafeAreaProvider>
   );

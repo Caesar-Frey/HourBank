@@ -3,15 +3,14 @@ import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { F } from '../../../../src/theme/fonts';
-import { COLORS } from '../../../../src/theme/colors';
-import { getSession } from '../../../../src/db/sessions';
-import { getStudent } from '../../../../src/db/students';
-import { getBalanceAt } from '../../../../src/db/ledger';
-import { getDb } from '../../../../src/db/client';
-import { formatHours, formatBilledDuration } from '../../../../src/utils/format';
-import { Session, Student, LedgerEntry } from '../../../../src/db/schema';
-import { shareSessionReceipt, getSessionReceipt } from '../../../../src/utils/receipt';
+import { F } from '../../src/theme/fonts';
+import { COLORS } from '../../src/theme/colors';
+import { getSessionWithStudent } from '../../src/db/sessions';
+import { getBalanceAt } from '../../src/db/ledger';
+import { getDb } from '../../src/db/client';
+import { formatHours, formatBilledDuration } from '../../src/utils/format';
+import { Session, LedgerEntry } from '../../src/db/schema';
+import { shareSessionReceipt, getSessionReceipt } from '../../src/utils/receipt';
 
 function formatLessonDate(isoStr: string): string {
   const d = new Date(isoStr);
@@ -41,22 +40,27 @@ function parseTopics(raw: string): string[] {
 }
 
 export default function LessonDetailScreen() {
-  const { id, sessionId } = useLocalSearchParams<{ id: string; sessionId: string }>();
+  const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
   const router = useRouter();
 
   const [session, setSession] = useState<Session | null>(null);
-  const [student, setStudent] = useState<Student | null>(null);
+  const [studentName, setStudentName] = useState<string | null>(null);
+  const [studentSubject, setStudentSubject] = useState<string | null>(null);
+  const [studentGrade, setStudentGrade] = useState<number | null>(null);
   const [ledgerEntry, setLedgerEntry] = useState<LedgerEntry | null>(null);
   const [balanceAt, setBalanceAt] = useState<number>(0);
   const [receiptSent, setReceiptSent] = useState(false);
 
   useEffect(() => {
-    const s = getSession(sessionId);
-    if (!s) return;
-    setSession(s);
+    const row = getSessionWithStudent(sessionId);
+    if (!row) return;
 
-    const stu = getStudent(id);
-    setStudent(stu ?? null);
+    // row extends Session — split off session fields vs student fields
+    const { student_name, grade, subject, curriculum: _curriculum, ...sessionFields } = row;
+    setSession(sessionFields as Session);
+    setStudentName(student_name);
+    setStudentSubject(subject);
+    setStudentGrade(grade);
 
     const entry = getDb().getFirstSync<LedgerEntry>(
       'SELECT * FROM ledger_entries WHERE related_session_id = ? LIMIT 1',
@@ -64,14 +68,13 @@ export default function LessonDetailScreen() {
     );
     setLedgerEntry(entry ?? null);
 
-    if (s.ended_at) {
-      setBalanceAt(getBalanceAt(id, s.ended_at));
+    if (sessionFields.ended_at) {
+      setBalanceAt(getBalanceAt(sessionFields.student_id, sessionFields.ended_at));
     }
 
-    // Check if a receipt already exists for this session
     const existingReceipt = getSessionReceipt(sessionId);
     setReceiptSent(existingReceipt != null);
-  }, [id, sessionId]);
+  }, [sessionId]);
 
   async function handleSendReceipt() {
     try {
@@ -124,9 +127,9 @@ export default function LessonDetailScreen() {
         </TouchableOpacity>
 
         {/* Student name */}
-        {student && (
+        {studentName && (
           <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.ink, marginBottom: 4 }}>
-            {student.full_name}
+            {studentName}
           </Text>
         )}
 
@@ -230,14 +233,14 @@ export default function LessonDetailScreen() {
         </View>
 
         {/* Subject + grade */}
-        {student && (
+        {studentSubject && studentGrade != null && (
           <View style={{ marginBottom: 24 }}>
             <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 6 }}>
               Subject
             </Text>
             <Text style={{ fontFamily: F.sans, fontSize: 15, color: COLORS.ink }}>
-              {student.subject}
-              <Text style={{ color: COLORS.inkSoft }}>{' · Grade '}{student.grade}</Text>
+              {studentSubject}
+              <Text style={{ color: COLORS.inkSoft }}>{' · Grade '}{studentGrade}</Text>
             </Text>
           </View>
         )}

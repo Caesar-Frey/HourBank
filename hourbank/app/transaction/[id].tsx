@@ -252,7 +252,7 @@ export default function TransactionDetailScreen() {
               <>
                 {DIVIDER}
                 <TouchableOpacity
-                  onPress={() => router.push(`/student/${detail.student_id}/lesson/${detail.related_session_id}`)}
+                  onPress={() => router.push(`/lesson/${detail.related_session_id}`)}
                   activeOpacity={0.7}
                   style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
                 >

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import { F } from '../../src/theme/fonts';
@@ -151,7 +152,7 @@ export default function ReportsScreen() {
               return (
                 <TouchableOpacity
                   key={row.id}
-                  onPress={() => router.push(`/student/${row.student_id}`)}
+                  onPress={() => router.push(`/transaction/${row.id}`)}
                   activeOpacity={0.7}
                   style={{ borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
                 >
@@ -162,7 +163,10 @@ export default function ReportsScreen() {
                     </View>
                     <Text style={{ fontFamily: F.serif, fontSize: 15, color: COLORS.ink }}>{row.student_full_name}</Text>
                   </View>
-                  <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.moss }}>+{formatHours(row.hours_delta)}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.moss }}>+{formatHours(row.hours_delta)}</Text>
+                    <Feather name="chevron-right" size={14} color={COLORS.inkFaint} />
+                  </View>
                 </TouchableOpacity>
               );
             })
@@ -182,7 +186,7 @@ export default function ReportsScreen() {
               return (
                 <TouchableOpacity
                   key={row.id}
-                  onPress={() => router.push(`/student/${row.student_id}/lesson/${row.id}`)}
+                  onPress={() => router.push(`/lesson/${row.id}`)}
                   activeOpacity={0.7}
                   style={{ borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
                 >
@@ -201,6 +205,14 @@ export default function ReportsScreen() {
                         <Text style={{ fontFamily: F.mono, fontSize: 10, color: isVerified ? COLORS.moss : COLORS.amber }}>
                           {isVerified ? 'VERIFIED' : 'PENDING'}
                         </Text>
+                        {row.session_type && row.session_type !== 'general' && (
+                          <>
+                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>·</Text>
+                            <Text style={{ fontFamily: F.sans, fontSize: 10, color: COLORS.inkFaint }}>
+                              {row.session_type === 'review' ? 'Review' : row.session_type === 'test_prep' ? 'Test prep' : 'Exam prep'}
+                            </Text>
+                          </>
+                        )}
                       </View>
                     </View>
                   </View>

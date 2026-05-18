@@ -14,6 +14,7 @@ export function createScheduled(data: {
   scheduledFor: string;
   estimatedDurationMinutes: number;
   mode: Session['mode'];
+  session_type: Session['session_type'];
   topics?: string[];
   notes?: string;
 }): Session {
@@ -23,9 +24,9 @@ export function createScheduled(data: {
   const topicsJson = JSON.stringify(data.topics ?? []);
 
   db.runSync(
-    `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)`,
-    [id, data.studentId, data.mode, data.scheduledFor, data.estimatedDurationMinutes, topicsJson, data.notes ?? null, now]
+    `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, session_type, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)`,
+    [id, data.studentId, data.mode, data.scheduledFor, data.estimatedDurationMinutes, topicsJson, data.notes ?? null, data.session_type, now]
   );
 
   return {
@@ -38,23 +39,29 @@ export function createScheduled(data: {
     ended_at: null,
     paused_seconds: 0,
     duration_minutes: null,
+    billed_minutes: null,
+    paused_at: null,
+    cancel_reason: null,
     topics: topicsJson,
     session_notes: data.notes ?? null,
-    status: 'scheduled',
+    status: 'scheduled' as const,
+    session_type: data.session_type,
     verified_at: null,
+    updated_at: null,
+    tutor_id: null,
     created_at: now,
   };
 }
 
-export function createUnscheduled(studentId: string, mode: Session['mode']): Session {
+export function createUnscheduled(studentId: string, mode: Session['mode'], session_type: Session['session_type'] = 'general'): Session {
   const db = getDb();
   const id = newId();
   const now = new Date().toISOString();
 
   db.runSync(
-    `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, status, created_at)
-     VALUES (?, ?, ?, NULL, NULL, ?, NULL, 'scheduled', ?)`,
-    [id, studentId, mode, '[]', now]
+    `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, session_type, status, created_at)
+     VALUES (?, ?, ?, NULL, NULL, ?, NULL, ?, 'scheduled', ?)`,
+    [id, studentId, mode, '[]', session_type, now]
   );
 
   return {
@@ -67,10 +74,16 @@ export function createUnscheduled(studentId: string, mode: Session['mode']): Ses
     ended_at: null,
     paused_seconds: 0,
     duration_minutes: null,
+    billed_minutes: null,
+    paused_at: null,
+    cancel_reason: null,
     topics: '[]',
     session_notes: null,
-    status: 'scheduled',
+    status: 'scheduled' as const,
+    session_type,
     verified_at: null,
+    updated_at: null,
+    tutor_id: null,
     created_at: now,
   };
 }
@@ -78,6 +91,29 @@ export function createUnscheduled(studentId: string, mode: Session['mode']): Ses
 export function startSession(sessionId: string): Session {
   const db = getDb();
   const now = new Date().toISOString();
+
+  // Guard: throw if another session is already active/paused
+  const existing = getActiveOrPausedSession();
+  if (existing && existing.id !== sessionId) {
+    throw new Error('ALREADY_ACTIVE');
+  }
+
+  // Guard: max_owe_hours check
+  const targetSession = db.getFirstSync<{ student_id: string }>('SELECT student_id FROM sessions WHERE id = ?', [sessionId]);
+  if (targetSession) {
+    const profile = db.getFirstSync<{ max_owe_hours: number }>('SELECT max_owe_hours FROM tutor_profile LIMIT 1');
+    const maxOwe = profile?.max_owe_hours ?? 0;
+    if (maxOwe > 0) {
+      const balRow = db.getFirstSync<{ bal: number }>(
+        'SELECT COALESCE(SUM(hours_delta), 0) AS bal FROM ledger_entries WHERE student_id = ?',
+        [targetSession.student_id]
+      );
+      const bal = balRow?.bal ?? 0;
+      if (bal <= -maxOwe) {
+        throw new Error('MAX_OWE_EXCEEDED');
+      }
+    }
+  }
 
   db.runSync(
     `UPDATE sessions SET started_at = ?, status = 'active' WHERE id = ?`,
@@ -93,6 +129,7 @@ export function endSession(data: {
   sessionId: string;
   endedAt: string;
   durationMinutes: number;
+  billedMinutes: number;
   pausedSeconds: number;
   topics: string[];
   sessionNotes?: string;
@@ -109,15 +146,15 @@ export function endSession(data: {
 
     const topicsJson = JSON.stringify(data.topics);
     const result = db.runSync(
-      `UPDATE sessions SET ended_at = ?, duration_minutes = ?, paused_seconds = ?, topics = ?, session_notes = ?, status = 'pending_verification' WHERE id = ? AND status = 'active'`,
-      [data.endedAt, data.durationMinutes, data.pausedSeconds, topicsJson, data.sessionNotes ?? null, data.sessionId]
+      `UPDATE sessions SET ended_at = ?, duration_minutes = ?, billed_minutes = ?, paused_seconds = ?, topics = ?, session_notes = ?, status = 'completed' WHERE id = ? AND status = 'active'`,
+      [data.endedAt, data.durationMinutes, data.billedMinutes, data.pausedSeconds, topicsJson, data.sessionNotes ?? null, data.sessionId]
     );
     if (result.changes === 0) throw new Error(`Failed to end session ${data.sessionId} — status may have changed`);
 
     entry = appendEntryInTx({
       studentId: existing.student_id,
       type: 'session_deduction',
-      hoursDelta: -(data.durationMinutes / 60),
+      hoursDelta: -(data.billedMinutes / 60),
       relatedSessionId: data.sessionId,
     });
 
@@ -128,7 +165,10 @@ export function endSession(data: {
 }
 
 export function cancelSession(sessionId: string): void {
-  getDb().runSync(
+  const db = getDb();
+  const session = db.getFirstSync<Session>('SELECT status FROM sessions WHERE id = ?', [sessionId]);
+  if (!session || !['scheduled', 'active', 'paused'].includes(session.status)) return;
+  db.runSync(
     `UPDATE sessions SET status = 'cancelled' WHERE id = ?`,
     [sessionId]
   );
@@ -140,26 +180,15 @@ export function updateScheduled(
     scheduledFor: string;
     estimatedDurationMinutes: number;
     mode: Session['mode'];
+    session_type: Session['session_type'];
     topics: string[];
     notes?: string;
   }
 ): void {
   getDb().runSync(
-    `UPDATE sessions SET scheduled_for = ?, estimated_duration_minutes = ?, mode = ?, topics = ?, session_notes = ? WHERE id = ? AND status = 'scheduled'`,
-    [data.scheduledFor, data.estimatedDurationMinutes, data.mode, JSON.stringify(data.topics), data.notes ?? null, sessionId]
+    `UPDATE sessions SET scheduled_for = ?, estimated_duration_minutes = ?, mode = ?, topics = ?, session_notes = ?, session_type = ? WHERE id = ? AND status = 'scheduled'`,
+    [data.scheduledFor, data.estimatedDurationMinutes, data.mode, JSON.stringify(data.topics), data.notes ?? null, data.session_type, sessionId]
   );
-}
-
-export function verifySession(sessionId: string): Session | null {
-  const db = getDb();
-  const verifiedAt = new Date().toISOString();
-  const result = db.runSync(
-    `UPDATE sessions SET status = 'verified', verified_at = ? WHERE id = ? AND status = 'pending_verification'`,
-    [verifiedAt, sessionId]
-  );
-  if (result.changes === 0) return null;
-  const updated = db.getFirstSync<Session>(`SELECT * FROM sessions WHERE id = ? AND status = 'verified'`, [sessionId]);
-  return updated ?? null;
 }
 
 export function listUpcoming(studentId: string): Session[] {
@@ -203,14 +232,13 @@ export function getActiveSession(): (Session & { student_full_name: string }) | 
   ) ?? null;
 }
 
-export function autoVerifySweep(windowHours: number): number {
+export function getActiveOrPausedSession(): (Session & { student_full_name: string }) | null {
   const db = getDb();
-  const result = db.runSync(
-    `UPDATE sessions SET status = 'verified', verified_at = datetime('now')
-     WHERE status = 'pending_verification' AND ended_at <= datetime('now', '-' || ? || ' hours')`,
-    [windowHours]
-  );
-  return result.changes;
+  return db.getFirstSync<Session & { student_full_name: string }>(
+    `SELECT sessions.*, students.full_name AS student_full_name
+     FROM sessions JOIN students ON sessions.student_id = students.id
+     WHERE sessions.status IN ('active','paused') LIMIT 1`
+  ) ?? null;
 }
 
 export function sessionsThisWeek(): number {
@@ -219,7 +247,7 @@ export function sessionsThisWeek(): number {
   startOfWeek.setHours(0, 0, 0, 0);
   startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
   const row = db.getFirstSync<{ total: number }>(
-    `SELECT COALESCE(SUM(duration_minutes), 0) as total FROM sessions WHERE status IN ('pending_verification','verified') AND ended_at >= ?`,
+    `SELECT COALESCE(SUM(duration_minutes), 0) as total FROM sessions WHERE status = 'completed' AND ended_at >= ?`,
     [startOfWeek.toISOString()]
   );
   return (row?.total ?? 0) / 60;
@@ -231,8 +259,19 @@ export function sessionsThisWeekCount(): number {
   startOfWeek.setHours(0, 0, 0, 0);
   startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
   const row = db.getFirstSync<{ count: number }>(
-    `SELECT COUNT(*) as count FROM sessions WHERE status IN ('pending_verification','verified') AND ended_at >= ?`,
+    `SELECT COUNT(*) as count FROM sessions WHERE status = 'completed' AND ended_at >= ?`,
     [startOfWeek.toISOString()]
   );
   return row?.count ?? 0;
+}
+
+export function getSessionWithStudent(sessionId: string): (Session & { student_name: string; grade: number; subject: string; curriculum: string }) | null {
+  const db = getDb();
+  return db.getFirstSync<Session & { student_name: string; grade: number; subject: string; curriculum: string }>(
+    `SELECT s.*, st.full_name as student_name, st.grade, st.subject, st.curriculum
+     FROM sessions s
+     JOIN students st ON s.student_id = st.id
+     WHERE s.id = ?`,
+    [sessionId]
+  ) ?? null;
 }

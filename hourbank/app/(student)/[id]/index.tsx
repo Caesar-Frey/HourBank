@@ -446,7 +446,7 @@ export default function StudentLedgerScreen() {
                 key={entry.id}
                 entry={buildLedgerEntryWithSession(entry)}
                 onPress={entry.related_session_id
-                  ? () => router.push(`/student/${id}/lesson/${entry.related_session_id}`)
+                  ? () => router.push(`/lesson/${entry.related_session_id}`)
                   : undefined}
               />
             ))
