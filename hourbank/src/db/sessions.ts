@@ -142,11 +142,11 @@ export function endSession(data: {
     // read inside transaction
     const existing = db.getFirstSync<Session>('SELECT * FROM sessions WHERE id = ?', [data.sessionId]);
     if (!existing) throw new Error(`Session ${data.sessionId} not found`);
-    if (existing.status !== 'active') throw new Error(`Session ${data.sessionId} is not active (status: ${existing.status})`);
+    if (!['active', 'paused'].includes(existing.status)) throw new Error(`Session ${data.sessionId} cannot be ended (status: ${existing.status})`);
 
     const topicsJson = JSON.stringify(data.topics);
     const result = db.runSync(
-      `UPDATE sessions SET ended_at = ?, duration_minutes = ?, billed_minutes = ?, paused_seconds = ?, topics = ?, session_notes = ?, status = 'completed' WHERE id = ? AND status = 'active'`,
+      `UPDATE sessions SET ended_at = ?, duration_minutes = ?, billed_minutes = ?, paused_seconds = ?, topics = ?, session_notes = ?, status = 'completed' WHERE id = ? AND status IN ('active', 'paused')`,
       [data.endedAt, data.durationMinutes, data.billedMinutes, data.pausedSeconds, topicsJson, data.sessionNotes ?? null, data.sessionId]
     );
     if (result.changes === 0) throw new Error(`Failed to end session ${data.sessionId} — status may have changed`);
@@ -204,7 +204,9 @@ export function listAllUpcoming(): Array<Session & { student_full_name: string; 
   return db.getAllSync<Session & { student_full_name: string; student_subject: string }>(
     `SELECT sessions.*, students.full_name AS student_full_name, students.subject AS student_subject
      FROM sessions JOIN students ON sessions.student_id = students.id
-     WHERE sessions.status = 'scheduled' AND sessions.scheduled_for >= datetime('now')
+     WHERE sessions.status = 'scheduled'
+       AND sessions.scheduled_for >= datetime('now')
+       AND students.status NOT IN ('archived', 'paused')
      ORDER BY sessions.scheduled_for ASC`
   );
 }

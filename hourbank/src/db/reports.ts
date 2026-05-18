@@ -34,6 +34,7 @@ export type SessionListRow = {
   duration: number;
   mode: 'in_person' | 'online';
   status: string;
+  session_type: 'general' | 'review' | 'test_prep' | 'exam_prep';
 };
 
 export function listTopUpsForMonth(year: number, monthIdx: number): TopUpRow[] {
@@ -58,11 +59,11 @@ export function listSessionsForMonth(year: number, monthIdx: number): SessionLis
   const end = new Date(Date.UTC(year, monthIdx + 1, 1)).toISOString();
   return db.getAllSync<SessionListRow>(
     `SELECT s.id, s.ended_at, s.student_id, st.full_name AS student_full_name,
-            s.mode, s.status,
+            s.mode, s.status, s.session_type,
             CAST(ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400) AS INTEGER) AS duration
      FROM sessions s
      JOIN students st ON s.student_id = st.id
-     WHERE s.status IN ('pending_verification','verified')
+     WHERE s.status = 'completed'
        AND s.ended_at >= ? AND s.ended_at < ?
      ORDER BY s.ended_at DESC`,
     [start, end]
@@ -76,18 +77,18 @@ const MONTH_NAMES = [
 
 export function getMonthSummary(year: number, monthZeroIdx: number): MonthSummary {
   const db = getDb();
-  const start = new Date(year, monthZeroIdx, 1).toISOString();
-  const end = new Date(year, monthZeroIdx + 1, 1).toISOString();
+  const start = new Date(Date.UTC(year, monthZeroIdx, 1)).toISOString();
+  const end = new Date(Date.UTC(year, monthZeroIdx + 1, 1)).toISOString();
   const monthLabel = `${MONTH_NAMES[monthZeroIdx]} ${year}`;
 
   type SessionRow = { student_id: string; name: string; grade: number; subject: string; hours: number; sessions: number };
   const sessionRows = db.getAllSync<SessionRow>(
     `SELECT s.student_id, st.full_name AS name, st.grade, st.subject,
-            COALESCE(SUM(s.duration_minutes) / 60.0, 0) AS hours,
+            COALESCE(SUM(COALESCE(s.billed_minutes, s.duration_minutes)) / 60.0, 0) AS hours,
             COUNT(*) AS sessions
      FROM sessions s
      JOIN students st ON s.student_id = st.id
-     WHERE s.status IN ('pending_verification','verified')
+     WHERE s.status = 'completed'
        AND s.ended_at >= ? AND s.ended_at < ?
      GROUP BY s.student_id`,
     [start, end]
