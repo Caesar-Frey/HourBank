@@ -4,9 +4,10 @@ import { Alert, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack, useRouter, usePathname } from 'expo-router';
 import { initDb } from '../src/db/schema';
-import { getActiveSession, autoVerifySweep } from '../src/db/sessions';
+import { runMigrations, MIGRATION_002, MIGRATION_003_SESSION_TYPE, MIGRATION_004_CALENDAR_EVENTS } from '../src/db/migrations';
+import { seedCatalog } from '../src/db/catalog';
+import { getActiveSession } from '../src/db/sessions';
 import { getDb } from '../src/db/client';
-import { VERIFICATION_WINDOW_HOURS } from '../src/config';
 import {
   useFonts,
   Fraunces_300Light_Italic,
@@ -21,15 +22,6 @@ import {
   GeistMono_500Medium,
 } from '@expo-google-fonts/geist-mono';
 
-function runAutoVerify() {
-  try {
-    const count = autoVerifySweep(VERIFICATION_WINDOW_HOURS);
-    if (count > 0) console.log(`[AutoVerify] Verified ${count} session(s)`);
-  } catch (e) {
-    console.error('[AutoVerify] error', e);
-  }
-}
-
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Fraunces_300Light_Italic,
@@ -43,9 +35,9 @@ export default function RootLayout() {
   const router = useRouter();
   const pathname = usePathname();
 
-  function checkOrphanSession() {
+  function checkOrphanSession(currentPath: string) {
     // Orphan session recovery — only when not already on the session screen
-    if (pathname.includes('/session')) return;
+    if (currentPath.includes('/session')) return;
 
     try {
       const active = getActiveSession();
@@ -87,27 +79,33 @@ export default function RootLayout() {
 
   useEffect(() => {
     initDb();
-
-    // Run auto-verify on launch
-    runAutoVerify();
+    runMigrations([MIGRATION_002, MIGRATION_003_SESSION_TYPE, MIGRATION_004_CALENDAR_EVENTS]);
+    seedCatalog();
 
     // Check for orphan session on launch
-    checkOrphanSession();
+    checkOrphanSession(pathname);
+  }, []);
 
-    // AppState listener: run auto-verify when app returns to foreground
+  // Separate effect so AppState listener always has the current pathname
+  useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        runAutoVerify();
+        checkOrphanSession(pathname);
       }
     });
     return () => sub.remove();
-  }, []);
+  }, [pathname]);
 
   if (!fontsLoaded) return null;
 
   return (
     <SafeAreaProvider>
-      <Stack screenOptions={{ headerShown: false }} />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(app)" options={{ headerShown: false }} />
+        <Stack.Screen name="(student)" options={{ headerShown: false }} />
+        <Stack.Screen name="(calendar-event)" options={{ headerShown: false }} />
+        <Stack.Screen name="transaction" options={{ headerShown: false }} />
+      </Stack>
     </SafeAreaProvider>
   );
 }

@@ -10,21 +10,20 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { F } from '../../../src/theme/fonts';
-import { SHOW_ALL_GRADES_KEY } from '../profile';
-import { ScreenHeader } from '../../../src/components/ScreenHeader';
-import { createStudent } from '../../../src/db/students';
-import { SUBJECT_SUGGESTIONS } from '../../../src/config';
-import { Student } from '../../../src/db/schema';
-
-const CURRICULA: Student['curriculum'][] = ['CAPS', 'IEB', 'Cambridge', 'Other'];
+import { F } from '../../src/theme/fonts';
+import { COLORS } from '../../src/theme/colors';
+import { SHOW_ALL_GRADES_KEY } from '../(app)/profile';
+import { ScreenHeader } from '../../src/components/ScreenHeader';
+import { createStudent } from '../../src/db/students';
+import { listSubjects, listCurricula } from '../../src/db/catalog';
+import { Student } from '../../src/db/schema';
 const ALL_GRADES = Array.from({ length: 12 }, (_, i) => i + 1);
 const HS_GRADES = [8, 9, 10, 11, 12];
 
 const LABEL_STYLE = {
   fontFamily: F.mono,
   fontSize: 11,
-  color: '#8A7E72',
+  color: COLORS.inkFaint,
   textTransform: 'uppercase' as const,
   marginBottom: 4,
 };
@@ -32,9 +31,9 @@ const LABEL_STYLE = {
 const INPUT_STYLE = {
   fontFamily: F.sans,
   fontSize: 16,
-  color: '#1B1714',
+  color: COLORS.ink,
   borderBottomWidth: 1,
-  borderBottomColor: '#D9CFBF',
+  borderBottomColor: COLORS.paperEdge,
   paddingVertical: 12,
   marginBottom: 24,
 };
@@ -46,33 +45,63 @@ export default function NewStudentScreen() {
   const [showSubjectSuggestions, setShowSubjectSuggestions] = useState(false);
   const [curriculum, setCurriculum] = useState<Student['curriculum']>('CAPS');
   const [showAllGrades, setShowAllGrades] = useState(false);
+  const [subjectSuggestions, setSubjectSuggestions] = useState<string[]>([]);
+  const [curriculaOptions, setCurriculaOptions] = useState<Student['curriculum'][]>(['CAPS', 'IEB', 'Cambridge', 'Other']);
+  const [nameError, setNameError] = useState('');
+  const [gradeError, setGradeError] = useState('');
+  const [subjectError, setSubjectError] = useState('');
 
   useEffect(() => {
     AsyncStorage.getItem(SHOW_ALL_GRADES_KEY).then(v => {
       setShowAllGrades(v === 'true');
     });
+    try {
+      const dbSubjects = listSubjects();
+      if (dbSubjects.length > 0) {
+        setSubjectSuggestions(dbSubjects.map(s => s.name));
+      }
+      const dbCurricula = listCurricula();
+      if (dbCurricula.length > 0) {
+        const validCurricula = dbCurricula
+          .map(c => c.name)
+          .filter((n): n is Student['curriculum'] =>
+            n === 'CAPS' || n === 'IEB' || n === 'Cambridge' || n === 'Other'
+          );
+        if (validCurricula.length > 0) setCurriculaOptions(validCurricula);
+      }
+    } catch {
+      // Fall back to defaults already set in state
+    }
   }, []);
 
   const grades = showAllGrades ? ALL_GRADES : HS_GRADES;
 
   function handleSubmit() {
+    let valid = true;
     if (!fullName.trim()) {
-      Alert.alert('Required', 'Please enter the student\'s full name.');
-      return;
+      setNameError('Please enter the student\'s full name.');
+      valid = false;
+    } else {
+      setNameError('');
     }
     if (grade === null) {
-      Alert.alert('Required', 'Please select a grade.');
-      return;
+      setGradeError('Please select a grade.');
+      valid = false;
+    } else {
+      setGradeError('');
     }
     if (!subject.trim()) {
-      Alert.alert('Required', 'Please enter a subject.');
-      return;
+      setSubjectError('Please enter a subject.');
+      valid = false;
+    } else {
+      setSubjectError('');
     }
+    if (!valid) return;
 
     try {
       createStudent({
         fullName: fullName.trim(),
-        grade,
+        grade: grade!,
         subject: subject.trim(),
         curriculum,
       });
@@ -82,12 +111,12 @@ export default function NewStudentScreen() {
     }
   }
 
-  const filteredSuggestions = SUBJECT_SUGGESTIONS.filter(s =>
+  const filteredSuggestions = subjectSuggestions.filter(s =>
     s.toLowerCase().includes(subject.toLowerCase()) && s !== subject
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F4EFE6' }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
       <ScreenHeader
         backLabel="ROSTER"
         onBack={() => router.back()}
@@ -100,13 +129,13 @@ export default function NewStudentScreen() {
       >
         {/* Heading */}
         <View style={{ marginBottom: 32 }}>
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: '#7A2530', textTransform: 'uppercase', marginBottom: 6 }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.oxblood, textTransform: 'uppercase', marginBottom: 6 }}>
             ★ ADD STUDENT
           </Text>
-          <Text style={{ fontFamily: F.serif, fontSize: 28, color: '#1B1714', lineHeight: 32 }}>
+          <Text style={{ fontFamily: F.serif, fontSize: 28, color: COLORS.ink, lineHeight: 32 }}>
             How many
           </Text>
-          <Text style={{ fontFamily: F.serifItalic, fontSize: 28, color: '#7A2530', lineHeight: 32 }}>
+          <Text style={{ fontFamily: F.serifItalic, fontSize: 28, color: COLORS.oxblood, lineHeight: 32 }}>
             details?
           </Text>
         </View>
@@ -115,13 +144,18 @@ export default function NewStudentScreen() {
         <Text style={LABEL_STYLE}>Full Name</Text>
         <TextInput
           value={fullName}
-          onChangeText={setFullName}
+          onChangeText={v => { setFullName(v); if (v.trim()) setNameError(''); }}
           placeholder="e.g. Amahle Dlamini"
-          placeholderTextColor="#8A7E72"
+          placeholderTextColor={COLORS.inkFaint}
           style={INPUT_STYLE}
           autoCapitalize="words"
           returnKeyType="next"
         />
+        {nameError ? (
+          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.crimson, marginTop: -20, marginBottom: 16 }}>
+            {nameError}
+          </Text>
+        ) : null}
 
         {/* Grade */}
         <Text style={LABEL_STYLE}>Grade</Text>
@@ -134,27 +168,32 @@ export default function NewStudentScreen() {
           {grades.map(g => (
             <TouchableOpacity
               key={g}
-              onPress={() => setGrade(g)}
+              onPress={() => { setGrade(g); setGradeError(''); }}
               activeOpacity={0.7}
               style={{
                 borderWidth: 1,
-                borderColor: grade === g ? '#7A2530' : '#D9CFBF',
+                borderColor: grade === g ? COLORS.oxblood : COLORS.paperEdge,
                 borderRadius: 8,
                 paddingHorizontal: 12,
                 paddingVertical: 8,
-                backgroundColor: grade === g ? '#7A2530' : 'rgba(255,255,255,0.4)',
+                backgroundColor: grade === g ? COLORS.oxblood : 'rgba(255,255,255,0.4)',
               }}
             >
               <Text style={{
                 fontFamily: F.mono,
                 fontSize: 13,
-                color: grade === g ? '#F4EFE6' : '#4A413A',
+                color: grade === g ? COLORS.paper : COLORS.inkSoft,
               }}>
                 {g}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
+        {gradeError ? (
+          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.crimson, marginTop: -20, marginBottom: 16 }}>
+            {gradeError}
+          </Text>
+        ) : null}
 
         {/* Subject */}
         <Text style={LABEL_STYLE}>Subject</Text>
@@ -163,6 +202,7 @@ export default function NewStudentScreen() {
           onChangeText={v => {
             setSubject(v);
             setShowSubjectSuggestions(v.length > 0);
+            if (v.trim()) setSubjectError('');
           }}
           onFocus={() => setShowSubjectSuggestions(subject.length > 0 || true)}
           onBlur={() => {
@@ -170,7 +210,7 @@ export default function NewStudentScreen() {
             setTimeout(() => setShowSubjectSuggestions(false), 150);
           }}
           placeholder="e.g. Mathematics"
-          placeholderTextColor="#8A7E72"
+          placeholderTextColor={COLORS.inkFaint}
           style={{ ...INPUT_STYLE, marginBottom: showSubjectSuggestions && filteredSuggestions.length > 0 ? 4 : 24 }}
           autoCapitalize="words"
         />
@@ -179,9 +219,9 @@ export default function NewStudentScreen() {
         {showSubjectSuggestions && filteredSuggestions.length > 0 && (
           <View style={{
             borderWidth: 1,
-            borderColor: '#D9CFBF',
+            borderColor: COLORS.paperEdge,
             borderRadius: 8,
-            backgroundColor: '#F4EFE6',
+            backgroundColor: COLORS.paper,
             marginBottom: 24,
             overflow: 'hidden',
           }}>
@@ -197,19 +237,24 @@ export default function NewStudentScreen() {
                   paddingHorizontal: 16,
                   paddingVertical: 10,
                   borderTopWidth: i > 0 ? 1 : 0,
-                  borderTopColor: '#D9CFBF',
+                  borderTopColor: COLORS.paperEdge,
                 }}
               >
-                <Text style={{ fontFamily: F.sans, fontSize: 14, color: '#1B1714' }}>{s}</Text>
+                <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }}>{s}</Text>
               </TouchableOpacity>
             ))}
           </View>
         )}
+        {subjectError ? (
+          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.crimson, marginBottom: 16 }}>
+            {subjectError}
+          </Text>
+        ) : null}
 
         {/* Curriculum */}
         <Text style={LABEL_STYLE}>Curriculum</Text>
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 40 }}>
-          {CURRICULA.map(c => (
+          {curriculaOptions.map(c => (
             <TouchableOpacity
               key={c}
               onPress={() => setCurriculum(c)}
@@ -217,17 +262,17 @@ export default function NewStudentScreen() {
               style={{
                 flex: 1,
                 borderWidth: 1,
-                borderColor: curriculum === c ? '#7A2530' : '#D9CFBF',
+                borderColor: curriculum === c ? COLORS.oxblood : COLORS.paperEdge,
                 borderRadius: 8,
                 paddingVertical: 10,
                 alignItems: 'center',
-                backgroundColor: curriculum === c ? '#7A2530' : 'rgba(255,255,255,0.4)',
+                backgroundColor: curriculum === c ? COLORS.oxblood : 'rgba(255,255,255,0.4)',
               }}
             >
               <Text style={{
                 fontFamily: F.mono,
                 fontSize: 10,
-                color: curriculum === c ? '#F4EFE6' : '#4A413A',
+                color: curriculum === c ? COLORS.paper : COLORS.inkSoft,
                 textTransform: 'uppercase',
               }}>
                 {c}
@@ -241,13 +286,13 @@ export default function NewStudentScreen() {
           onPress={handleSubmit}
           activeOpacity={0.8}
           style={{
-            backgroundColor: '#7A2530',
+            backgroundColor: COLORS.oxblood,
             borderRadius: 12,
             paddingVertical: 16,
             alignItems: 'center',
           }}
         >
-          <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: '#F4EFE6' }}>
+          <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.paper }}>
             Add student ▸
           </Text>
         </TouchableOpacity>

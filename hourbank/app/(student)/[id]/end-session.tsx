@@ -11,26 +11,27 @@ import {
   StatusBar,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { getDb } from '../../../../src/db/client';
-import { getStudent } from '../../../../src/db/students';
-import { currentBalance as fetchBalance } from '../../../../src/db/ledger';
-import { endSession } from '../../../../src/db/sessions';
-import { TopicChip } from '../../../../src/components/TopicChip';
-import { ScreenHeader } from '../../../../src/components/ScreenHeader';
-import { F } from '../../../../src/theme/fonts';
-import { formatHours } from '../../../../src/utils/format';
-import { balanceStatus, balanceColour } from '../../../../src/utils/balance';
-import { sendReceipt } from '../../../../src/utils/notifications';
-import { roundToBilledMinutes } from '../../../../src/utils/duration';
-import { DEFAULT_TOPICS } from '../../../../src/config';
-import { Student } from '../../../../src/db/schema';
+import { getDb } from '../../../src/db/client';
+import { getStudent } from '../../../src/db/students';
+import { currentBalance as fetchBalance } from '../../../src/db/ledger';
+import { endSession } from '../../../src/db/sessions';
+import { TopicChip } from '../../../src/components/TopicChip';
+import { ScreenHeader } from '../../../src/components/ScreenHeader';
+import { F } from '../../../src/theme/fonts';
+import { COLORS } from '../../../src/theme/colors';
+import { formatHours } from '../../../src/utils/format';
+import { balanceStatus, balanceColour } from '../../../src/utils/balance';
+import { sendReceipt } from '../../../src/utils/notifications';
+import { roundToBilledMinutes } from '../../../src/utils/duration';
+import { listTopicsForStudentSubject } from '../../../src/db/catalog';
+import { Student } from '../../../src/db/schema';
 
-const PAPER = '#F4EFE6';
-const OXBLOOD = '#7A2530';
-const INK = '#1B1714';
-const INK_FAINT = '#8A7E72';
-const PAPER_EDGE = '#E0D8CC';
-const CRIMSON = '#9A2A2A';
+const PAPER = COLORS.paper;
+const OXBLOOD = COLORS.oxblood;
+const INK = COLORS.ink;
+const INK_FAINT = COLORS.inkFaint;
+const PAPER_EDGE = COLORS.paperEdge;
+const CRIMSON = COLORS.crimson;
 const INK_40 = 'rgba(27,23,20,0.4)';
 
 export default function EndSessionScreen() {
@@ -71,10 +72,10 @@ export default function EndSessionScreen() {
       const s = getStudent(id as string);
       if (s) {
         setStudent(s);
-        const subjectTopics = DEFAULT_TOPICS[s.subject] ?? [];
-        // Merge pre-selected custom topics not in the default list
-        const extras = parsedTopics.filter(t => !subjectTopics.includes(t));
-        setAvailableTopics([...subjectTopics, ...extras]);
+        const allTopics = listTopicsForStudentSubject(s.subject).map(t => t.name);
+        // Merge pre-selected custom topics not in the subject list
+        const extras = parsedTopics.filter(t => !allTopics.includes(t));
+        setAvailableTopics([...allTopics, ...extras]);
       }
       setBal(fetchBalance(id as string));
     } catch (e) {
@@ -136,17 +137,37 @@ export default function EndSessionScreen() {
     router.back();
   };
 
+  const actualDurationMinutes = elapsed / 60;
+  const isOverbilling = billedMinutes > actualDurationMinutes;
+  const isZeroBilling = billedMinutes === 0;
+
   const handleSaveAndSend = async () => {
     if (selectedTopics.length < 1) {
       setTopicError(true);
       return;
     }
+    if (isZeroBilling) {
+      Alert.alert(
+        'Zero charge?',
+        "You're about to record this session with 0 credits deducted. Continue?",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Save anyway', onPress: () => doSave() },
+        ]
+      );
+      return;
+    }
+    await doSave();
+  };
+
+  const doSave = async () => {
     try {
       const endedAt = new Date().toISOString();
       endSession({
         sessionId: sessionId as string,
         endedAt,
-        durationMinutes: billedMinutes,
+        durationMinutes: actualDurationMinutes,
+        billedMinutes,
         pausedSeconds: paused,
         topics: selectedTopics,
         sessionNotes: notes.trim(),
@@ -313,6 +334,20 @@ export default function EndSessionScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        {isOverbilling && (
+          <View style={{ paddingHorizontal: 24, paddingTop: 6 }}>
+            <Text style={{ fontFamily: F.sans, fontSize: 12, color: CRIMSON }}>
+              Billing more than tracked time.
+            </Text>
+          </View>
+        )}
+        {isZeroBilling && (
+          <View style={{ paddingHorizontal: 24, paddingTop: 6 }}>
+            <Text style={{ fontFamily: F.sans, fontSize: 12, color: CRIMSON }}>
+              Zero charge — you will be prompted to confirm.
+            </Text>
+          </View>
+        )}
 
         {/* Receipt rows — after DURATION */}
         <View style={{ paddingHorizontal: 24, marginBottom: 28 }}>

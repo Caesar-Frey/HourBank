@@ -12,19 +12,18 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { COLORS } from '../../../../src/theme/colors';
-import { useDarkTabBar } from '../../../../src/hooks/useDarkTabBar';
-import { getDb } from '../../../../src/db/client';
-import { getStudent } from '../../../../src/db/students';
-import { currentBalance } from '../../../../src/db/ledger';
-import { startSession, cancelSession } from '../../../../src/db/sessions';
-import { DEFAULT_TOPICS } from '../../../../src/config';
-import { TopicChip } from '../../../../src/components/TopicChip';
-import { F } from '../../../../src/theme/fonts';
-import { formatDuration, formatHours, formatScheduledTime } from '../../../../src/utils/format';
-import { useActiveSession } from '../../../../src/hooks/useActiveSession';
-import { Session, Student } from '../../../../src/db/schema';
-import { useSessionTimer } from '../../../../src/contexts/SessionTimerContext';
+import { COLORS } from '../../../src/theme/colors';
+import { useDarkTabBar } from '../../../src/hooks/useDarkTabBar';
+import { getDb } from '../../../src/db/client';
+import { getStudent } from '../../../src/db/students';
+import { currentBalance } from '../../../src/db/ledger';
+import { startSession, cancelSession } from '../../../src/db/sessions';
+import { listTopicsForStudentSubject } from '../../../src/db/catalog';
+import { TopicChip } from '../../../src/components/TopicChip';
+import { F } from '../../../src/theme/fonts';
+import { formatDuration, formatHours, formatScheduledTime } from '../../../src/utils/format';
+import { Session, Student } from '../../../src/db/schema';
+import { useSessionTimer } from '../../../src/contexts/SessionTimerContext';
 
 const PAPER_40 = 'rgba(244,239,230,0.4)';
 const PAPER_20 = 'rgba(244,239,230,0.2)';
@@ -46,7 +45,6 @@ export default function SessionScreen() {
   const [balance, setBalance] = useState(0);
   const [sessionCount, setSessionCount] = useState(1);
   const [availableTopics, setAvailableTopics] = useState<string[]>([]);
-  const [timerKey, setTimerKey] = useState(0);
 
   useEffect(() => {
     try {
@@ -57,13 +55,13 @@ export default function SessionScreen() {
 
       const db = getDb();
       const row = db.getFirstSync<{ count: number }>(
-        `SELECT COUNT(*) AS count FROM sessions WHERE student_id = ? AND status IN ('verified','pending_verification')`,
+        `SELECT COUNT(*) AS count FROM sessions WHERE student_id = ? AND status = 'completed'`,
         [id]
       );
       setSessionCount((row?.count ?? 0) + 1);
 
-      const topics = DEFAULT_TOPICS[s.subject] ?? [];
-      setAvailableTopics(topics);
+      const allTopics = listTopicsForStudentSubject(s.subject).map(t => t.name);
+      setAvailableTopics(allTopics);
 
       const sessionRow = db.getFirstSync<{
         topics: string;
@@ -99,18 +97,9 @@ export default function SessionScreen() {
   }, [id, sessionId]);
 
   const {
-    elapsedSeconds: hookElapsed,
-    isPaused,
-    pause: hookPause,
-    resume: hookResume,
-    remainingHours,
-    totalPausedSeconds,
-  } = useActiveSession(sessionId, balance, timerKey);
-
-  const {
-    status: ctxStatus,
-    sessionId: ctxSessionId,
-    elapsedSeconds: ctxElapsed,
+    status: timerStatus,
+    sessionId: timerSessionId,
+    elapsedSeconds,
     startTimer,
     pauseTimer,
     resumeTimer,
@@ -128,29 +117,22 @@ export default function SessionScreen() {
     return () => { deactivateKeepAwake(); };
   }, [sessionStatus]);
 
-  // Use context elapsed when the context is tracking this session; fall back to hook
-  const elapsedSeconds =
-    ctxStatus === 'active' && ctxSessionId === sessionId ? ctxElapsed : hookElapsed;
+  const isPaused = timerStatus === 'paused' && timerSessionId === sessionId;
+  const elapsedHours = elapsedSeconds / 3600;
+  const remainingHours = Math.max(0, balance - elapsedHours);
 
-  // Wrap pause/resume to sync context
   function pause() {
-    hookPause();
-    const accumulated = ctxStatus === 'active' && ctxSessionId === sessionId
-      ? ctxElapsed
-      : hookElapsed;
-    pauseTimer(accumulated);
+    pauseTimer();
   }
 
   function resume() {
-    hookResume();
-    resumeTimer(new Date().toISOString());
+    resumeTimer();
   }
 
   function handleStartSession() {
     try {
       const session = startSession(sessionId);
       setSessionStatus('active');
-      setTimerKey(k => k + 1);
       startTimer(sessionId, id, session.started_at!, 0);
     } catch (e) {
       Alert.alert('Error', 'Could not start session. Please try again.');
@@ -211,10 +193,22 @@ export default function SessionScreen() {
       Alert.alert('Select a topic', 'Select at least one topic before ending the session.');
       return;
     }
+    // Read paused_seconds from DB (the authoritative source)
+    let pausedSeconds = 0;
+    try {
+      const db = getDb();
+      const row = db.getFirstSync<{ paused_seconds: number }>(
+        'SELECT paused_seconds FROM sessions WHERE id = ?',
+        [sessionId],
+      );
+      pausedSeconds = row?.paused_seconds ?? 0;
+    } catch (e) {
+      console.error('handleEndSession paused_seconds read error', e);
+    }
     const topicsParam = encodeURIComponent(JSON.stringify(selectedTopics));
     endTimer();
     router.push(
-      `/student/${id}/end-session?sessionId=${sessionId}&elapsedSeconds=${elapsedSeconds}&pausedSeconds=${totalPausedSeconds}&mode=${mode}&topics=${topicsParam}`
+      `/student/${id}/end-session?sessionId=${sessionId}&elapsedSeconds=${elapsedSeconds}&pausedSeconds=${pausedSeconds}&mode=${mode}&topics=${topicsParam}`
     );
   }
 

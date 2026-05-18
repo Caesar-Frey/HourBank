@@ -9,18 +9,19 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import { F } from '../../../../src/theme/fonts';
-import { COLORS } from '../../../../src/theme/colors';
-import { useStudent } from '../../../../src/hooks/useStudent';
-import { LedgerRow } from '../../../../src/components/LedgerRow';
-import { ScreenHeader } from '../../../../src/components/ScreenHeader';
-import { ActionSheet } from '../../../../src/components/ActionSheet';
-import { formatHoursDisplay, formatScheduledTime } from '../../../../src/utils/format';
-import { Session } from '../../../../src/db/schema';
-import { LedgerEntry } from '../../../../src/db/schema';
+import { F } from '../../../src/theme/fonts';
+import { COLORS } from '../../../src/theme/colors';
+import { useStudent } from '../../../src/hooks/useStudent';
+import { LedgerRow } from '../../../src/components/LedgerRow';
+import { ScreenHeader } from '../../../src/components/ScreenHeader';
+import { ActionSheet } from '../../../src/components/ActionSheet';
+import { formatHoursDisplay, formatScheduledTime } from '../../../src/utils/format';
+import { Session } from '../../../src/db/schema';
+import { LedgerEntry } from '../../../src/db/schema';
+import { archiveStudent, pauseStudent, reactivateStudent } from '../../../src/db/students';
 
 export default function StudentLedgerScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, from } = useLocalSearchParams<{ id: string; from?: string }>();
   const router = useRouter();
   const { student, balance, ledger, upcoming, pastSessions, loading } = useStudent(id);
   const [showAllLedger, setShowAllLedger] = useState(false);
@@ -29,7 +30,7 @@ export default function StudentLedgerScreen() {
   if (loading) {
     return (
       <View className="flex-1 bg-paper items-center justify-center">
-        <Text style={{ fontFamily: F.mono, fontSize: 13, color: '#8A7E72' }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.inkFaint }}>
           Loading…
         </Text>
       </View>
@@ -39,11 +40,11 @@ export default function StudentLedgerScreen() {
   if (!student) {
     return (
       <View className="flex-1 bg-paper items-center justify-center px-6">
-        <Text style={{ fontFamily: F.serif, fontSize: 24, color: '#1B1714', marginBottom: 16 }}>
+        <Text style={{ fontFamily: F.serif, fontSize: 24, color: COLORS.ink, marginBottom: 16 }}>
           Student not found
         </Text>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ fontFamily: F.mono, fontSize: 13, color: '#4A413A' }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.inkSoft }}>
             ← Go back
           </Text>
         </TouchableOpacity>
@@ -95,14 +96,24 @@ export default function StudentLedgerScreen() {
   }
 
   function handleArchive() {
-    // TODO: implement archive logic (soft-delete: status = 'archived')
+    archiveStudent(id);
+    router.back();
+  }
+
+  function handlePause() {
+    pauseStudent(id);
+    router.back();
+  }
+
+  function handleReactivate() {
+    reactivateStudent(id);
     router.back();
   }
 
   return (
     <SafeAreaView className="flex-1 bg-paper" edges={['top']}>
       <ScreenHeader
-        backLabel="ROSTER"
+        backLabel={from ?? 'ROSTER'}
         onBack={() => router.back()}
         rightElement={
           <TouchableOpacity
@@ -125,7 +136,7 @@ export default function StudentLedgerScreen() {
             style={{
               fontFamily: F.mono,
               fontSize: 11,
-              color: '#8A7E72',
+              color: COLORS.inkFaint,
               textTransform: 'uppercase',
               letterSpacing: 0.5,
               marginBottom: 4,
@@ -137,7 +148,7 @@ export default function StudentLedgerScreen() {
             style={{
               fontFamily: F.serif,
               fontSize: 32,
-              color: '#1B1714',
+              color: COLORS.ink,
               lineHeight: 36,
             }}
           >
@@ -149,7 +160,7 @@ export default function StudentLedgerScreen() {
             style={{
               fontFamily: F.serifItalic,
               fontSize: 15,
-              color: '#4A413A',
+              color: COLORS.inkSoft,
               marginTop: 4,
             }}
           >
@@ -161,10 +172,10 @@ export default function StudentLedgerScreen() {
         <View
           style={{
             borderWidth: 1.5,
-            borderColor: '#1B1714',
+            borderColor: COLORS.ink,
             borderRadius: 16,
             padding: 20,
-            backgroundColor: '#ECE5D6',
+            backgroundColor: COLORS.paperDeep,
             position: 'relative',
           }}
         >
@@ -188,7 +199,7 @@ export default function StudentLedgerScreen() {
             style={{
               fontFamily: F.mono,
               fontSize: 11,
-              color: isOwes ? COLORS.oxblood : '#8A7E72',
+              color: isOwes ? COLORS.oxblood : COLORS.inkFaint,
               textTransform: 'uppercase',
               letterSpacing: 0.5,
               marginBottom: 12,
@@ -203,7 +214,7 @@ export default function StudentLedgerScreen() {
               style={{
                 fontFamily: F.serifItalic,
                 fontSize: 56,
-                color: '#1B1714',
+                color: COLORS.ink,
                 lineHeight: 60,
               }}
             >
@@ -213,7 +224,7 @@ export default function StudentLedgerScreen() {
               style={{
                 fontFamily: F.serifItalic,
                 fontSize: 56,
-                color: '#7A2530',
+                color: COLORS.oxblood,
                 lineHeight: 60,
               }}
             >
@@ -223,7 +234,7 @@ export default function StudentLedgerScreen() {
               style={{
                 fontFamily: F.serifItalic,
                 fontSize: 18,
-                color: '#4A413A',
+                color: COLORS.inkSoft,
                 lineHeight: 60,
                 marginLeft: 6,
               }}
@@ -238,7 +249,7 @@ export default function StudentLedgerScreen() {
               style={{
                 fontFamily: F.serifItalic,
                 fontSize: 13,
-                color: '#8A7E72',
+                color: COLORS.inkFaint,
                 marginBottom: 4,
               }}
             >
@@ -252,7 +263,7 @@ export default function StudentLedgerScreen() {
               style={{
                 fontFamily: F.mono,
                 fontSize: 11,
-                color: '#8A7E72',
+                color: COLORS.inkFaint,
               }}
             >
               {`Next: ${formatScheduledTime(nextSession.scheduled_for)} · ${nextSession.mode === 'online' ? 'Online' : 'In-person'}`}
@@ -268,14 +279,14 @@ export default function StudentLedgerScreen() {
             style={{
               flex: 1,
               borderWidth: 1,
-              borderColor: '#1B1714',
+              borderColor: COLORS.ink,
               borderRadius: 16,
               paddingHorizontal: 24,
               paddingVertical: 12,
               alignItems: 'center',
             }}
           >
-            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: '#1B1714' }}>
+            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>
               + Top up
             </Text>
           </TouchableOpacity>
@@ -285,14 +296,14 @@ export default function StudentLedgerScreen() {
             activeOpacity={0.75}
             style={{
               flex: 1,
-              backgroundColor: '#7A2530',
+              backgroundColor: COLORS.oxblood,
               borderRadius: 16,
               paddingHorizontal: 24,
               paddingVertical: 12,
               alignItems: 'center',
             }}
           >
-            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: '#F4EFE6' }}>
+            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.paper }}>
               Schedule lesson
             </Text>
           </TouchableOpacity>
@@ -304,7 +315,7 @@ export default function StudentLedgerScreen() {
             style={{
               fontFamily: F.mono,
               fontSize: 11,
-              color: '#8A7E72',
+              color: COLORS.inkFaint,
               textTransform: 'uppercase',
               letterSpacing: 0.5,
               marginBottom: 8,
@@ -318,7 +329,7 @@ export default function StudentLedgerScreen() {
               style={{
                 fontFamily: F.serifItalic,
                 fontSize: 13,
-                color: '#8A7E72',
+                color: COLORS.inkFaint,
                 marginBottom: 8,
               }}
             >
@@ -327,46 +338,51 @@ export default function StudentLedgerScreen() {
           ) : (
             <View style={{ marginBottom: 8 }}>
               {upcoming.map(session => (
-                <TouchableOpacity
+                <View
                   key={session.id}
-                  onPress={() => handleOpenSession(session)}
-                  activeOpacity={0.7}
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: COLORS.paperEdge,
+                  }}
                 >
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      paddingVertical: 12,
-                      borderBottomWidth: 1,
-                      borderBottomColor: '#D9CFBF',
-                    }}
+                  <TouchableOpacity
+                    style={{ flex: 1 }}
+                    onPress={() => handleOpenSession(session)}
+                    activeOpacity={0.7}
                   >
-                    <View style={{ flex: 1 }}>
-                      <Text>
-                        <Text style={{ fontFamily: F.mono, fontSize: 13, color: '#1B1714' }}>
-                          {session.scheduled_for ? formatScheduledTime(session.scheduled_for) : '—'}
-                        </Text>
-                        <Text style={{ fontFamily: F.sans, fontSize: 11, color: '#4A413A' }}>
-                          {'  · '}
-                          {session.mode === 'online' ? 'Online' : 'In-person'}
-                        </Text>
+                    <Text>
+                      <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.ink }}>
+                        {session.scheduled_for ? formatScheduledTime(session.scheduled_for) : '—'}
                       </Text>
-                    </View>
-                    <View
-                      style={{
-                        backgroundColor: '#F0E0CB',
-                        paddingHorizontal: 8,
-                        paddingVertical: 2,
-                        borderRadius: 4,
-                      }}
-                    >
-                      <Text style={{ fontFamily: F.mono, fontSize: 10, color: '#B8743F' }}>
-                        SCHEDULED
+                      <Text style={{ fontFamily: F.sans, fontSize: 11, color: COLORS.inkSoft }}>
+                        {'  · '}
+                        {session.mode === 'online' ? 'Online' : 'In-person'}
                       </Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
+                      {(() => {
+                        try {
+                          const topics: string[] = JSON.parse(session.topics);
+                          return topics.length > 0
+                            ? <Text style={{ fontFamily: F.sans, fontSize: 11, color: COLORS.inkFaint }}>{'  · ' + topics[0]}</Text>
+                            : null;
+                        } catch { return null; }
+                      })()}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => router.push(`/student/${id}/schedule?sessionId=${session.id}`)}
+                    activeOpacity={0.7}
+                    style={{ paddingLeft: 12 }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>
+                      EDIT
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               ))}
             </View>
           )}
@@ -378,7 +394,7 @@ export default function StudentLedgerScreen() {
             style={{
               fontFamily: F.mono,
               fontSize: 11,
-              color: '#8A7E72',
+              color: COLORS.inkFaint,
               textTransform: 'uppercase',
               letterSpacing: 0.5,
               marginBottom: 16,
@@ -400,7 +416,7 @@ export default function StudentLedgerScreen() {
               style={{
                 fontFamily: F.mono,
                 fontSize: 10,
-                color: '#8A7E72',
+                color: COLORS.inkFaint,
                 textTransform: 'uppercase',
                 letterSpacing: 0.5,
               }}
@@ -408,7 +424,7 @@ export default function StudentLedgerScreen() {
               LEDGER — LAST 5 ENTRIES
             </Text>
             <Pressable onPress={() => setShowAllLedger(v => !v)}>
-              <Text style={{ fontFamily: F.mono, fontSize: 10, color: '#4A413A' }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft }}>
                 {showAllLedger ? 'Less ←' : 'Full →'}
               </Text>
             </Pressable>
@@ -419,7 +435,7 @@ export default function StudentLedgerScreen() {
               style={{
                 fontFamily: F.serifItalic,
                 fontSize: 13,
-                color: '#8A7E72',
+                color: COLORS.inkFaint,
               }}
             >
               No ledger entries yet.
@@ -454,6 +470,14 @@ export default function StudentLedgerScreen() {
             label: 'Schedule lesson',
             onPress: () => { setShowMenu(false); router.push(`/student/${id}/schedule`); },
           },
+          ...(student.status === 'active' ? [{
+            label: 'Pause student',
+            onPress: () => { setShowMenu(false); handlePause(); },
+          }] : []),
+          ...(student.status === 'paused' ? [{
+            label: 'Reactivate',
+            onPress: () => { setShowMenu(false); handleReactivate(); },
+          }] : []),
           {
             label: 'Archive student',
             destructive: true,

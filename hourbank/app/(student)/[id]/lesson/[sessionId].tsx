@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { F } from '../../../../../src/theme/fonts';
-import { COLORS } from '../../../../../src/theme/colors';
-import { getSession, verifySession } from '../../../../../src/db/sessions';
-import { getStudent } from '../../../../../src/db/students';
-import { getBalanceAt } from '../../../../../src/db/ledger';
-import { getDb } from '../../../../../src/db/client';
-import { formatHours, formatBilledDuration } from '../../../../../src/utils/format';
-import { VerificationBadge } from '../../../../../src/components/VerificationBadge';
-import { Session, Student, LedgerEntry } from '../../../../../src/db/schema';
+import { F } from '../../../../src/theme/fonts';
+import { COLORS } from '../../../../src/theme/colors';
+import { getSession } from '../../../../src/db/sessions';
+import { getStudent } from '../../../../src/db/students';
+import { getBalanceAt } from '../../../../src/db/ledger';
+import { getDb } from '../../../../src/db/client';
+import { formatHours, formatBilledDuration } from '../../../../src/utils/format';
+import { Session, Student, LedgerEntry } from '../../../../src/db/schema';
+import { shareSessionReceipt, getSessionReceipt } from '../../../../src/utils/receipt';
 
 function formatLessonDate(isoStr: string): string {
   const d = new Date(isoStr);
@@ -48,6 +48,7 @@ export default function LessonDetailScreen() {
   const [student, setStudent] = useState<Student | null>(null);
   const [ledgerEntry, setLedgerEntry] = useState<LedgerEntry | null>(null);
   const [balanceAt, setBalanceAt] = useState<number>(0);
+  const [receiptSent, setReceiptSent] = useState(false);
 
   useEffect(() => {
     const s = getSession(sessionId);
@@ -66,11 +67,19 @@ export default function LessonDetailScreen() {
     if (s.ended_at) {
       setBalanceAt(getBalanceAt(id, s.ended_at));
     }
+
+    // Check if a receipt already exists for this session
+    const existingReceipt = getSessionReceipt(sessionId);
+    setReceiptSent(existingReceipt != null);
   }, [id, sessionId]);
 
-  function handleConfirm() {
-    const updated = verifySession(sessionId);
-    if (updated) setSession(updated);
+  async function handleSendReceipt() {
+    try {
+      await shareSessionReceipt(sessionId);
+      setReceiptSent(true);
+    } catch (e) {
+      Alert.alert('Error', 'Could not share receipt. Please try again.');
+    }
   }
 
   if (!session) {
@@ -87,6 +96,9 @@ export default function LessonDetailScreen() {
 
   const topics = parseTopics(session.topics);
   const duration = durationSeconds(session);
+  const billedSeconds = session.billed_minutes != null
+    ? Math.round(session.billed_minutes * 60)
+    : duration;
   const dateStr = session.ended_at
     ? formatLessonDate(session.ended_at)
     : session.scheduled_for
@@ -94,17 +106,10 @@ export default function LessonDetailScreen() {
     : '—';
   const creditDeducted = ledgerEntry ? Math.abs(ledgerEntry.hours_delta) : null;
 
-  const verificationStatus =
-    session.status === 'pending_verification' ||
-    session.status === 'verified' ||
-    session.status === 'disputed'
-      ? session.status
-      : null;
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 48 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24, flexGrow: 1 }}
       >
         {/* Back button */}
         <TouchableOpacity
@@ -130,7 +135,7 @@ export default function LessonDetailScreen() {
           {dateStr}
         </Text>
 
-        {/* Mode + verification badges */}
+        {/* Mode + type badges */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 24 }}>
           <View style={{
             borderWidth: 1,
@@ -143,28 +148,20 @@ export default function LessonDetailScreen() {
               {session.mode === 'online' ? 'Online' : 'In-person'}
             </Text>
           </View>
-          {verificationStatus && (
-            <VerificationBadge status={verificationStatus} />
+          {session.session_type !== 'general' && (
+            <View style={{
+              borderWidth: 1,
+              borderColor: COLORS.paperEdge,
+              borderRadius: 6,
+              paddingHorizontal: 8,
+              paddingVertical: 3,
+            }}>
+              <Text style={{ fontFamily: F.sansMed, fontSize: 10, color: COLORS.ink, textTransform: 'uppercase' }}>
+                {session.session_type === 'review' ? 'Review' : session.session_type === 'test_prep' ? 'Test Prep' : 'Exam Prep'}
+              </Text>
+            </View>
           )}
         </View>
-
-        {session.status === 'pending_verification' && (
-          <TouchableOpacity
-            onPress={handleConfirm}
-            activeOpacity={0.85}
-            style={{
-              backgroundColor: COLORS.oxblood,
-              borderRadius: 14,
-              paddingVertical: 14,
-              alignItems: 'center',
-              marginBottom: 24,
-            }}
-          >
-            <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.paper }}>
-              Confirm session
-            </Text>
-          </TouchableOpacity>
-        )}
 
         {/* Stats row */}
         <View style={{ flexDirection: 'row', gap: 12, marginBottom: 28 }}>
@@ -181,6 +178,22 @@ export default function LessonDetailScreen() {
               </Text>
               <Text style={{ fontFamily: F.mono, fontSize: 16, color: COLORS.ink }}>
                 {formatBilledDuration(duration)}
+              </Text>
+            </View>
+          )}
+          {billedSeconds !== duration && billedSeconds > 0 && (
+            <View style={{
+              flex: 1,
+              borderWidth: 1,
+              borderColor: COLORS.paperEdge,
+              borderRadius: 14,
+              padding: 14,
+            }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>
+                Billed
+              </Text>
+              <Text style={{ fontFamily: F.mono, fontSize: 16, color: COLORS.ink }}>
+                {formatBilledDuration(billedSeconds)}
               </Text>
             </View>
           )}
@@ -268,6 +281,32 @@ export default function LessonDetailScreen() {
             </Text>
           </View>
         ) : null}
+
+        {/* Spacer pushes receipt button to bottom when content is short */}
+        <View style={{ flex: 1 }} />
+
+        {/* Send Receipt */}
+        <TouchableOpacity
+          onPress={handleSendReceipt}
+          activeOpacity={0.8}
+          style={{
+            borderWidth: 1,
+            borderColor: receiptSent ? COLORS.paperEdge : COLORS.oxblood,
+            borderRadius: 14,
+            paddingVertical: 14,
+            alignItems: 'center',
+            backgroundColor: receiptSent ? COLORS.paperDeep : 'transparent',
+            marginTop: 8,
+          }}
+        >
+          <Text style={{
+            fontFamily: F.sansMed,
+            fontSize: 15,
+            color: receiptSent ? COLORS.inkFaint : COLORS.oxblood,
+          }}>
+            {receiptSent ? 'Receipt sent ✓' : 'Send Receipt'}
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );

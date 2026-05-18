@@ -29,6 +29,13 @@ export default function AppLayout() {
           }}
         />
         <Tabs.Screen
+          name="calendar"
+          options={{
+            title: 'CALENDAR',
+            tabBarIcon: ({ color, size }) => <Feather name="calendar" size={size} color={color} />,
+          }}
+        />
+        <Tabs.Screen
           name="reports"
           options={{
             title: 'REPORTS',
@@ -42,7 +49,7 @@ export default function AppLayout() {
             tabBarIcon: ({ color, size }) => <Feather name="user" size={size} color={color} />,
           }}
         />
-        <Tabs.Screen name="student" options={{ href: null }} />
+
       </Tabs>
     </SessionTimerProvider>
   );

@@ -10,12 +10,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SHOW_ALL_GRADES_KEY } from '../../profile';
-import { F } from '../../../../src/theme/fonts';
-import { ScreenHeader } from '../../../../src/components/ScreenHeader';
-import { getStudent, updateStudent, archiveStudent } from '../../../../src/db/students';
-import { SUBJECT_SUGGESTIONS } from '../../../../src/config';
-import { Student } from '../../../../src/db/schema';
+import { SHOW_ALL_GRADES_KEY } from '../../(app)/profile';
+import { F } from '../../../src/theme/fonts';
+import { COLORS } from '../../../src/theme/colors';
+import { ScreenHeader } from '../../../src/components/ScreenHeader';
+import { getStudent, updateStudent, archiveStudent } from '../../../src/db/students';
+import { SUBJECT_SUGGESTIONS } from '../../../src/config';
+import { Student } from '../../../src/db/schema';
 
 const CURRICULA: Student['curriculum'][] = ['CAPS', 'IEB', 'Cambridge', 'Other'];
 const ALL_GRADES = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -24,7 +25,7 @@ const HS_GRADES = [8, 9, 10, 11, 12];
 const LABEL_STYLE = {
   fontFamily: F.mono,
   fontSize: 11,
-  color: '#8A7E72',
+  color: COLORS.inkFaint,
   textTransform: 'uppercase' as const,
   marginBottom: 4,
 };
@@ -32,9 +33,9 @@ const LABEL_STYLE = {
 const INPUT_STYLE = {
   fontFamily: F.sans,
   fontSize: 16,
-  color: '#1B1714',
+  color: COLORS.ink,
   borderBottomWidth: 1,
-  borderBottomColor: '#D9CFBF',
+  borderBottomColor: COLORS.paperEdge,
   paddingVertical: 12,
   marginBottom: 24,
 };
@@ -122,7 +123,7 @@ export default function EditStudentScreen() {
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F4EFE6' }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
       <ScreenHeader backLabel="BACK" onBack={() => router.back()} />
 
       <ScrollView
@@ -132,13 +133,13 @@ export default function EditStudentScreen() {
       >
         {/* Heading */}
         <View style={{ marginBottom: 32 }}>
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: '#7A2530', textTransform: 'uppercase', marginBottom: 6 }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.oxblood, textTransform: 'uppercase', marginBottom: 6 }}>
             ★ EDIT STUDENT
           </Text>
-          <Text style={{ fontFamily: F.serif, fontSize: 28, color: '#1B1714', lineHeight: 32 }}>
+          <Text style={{ fontFamily: F.serif, fontSize: 28, color: COLORS.ink, lineHeight: 32 }}>
             Update
           </Text>
-          <Text style={{ fontFamily: F.serifItalic, fontSize: 28, color: '#7A2530', lineHeight: 32 }}>
+          <Text style={{ fontFamily: F.serifItalic, fontSize: 28, color: COLORS.oxblood, lineHeight: 32 }}>
             details.
           </Text>
         </View>
@@ -149,7 +150,7 @@ export default function EditStudentScreen() {
           value={fullName}
           onChangeText={setFullName}
           placeholder="e.g. Amara Nkosi"
-          placeholderTextColor="#8A7E72"
+          placeholderTextColor={COLORS.inkFaint}
           style={INPUT_STYLE}
           autoCapitalize="words"
           autoCorrect={false}
@@ -170,17 +171,17 @@ export default function EditStudentScreen() {
               activeOpacity={0.7}
               style={{
                 borderWidth: 1,
-                borderColor: grade === g ? '#7A2530' : '#D9CFBF',
+                borderColor: grade === g ? COLORS.oxblood : COLORS.paperEdge,
                 borderRadius: 8,
                 paddingHorizontal: 12,
                 paddingVertical: 8,
-                backgroundColor: grade === g ? '#7A2530' : 'rgba(255,255,255,0.4)',
+                backgroundColor: grade === g ? COLORS.oxblood : 'rgba(255,255,255,0.4)',
               }}
             >
               <Text style={{
                 fontFamily: F.mono,
                 fontSize: 13,
-                color: grade === g ? '#F4EFE6' : '#4A413A',
+                color: grade === g ? COLORS.paper : COLORS.inkSoft,
               }}>
                 {g}
               </Text>
@@ -199,7 +200,7 @@ export default function EditStudentScreen() {
           onFocus={() => setShowSubjectSuggestions(subject.length > 0)}
           onBlur={() => setTimeout(() => setShowSubjectSuggestions(false), 150)}
           placeholder="e.g. Mathematics"
-          placeholderTextColor="#8A7E72"
+          placeholderTextColor={COLORS.inkFaint}
           style={{ ...INPUT_STYLE, marginBottom: showSubjectSuggestions && filteredSuggestions.length > 0 ? 4 : 24 }}
           autoCapitalize="words"
         />
@@ -207,9 +208,9 @@ export default function EditStudentScreen() {
         {showSubjectSuggestions && filteredSuggestions.length > 0 && (
           <View style={{
             borderWidth: 1,
-            borderColor: '#D9CFBF',
+            borderColor: COLORS.paperEdge,
             borderRadius: 8,
-            backgroundColor: '#F4EFE6',
+            backgroundColor: COLORS.paper,
             marginBottom: 24,
             overflow: 'hidden',
           }}>
@@ -221,10 +222,10 @@ export default function EditStudentScreen() {
                   paddingHorizontal: 16,
                   paddingVertical: 10,
                   borderTopWidth: i > 0 ? 1 : 0,
-                  borderTopColor: '#D9CFBF',
+                  borderTopColor: COLORS.paperEdge,
                 }}
               >
-                <Text style={{ fontFamily: F.sans, fontSize: 14, color: '#1B1714' }}>{s}</Text>
+                <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }}>{s}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -241,17 +242,17 @@ export default function EditStudentScreen() {
               style={{
                 flex: 1,
                 borderWidth: 1,
-                borderColor: curriculum === c ? '#7A2530' : '#D9CFBF',
+                borderColor: curriculum === c ? COLORS.oxblood : COLORS.paperEdge,
                 borderRadius: 8,
                 paddingVertical: 10,
                 alignItems: 'center',
-                backgroundColor: curriculum === c ? '#7A2530' : 'rgba(255,255,255,0.4)',
+                backgroundColor: curriculum === c ? COLORS.oxblood : 'rgba(255,255,255,0.4)',
               }}
             >
               <Text style={{
                 fontFamily: F.mono,
                 fontSize: 11,
-                color: curriculum === c ? '#F4EFE6' : '#4A413A',
+                color: curriculum === c ? COLORS.paper : COLORS.inkSoft,
               }}>
                 {c}
               </Text>
@@ -264,14 +265,14 @@ export default function EditStudentScreen() {
           onPress={handleSubmit}
           activeOpacity={0.85}
           style={{
-            backgroundColor: '#7A2530',
+            backgroundColor: COLORS.oxblood,
             borderRadius: 16,
             paddingVertical: 16,
             alignItems: 'center',
             marginBottom: 16,
           }}
         >
-          <Text style={{ fontFamily: F.sansMed, fontSize: 16, color: '#F4EFE6' }}>
+          <Text style={{ fontFamily: F.sansMed, fontSize: 16, color: COLORS.paper }}>
             Save changes ▸
           </Text>
         </TouchableOpacity>
@@ -282,7 +283,7 @@ export default function EditStudentScreen() {
           activeOpacity={0.7}
           style={{ alignItems: 'center', paddingVertical: 12 }}
         >
-          <Text style={{ fontFamily: F.mono, fontSize: 12, color: '#8A7E72', textDecorationLine: 'underline' }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textDecorationLine: 'underline' }}>
             Archive student
           </Text>
         </TouchableOpacity>
