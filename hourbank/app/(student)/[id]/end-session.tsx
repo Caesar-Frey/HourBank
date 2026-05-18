@@ -184,7 +184,7 @@ export default function EndSessionScreen() {
       Alert.alert('Session saved.', '', [
         {
           text: 'OK',
-          onPress: () => router.push(`/student/${id as string}`),
+          onPress: () => router.dismissTo(`/student/${id as string}`),
         },
       ]);
     } catch (e: unknown) {

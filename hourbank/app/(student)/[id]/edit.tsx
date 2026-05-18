@@ -108,7 +108,7 @@ export default function EditStudentScreen() {
           onPress: () => {
             try {
               archiveStudent(id);
-              router.replace('/(app)');
+              router.dismissTo('/');
             } catch (e) {
               Alert.alert('Error', 'Could not archive student.');
             }

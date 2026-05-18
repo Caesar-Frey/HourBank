@@ -163,8 +163,9 @@ export default function TopUpScreen() {
         newBalance: result.entry.balance_after,
       });
 
-      router.back();
-      Alert.alert('Credits added', `Balance is now ${formatHours(result.entry.balance_after)}.`);
+      Alert.alert('Credits added', `Balance is now ${formatHours(result.entry.balance_after)}.`, [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
     } catch (e) {
       console.error('Top-up failed', e);
       Alert.alert('Error', 'Failed to add credits. Please try again.');
