@@ -161,22 +161,28 @@ export const MIGRATION_003_SESSION_TYPE: Migration = {
 
 export const MIGRATION_005_LEDGER_CONSTRAINTS: Migration = {
   version: '005_ledger_constraints',
-  sql: `
-    CREATE TRIGGER IF NOT EXISTS chk_ledger_deduction_sign
-      BEFORE INSERT ON ledger_entries
-      WHEN NEW.type IN ('session_deduction', 'adjustment') AND NEW.hours_delta > 0
-      BEGIN
-        SELECT RAISE(ABORT, 'session_deduction/adjustment must have negative hours_delta');
-      END;
-    CREATE TRIGGER IF NOT EXISTS chk_topup_delta_sign
-      BEFORE INSERT ON ledger_entries
-      WHEN NEW.type = 'top_up' AND NEW.hours_delta < 0
-      BEGIN
-        SELECT RAISE(ABORT, 'top_up must have positive hours_delta');
-      END;
-    CREATE INDEX IF NOT EXISTS idx_ledger_session
-      ON ledger_entries(related_session_id)
-  `,
+  run: (db) => {
+    db.runSync(`
+      CREATE TRIGGER IF NOT EXISTS chk_ledger_deduction_sign
+        BEFORE INSERT ON ledger_entries
+        WHEN NEW.type IN ('session_deduction', 'adjustment') AND NEW.hours_delta > 0
+        BEGIN
+          SELECT RAISE(ABORT, 'session_deduction/adjustment must have negative hours_delta');
+        END
+    `);
+    db.runSync(`
+      CREATE TRIGGER IF NOT EXISTS chk_topup_delta_sign
+        BEFORE INSERT ON ledger_entries
+        WHEN NEW.type = 'top_up' AND NEW.hours_delta < 0
+        BEGIN
+          SELECT RAISE(ABORT, 'top_up must have positive hours_delta');
+        END
+    `);
+    db.runSync(`
+      CREATE INDEX IF NOT EXISTS idx_ledger_session
+        ON ledger_entries(related_session_id)
+    `);
+  },
 };
 
 export const MIGRATION_004_CALENDAR_EVENTS: Migration = {
