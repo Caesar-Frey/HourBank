@@ -107,8 +107,8 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(app)" options={{ headerShown: false }} />
-        <Stack.Screen name="(student)" options={{ headerShown: false }} />
-        <Stack.Screen name="(calendar-event)" options={{ headerShown: false }} />
+        <Stack.Screen name="student" options={{ headerShown: false }} />
+        <Stack.Screen name="calendar-event" options={{ headerShown: false }} />
         <Stack.Screen name="transaction" options={{ headerShown: false }} />
         <Stack.Screen name="lesson" options={{ headerShown: false }} />
       </Stack>
