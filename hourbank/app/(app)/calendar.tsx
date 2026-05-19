@@ -858,16 +858,20 @@ export default function CalendarScreen() {
             label: 'Add event',
             icon: 'calendar',
             onPress: () => {
+              const date = dateForFab;   // capture before setState
+              const currentView = view;  // capture before setState
               setShowFabSheet(false);
-              router.push(`/calendar-event/new?date=${dateForFab}&kind=event` as Href);
+              router.push(`/calendar-event/new?date=${date}&kind=event` as Href);
             },
           },
           {
             label: 'Block time',
             icon: 'lock',
             onPress: () => {
+              const date = dateForFab;   // capture before setState
+              const currentView = view;  // capture before setState
               setShowFabSheet(false);
-              router.push(`/calendar-event/new?date=${dateForFab}&kind=time_block` as Href);
+              router.push(`/calendar-event/new?date=${date}&kind=time_block` as Href);
             },
           },
         ]}
