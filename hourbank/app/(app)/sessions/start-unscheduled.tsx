@@ -4,6 +4,7 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -12,7 +13,7 @@ import { COLORS } from '../../../src/theme/colors';
 import { F } from '../../../src/theme/fonts';
 import { useStudents } from '../../../src/hooks/useStudents';
 import { useSessionTimer } from '../../../src/contexts/SessionTimerContext';
-import { createUnscheduled, startSession } from '../../../src/db/sessions';
+import { createUnscheduled, startSession, getActiveOrPausedSession, cancelSession } from '../../../src/db/sessions';
 import { Session } from '../../../src/db/schema';
 
 export default function StartUnscheduled() {
@@ -22,12 +23,54 @@ export default function StartUnscheduled() {
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [mode, setMode] = useState<Session['mode']>('in_person');
 
+  function doStart(studentId: string) {
+    const session = createUnscheduled(studentId, mode);
+    try {
+      const started = startSession(session.id);
+      startTimer(session.id, studentId, started.started_at!, 0);
+      router.replace(`/student/${studentId}/session?sessionId=${session.id}`);
+    } catch (e) {
+      if (e instanceof Error && e.message === 'MAX_OWE_EXCEEDED') {
+        Alert.alert(
+          'Balance overdue',
+          'This student owes too many hours to start a new session. Top up first.'
+        );
+        return;
+      }
+      throw e;
+    }
+  }
+
   function handleStart() {
     if (!selectedStudentId) return;
-    const session = createUnscheduled(selectedStudentId, mode);
-    const started = startSession(session.id);
-    startTimer(session.id, selectedStudentId, started.started_at!, 0);
-    router.replace(`/student/${selectedStudentId}/session?sessionId=${session.id}`);
+    const existing = getActiveOrPausedSession();
+    if (existing) {
+      Alert.alert(
+        'Session already active',
+        `You have an active session with ${existing.student_full_name}. What would you like to do?`,
+        [
+          {
+            text: 'Switch to it',
+            onPress: () => {
+              router.replace(`/student/${existing.student_id}/session?sessionId=${existing.id}`);
+            },
+          },
+          {
+            text: 'End & start new',
+            onPress: () => {
+              cancelSession(existing.id);
+              doStart(selectedStudentId!);
+            },
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+        ]
+      );
+      return;
+    }
+    doStart(selectedStudentId);
   }
 
   return (

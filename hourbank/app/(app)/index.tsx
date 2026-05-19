@@ -158,7 +158,11 @@ export default function HomeScreen() {
   }
 
   const activeCount = activeStudents.length;
-  const totalCredits = useMemo(() => activeStudents.reduce((sum, s) => sum + s.current_balance, 0), [activeStudents]);
+  const totalCredits = useMemo(() => {
+    const sumPositive = (xs: typeof activeStudents) =>
+      xs.reduce((sum, s) => sum + Math.max(s.current_balance ?? 0, 0), 0);
+    return sumPositive(activeStudents) + sumPositive(pausedStudents);
+  }, [activeStudents, pausedStudents]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>

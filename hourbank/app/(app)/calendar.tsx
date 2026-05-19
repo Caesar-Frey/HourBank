@@ -116,7 +116,7 @@ function deserializeFilters(json: string): CalendarFilters {
   const ids: string[] | null = raw.studentIds ?? null;
   return {
     studentIds: Array.isArray(ids) && ids.length === 0 ? null : ids,
-    eventKinds: new Set<EventKind>(raw.eventKinds ?? ['scheduled','completed','cancelled','top_up']),
+    eventKinds: new Set<EventKind>(raw.eventKinds ?? ['scheduled','completed','cancelled','top_up','event','time_block']),
     sessionTypes: new Set<SessionTypeFilter>(raw.sessionTypes ?? ['general','review','test_prep','exam_prep']),
   };
 }
@@ -674,7 +674,7 @@ export default function CalendarScreen() {
 
   // ── FAB date helper ──────────────────────────────────────────────────────────
 
-  const dateForFab = view === 'day' ? cursor.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const dateForFab = view === 'day' ? isoDate(cursor) : isoDate(new Date());
 
   // ── Day press from month/week ─────────────────────────────────────────────────
 
@@ -859,7 +859,6 @@ export default function CalendarScreen() {
             icon: 'calendar',
             onPress: () => {
               const date = dateForFab;   // capture before setState
-              const currentView = view;  // capture before setState
               setShowFabSheet(false);
               router.push(`/calendar-event/new?date=${date}&kind=event` as Href);
             },
@@ -869,7 +868,6 @@ export default function CalendarScreen() {
             icon: 'lock',
             onPress: () => {
               const date = dateForFab;   // capture before setState
-              const currentView = view;  // capture before setState
               setShowFabSheet(false);
               router.push(`/calendar-event/new?date=${date}&kind=time_block` as Href);
             },

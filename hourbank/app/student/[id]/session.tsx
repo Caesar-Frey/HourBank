@@ -181,8 +181,9 @@ export default function SessionScreen() {
           } catch (e) {
             console.error(e);
           }
+          const wasUnscheduled = !scheduledFor;
           endTimer();
-          router.back();
+          router.replace(wasUnscheduled ? '/sessions' : `/student/${id}`);
         },
       },
     ]);

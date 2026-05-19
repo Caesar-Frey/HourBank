@@ -14,7 +14,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getDb } from '../../../src/db/client';
 import { getStudent } from '../../../src/db/students';
 import { currentBalance as fetchBalance } from '../../../src/db/ledger';
-import { endSession } from '../../../src/db/sessions';
+import { endSession, getSession } from '../../../src/db/sessions';
 import { TopicChip } from '../../../src/components/TopicChip';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
 import { F } from '../../../src/theme/fonts';
@@ -45,6 +45,9 @@ export default function EndSessionScreen() {
       topics: string;
     }>();
   const router = useRouter();
+
+  const session = getSession(sessionId as string);
+  const postSaveDestination = session?.scheduled_for ? `/student/${id as string}` : '/sessions';
 
   const elapsed = parseInt(elapsedSeconds as string, 10) || 0;
   const paused = parseInt(pausedSeconds as string, 10) || 0;
@@ -135,7 +138,7 @@ export default function EndSessionScreen() {
     } catch (e) {
       console.error('Save draft error', e);
     }
-    router.back();
+    router.replace(postSaveDestination);
   };
 
   const actualDurationMinutes = elapsed / 60;
@@ -188,7 +191,7 @@ export default function EndSessionScreen() {
       Alert.alert('Session saved.', '', [
         {
           text: 'OK',
-          onPress: () => router.dismissTo(`/student/${id as string}`),
+          onPress: () => router.replace(postSaveDestination),
         },
       ]);
     } catch (e: unknown) {

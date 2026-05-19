@@ -257,9 +257,12 @@ export function sessionsThisWeek(): number {
 
 export function sessionsThisWeekCount(): number {
   const db = getDb();
-  const startOfWeek = new Date();
+  const now = new Date();
+  const dow = now.getDay();              // 0=Sun, 1=Mon, ...
+  const diff = dow === 0 ? -6 : 1 - dow; // Monday-start
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() + diff);
   startOfWeek.setHours(0, 0, 0, 0);
-  startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
   const row = db.getFirstSync<{ count: number }>(
     `SELECT COUNT(*) as count FROM sessions WHERE status = 'completed' AND ended_at >= ?`,
     [startOfWeek.toISOString()]

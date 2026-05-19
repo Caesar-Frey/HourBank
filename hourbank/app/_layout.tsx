@@ -1,5 +1,6 @@
 import '../src/global.css';
 import { useEffect } from 'react';
+import { SessionTimerProvider } from '../src/contexts/SessionTimerContext';
 import { Alert, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack, useRouter, usePathname } from 'expo-router';
@@ -104,14 +105,16 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <SafeAreaProvider>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(app)" options={{ headerShown: false }} />
-        <Stack.Screen name="student" options={{ headerShown: false }} />
-        <Stack.Screen name="calendar-event" options={{ headerShown: false }} />
-        <Stack.Screen name="transaction" options={{ headerShown: false }} />
-        <Stack.Screen name="lesson" options={{ headerShown: false }} />
-      </Stack>
-    </SafeAreaProvider>
+    <SessionTimerProvider>
+      <SafeAreaProvider>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(app)" options={{ headerShown: false }} />
+          <Stack.Screen name="student" options={{ headerShown: false }} />
+          <Stack.Screen name="calendar-event" options={{ headerShown: false }} />
+          <Stack.Screen name="transaction" options={{ headerShown: false }} />
+          <Stack.Screen name="lesson" options={{ headerShown: false }} />
+        </Stack>
+      </SafeAreaProvider>
+    </SessionTimerProvider>
   );
 }
