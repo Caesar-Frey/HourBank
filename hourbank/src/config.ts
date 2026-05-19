@@ -6,13 +6,6 @@ export const DEFAULT_PACKAGES = [
   { hours: 15, price: 8000, badge: null,         save: 1000 },
 ] as const;
 
-export const DEFAULT_TOPICS: Record<string, string[]> = {
-  'Mathematics':       ['Algebra','Functions','Trigonometry','Geometry','Statistics','Calculus','Sequences & Series','Finance Math'],
-  'Physical Sciences': ['Mechanics','Waves & Sound','Electricity','Magnetism','Chemical Bonding','Reactions','Stoichiometry','Organic Chem'],
-  'Life Sciences':     ['Cell Biology','Genetics','Evolution','Ecology','Human Systems','Plants'],
-  'English':           ['Essay writing','Language','Poetry','Novel','Drama','Comprehension'],
-  'Accounting':        ['Balance Sheet','Income Statement','Cash Flow','Ratios','VAT','Payroll'],
-};
 
 export const SUBJECT_SUGGESTIONS = [
   'Mathematics', 'Physical Sciences', 'Life Sciences', 'English',

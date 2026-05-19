@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { F } from '../theme/fonts';
+import { COLORS } from '../theme/colors';
 
 interface ScreenHeaderProps {
   backLabel?: string;
@@ -11,17 +12,10 @@ interface ScreenHeaderProps {
 
 export function ScreenHeader({ backLabel, onBack, title, rightElement }: ScreenHeaderProps) {
   return (
-    <View className="flex-row items-center justify-between px-6 pt-4 pb-2">
-      {/* Left: back button */}
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 }}>
       {onBack ? (
         <TouchableOpacity onPress={onBack} activeOpacity={0.7}>
-          <Text
-            style={{
-              fontFamily: F.mono,
-              fontSize: 13,
-              color: '#4A413A',
-            }}
-          >
+          <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.inkSoft }}>
             {`← ${backLabel ?? ''}`}
           </Text>
         </TouchableOpacity>
@@ -29,22 +23,14 @@ export function ScreenHeader({ backLabel, onBack, title, rightElement }: ScreenH
         <View />
       )}
 
-      {/* Centre: title */}
       {title ? (
-        <Text
-          style={{
-            fontFamily: F.sans,
-            fontSize: 13,
-            color: '#1B1714',
-          }}
-        >
+        <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.ink }}>
           {title}
         </Text>
       ) : (
         <View />
       )}
 
-      {/* Right: slot */}
       {rightElement ? rightElement : <View />}
     </View>
   );

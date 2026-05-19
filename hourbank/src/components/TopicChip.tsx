@@ -17,15 +17,15 @@ export function TopicChip({ label, selected, onPress, dark = false }: TopicChipP
       : 'border border-paper/30 rounded-full px-3 py-1.5'
     : selected
     ? 'border border-ink rounded-full px-3 py-1.5 bg-ink'
-    : 'border border-inkFaint rounded-full px-3 py-1.5';
+    : 'border border-ink rounded-full px-3 py-1.5';
 
-  const textColor = dark ? COLORS.paper : selected ? COLORS.paper : COLORS.inkFaint;
+  const textColor = dark ? COLORS.paper : selected ? COLORS.paper : COLORS.ink;
 
   return (
     <TouchableOpacity className={containerStyle} onPress={onPress} activeOpacity={0.75}>
       <Text
         style={{
-          fontFamily: F.sans,
+          fontFamily: selected && !dark ? F.sansMed : F.sans,
           fontSize: 13,
           color: textColor,
         }}

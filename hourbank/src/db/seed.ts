@@ -181,9 +181,9 @@ export function seedDemoData(): void {
       const sessionTopics = JSON.stringify(topics.slice(j % topics.length, (j % topics.length) + 2));
 
       db.runSync(
-        `INSERT INTO sessions (id, student_id, mode, started_at, ended_at, duration_minutes, paused_seconds, topics, status, verified_at, created_at)
-         VALUES (?, ?, 'in_person', ?, ?, ?, 0, ?, 'verified', ?, ?)`,
-        [sessionId, studentId, startedAt, endedAt, durationMin, sessionTopics, endedAt, startedAt]
+        `INSERT INTO sessions (id, student_id, mode, started_at, ended_at, duration_minutes, paused_seconds, topics, status, created_at)
+         VALUES (?, ?, 'in_person', ?, ?, ?, 0, ?, 'completed', ?)`,
+        [sessionId, studentId, startedAt, endedAt, durationMin, sessionTopics, startedAt]
       );
 
       runningBalance -= sess.durationHours;
@@ -212,6 +212,7 @@ export function seedDemoData(): void {
 }
 
 export function resetDb(): void {
+  if (!__DEV__) throw new Error('resetDb is only available in development');
   const db = getDb();
   db.withTransactionSync(() => {
     db.runSync('DELETE FROM ledger_entries');

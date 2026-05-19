@@ -4,14 +4,14 @@ export type TimerState = {
   status: TimerStatus;
   sessionId: string | null;
   studentId: string | null;
-  startedAt: string | null;       // ISO timestamp when last started/resumed
-  accumulatedSeconds: number;     // seconds accumulated before last pause
+  elapsedSeconds: number;  // seconds of RUNNING time (excludes paused time)
 };
 
 export type TimerAction =
-  | { type: 'START'; sessionId: string; studentId: string; startedAt: string; accumulatedSeconds: number }
-  | { type: 'PAUSE'; accumulatedSeconds: number }
-  | { type: 'RESUME'; startedAt: string }
+  | { type: 'START'; sessionId: string; studentId: string; elapsedSeconds: number }
+  | { type: 'PAUSE' }
+  | { type: 'RESUME'; elapsedSeconds: number }
+  | { type: 'TICK' }
   | { type: 'END' }
   | { type: 'RESET' };
 
@@ -19,8 +19,7 @@ export const initialState: TimerState = {
   status: 'idle',
   sessionId: null,
   studentId: null,
-  startedAt: null,
-  accumulatedSeconds: 0,
+  elapsedSeconds: 0,
 };
 
 export function timerReducer(state: TimerState, action: TimerAction): TimerState {
@@ -30,8 +29,7 @@ export function timerReducer(state: TimerState, action: TimerAction): TimerState
         status: 'active',
         sessionId: action.sessionId,
         studentId: action.studentId,
-        startedAt: action.startedAt,
-        accumulatedSeconds: action.accumulatedSeconds,
+        elapsedSeconds: action.elapsedSeconds,
       };
 
     case 'PAUSE':
@@ -40,7 +38,6 @@ export function timerReducer(state: TimerState, action: TimerAction): TimerState
       return {
         ...state,
         status: 'paused',
-        accumulatedSeconds: action.accumulatedSeconds,
       };
 
     case 'RESUME':
@@ -49,7 +46,15 @@ export function timerReducer(state: TimerState, action: TimerAction): TimerState
       return {
         ...state,
         status: 'active',
-        startedAt: action.startedAt,
+        elapsedSeconds: action.elapsedSeconds,
+      };
+
+    case 'TICK':
+      // Only tick when active
+      if (state.status !== 'active') return state;
+      return {
+        ...state,
+        elapsedSeconds: state.elapsedSeconds + 1,
       };
 
     case 'END':

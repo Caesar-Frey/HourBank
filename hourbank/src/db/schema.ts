@@ -6,7 +6,7 @@ export type Student = {
   grade: number;
   subject: string;
   curriculum: 'CAPS' | 'IEB' | 'Cambridge' | 'Other';
-  status: 'active' | 'archived';
+  status: 'active' | 'paused' | 'archived';
   created_at: string;
 };
 
@@ -32,10 +32,16 @@ export type Session = {
   ended_at: string | null;
   paused_seconds: number;
   duration_minutes: number | null;
+  billed_minutes: number | null;
+  paused_at: string | null;
+  cancel_reason: string | null;
   topics: string;
   session_notes: string | null;
-  status: 'scheduled' | 'active' | 'pending_verification' | 'verified' | 'disputed' | 'cancelled';
+  status: 'scheduled' | 'active' | 'paused' | 'completed' | 'cancelled';
+  session_type: 'general' | 'review' | 'test_prep' | 'exam_prep';
   verified_at: string | null;
+  updated_at: string | null;
+  tutor_id: string | null;
   created_at: string;
 };
 
@@ -51,6 +57,31 @@ export type LedgerEntry = {
   created_at: string;
 };
 
+export type Topic = {
+  id: string;
+  subject_id: string;
+  name: string;
+  sort_order: number;
+  is_custom?: number; // 0 | 1
+  created_at?: string | null;
+  updated_at: string;
+};
+
+export interface CalendarEventRow {
+  id: string;
+  kind: 'event' | 'time_block';
+  student_id: string | null;
+  starts_at: string;
+  ends_at: string | null;
+  all_day: number; // 0 = timed, 1 = all-day
+  title: string;
+  category: 'test' | 'exam' | 'homework' | 'other' | null;
+  notes: string | null;
+  tutor_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export function initDb(): void {
   const db = getDb();
 
@@ -64,7 +95,7 @@ export function initDb(): void {
       grade INTEGER CHECK (grade BETWEEN 1 AND 12),
       subject TEXT NOT NULL,
       curriculum TEXT NOT NULL DEFAULT 'CAPS' CHECK (curriculum IN ('CAPS','IEB','Cambridge','Other')),
-      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused','archived')),
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -94,11 +125,32 @@ export function initDb(): void {
       ended_at TEXT,
       paused_seconds INTEGER NOT NULL DEFAULT 0,
       duration_minutes REAL,
+      billed_minutes REAL,
+      paused_at TEXT,
+      cancel_reason TEXT,
       topics TEXT NOT NULL DEFAULT '[]',
       session_notes TEXT,
-      status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','active','pending_verification','verified','disputed','cancelled')),
+      status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','active','paused','completed','cancelled')),
       verified_at TEXT,
+      updated_at TEXT,
+      tutor_id TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.runSync(`
+    CREATE TABLE IF NOT EXISTS tutor_profile (
+      id TEXT PRIMARY KEY,
+      full_name TEXT NOT NULL DEFAULT '',
+      hourly_rate REAL NOT NULL DEFAULT 600.0,
+      currency TEXT NOT NULL DEFAULT 'ZAR',
+      max_owe_hours REAL NOT NULL DEFAULT 0,
+      tier_system_enabled INTEGER NOT NULL DEFAULT 1,
+      package_tiers TEXT NOT NULL DEFAULT '[]',
+      selected_subject_ids TEXT NOT NULL DEFAULT '[]',
+      last_backup_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
 

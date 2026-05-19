@@ -22,6 +22,7 @@ module.exports = {
         okFill:      '#E4EAE0',
         warnFill:    '#F0E0CB',
         badFill:     '#EFD7D7',
+        goodFill:    '#E8F2EA',
         sessionBg:   '#1B1714',
       },
     },

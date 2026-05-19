@@ -4,16 +4,21 @@ const ACTIVE_STATE: TimerState = {
   status: 'active',
   sessionId: 'sess-1',
   studentId: 'stu-1',
-  startedAt: '2024-01-01T10:00:00.000Z',
-  accumulatedSeconds: 0,
+  elapsedSeconds: 0,
+};
+
+const ACTIVE_STATE_WITH_ELAPSED: TimerState = {
+  status: 'active',
+  sessionId: 'sess-1',
+  studentId: 'stu-1',
+  elapsedSeconds: 120,
 };
 
 const PAUSED_STATE: TimerState = {
   status: 'paused',
   sessionId: 'sess-1',
   studentId: 'stu-1',
-  startedAt: '2024-01-01T10:00:00.000Z',
-  accumulatedSeconds: 300,
+  elapsedSeconds: 300,
 };
 
 describe('timerReducer', () => {
@@ -23,63 +28,88 @@ describe('timerReducer', () => {
       type: 'START',
       sessionId: 'sess-1',
       studentId: 'stu-1',
-      startedAt: '2024-01-01T10:00:00.000Z',
-      accumulatedSeconds: 0,
+      elapsedSeconds: 0,
     });
     expect(next.status).toBe('active');
     expect(next.sessionId).toBe('sess-1');
     expect(next.studentId).toBe('stu-1');
-    expect(next.startedAt).toBe('2024-01-01T10:00:00.000Z');
-    expect(next.accumulatedSeconds).toBe(0);
+    expect(next.elapsedSeconds).toBe(0);
+  });
+
+  // START with non-zero elapsed (orphan recovery)
+  it('START with non-zero elapsed → elapsedSeconds set', () => {
+    const next = timerReducer(initialState, {
+      type: 'START',
+      sessionId: 'sess-1',
+      studentId: 'stu-1',
+      elapsedSeconds: 450,
+    });
+    expect(next.status).toBe('active');
+    expect(next.elapsedSeconds).toBe(450);
   });
 
   // 2. PAUSE from active
-  it('PAUSE from active → status paused, accumulatedSeconds updated', () => {
-    const next = timerReducer(ACTIVE_STATE, {
+  it('PAUSE from active → status paused', () => {
+    const next = timerReducer(ACTIVE_STATE_WITH_ELAPSED, {
       type: 'PAUSE',
-      accumulatedSeconds: 120,
     });
     expect(next.status).toBe('paused');
-    expect(next.accumulatedSeconds).toBe(120);
+    // elapsedSeconds preserved at pause time
+    expect(next.elapsedSeconds).toBe(120);
     // other fields preserved
     expect(next.sessionId).toBe('sess-1');
     expect(next.studentId).toBe('stu-1');
   });
 
   // 3. RESUME from paused
-  it('RESUME from paused → status active, startedAt updated', () => {
-    const newStartedAt = '2024-01-01T10:05:00.000Z';
+  it('RESUME from paused → status active, elapsedSeconds preserved', () => {
     const next = timerReducer(PAUSED_STATE, {
       type: 'RESUME',
-      startedAt: newStartedAt,
+      elapsedSeconds: 300,
     });
     expect(next.status).toBe('active');
-    expect(next.startedAt).toBe(newStartedAt);
-    // accumulatedSeconds preserved from paused state
-    expect(next.accumulatedSeconds).toBe(300);
+    // elapsedSeconds from action (recomputed by context before dispatch)
+    expect(next.elapsedSeconds).toBe(300);
   });
 
-  // 4. END from active
+  // 4. TICK when active → increments elapsedSeconds by 1
+  it('TICK when active → elapsedSeconds increments by 1', () => {
+    const next = timerReducer(ACTIVE_STATE_WITH_ELAPSED, { type: 'TICK' });
+    expect(next.status).toBe('active');
+    expect(next.elapsedSeconds).toBe(121);
+  });
+
+  // 5. TICK when paused → no change to elapsedSeconds
+  it('TICK when paused → no change', () => {
+    const next = timerReducer(PAUSED_STATE, { type: 'TICK' });
+    expect(next).toBe(PAUSED_STATE);
+  });
+
+  // 6. TICK when idle → no change
+  it('TICK when idle → no change', () => {
+    const next = timerReducer(initialState, { type: 'TICK' });
+    expect(next).toBe(initialState);
+  });
+
+  // 7. END from active
   it('END from active → status idle, all fields cleared', () => {
     const next = timerReducer(ACTIVE_STATE, { type: 'END' });
     expect(next.status).toBe('idle');
     expect(next.sessionId).toBeNull();
     expect(next.studentId).toBeNull();
-    expect(next.startedAt).toBeNull();
-    expect(next.accumulatedSeconds).toBe(0);
+    expect(next.elapsedSeconds).toBe(0);
   });
 
-  // 5. END from paused
+  // 8. END from paused
   it('END from paused → status idle, all fields cleared', () => {
     const next = timerReducer(PAUSED_STATE, { type: 'END' });
     expect(next.status).toBe('idle');
     expect(next.sessionId).toBeNull();
     expect(next.studentId).toBeNull();
-    expect(next.startedAt).toBeNull();
-    expect(next.accumulatedSeconds).toBe(0);
+    expect(next.elapsedSeconds).toBe(0);
   });
 
-  // 6. RESET from any status
+  // 9. RESET from any status
   it('RESET from active → idle state', () => {
     const next = timerReducer(ACTIVE_STATE, { type: 'RESET' });
     expect(next).toEqual(initialState);
@@ -95,22 +125,22 @@ describe('timerReducer', () => {
     expect(next).toEqual(initialState);
   });
 
-  // 7. Unknown action → state unchanged
+  // 10. Unknown action → state unchanged
   it('unknown action → state unchanged', () => {
     // @ts-expect-error testing unknown action
     const next = timerReducer(ACTIVE_STATE, { type: 'UNKNOWN' });
     expect(next).toBe(ACTIVE_STATE);
   });
 
-  // 8. PAUSE from idle → no-op
+  // 11. PAUSE from idle → no-op
   it('PAUSE from idle → state unchanged', () => {
-    const next = timerReducer(initialState, { type: 'PAUSE', accumulatedSeconds: 0 });
+    const next = timerReducer(initialState, { type: 'PAUSE' });
     expect(next).toBe(initialState);
   });
 
-  // 9. RESUME from active → no-op
+  // 12. RESUME from active → no-op
   it('RESUME from active → state unchanged', () => {
-    const next = timerReducer(ACTIVE_STATE, { type: 'RESUME', startedAt: '2024-01-01T10:05:00.000Z' });
+    const next = timerReducer(ACTIVE_STATE, { type: 'RESUME', elapsedSeconds: 120 });
     expect(next).toBe(ACTIVE_STATE);
   });
 });

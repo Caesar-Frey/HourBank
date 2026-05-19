@@ -3,11 +3,9 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import { F } from '../theme/fonts';
 import { COLORS } from '../theme/colors';
 import { formatLedgerDate } from '../utils/format';
-import { VerificationBadge } from './VerificationBadge';
 
 interface LedgerSession {
   topics: string;
-  status: 'pending_verification' | 'verified' | 'disputed' | string;
 }
 
 interface LedgerEntry {
@@ -41,23 +39,12 @@ function getDescription(entry: LedgerEntry): string {
   return 'Entry';
 }
 
-function isVerificationStatus(
-  s: string
-): s is 'pending_verification' | 'verified' | 'disputed' {
-  return s === 'pending_verification' || s === 'verified' || s === 'disputed';
-}
-
 export function LedgerRow({ entry, onPress }: LedgerRowProps) {
   const { day, month } = formatLedgerDate(entry.created_at);
   const description = getDescription(entry);
   const isPositive = entry.hours_delta >= 0;
   const deltaLabel = `${isPositive ? '+' : ''}${entry.hours_delta.toFixed(1)}h`;
   const deltaColor = isPositive ? COLORS.moss : COLORS.ink;
-
-  const sessionStatus =
-    entry.session && isVerificationStatus(entry.session.status)
-      ? entry.session.status
-      : null;
 
   const inner = (
     <>
@@ -76,9 +63,6 @@ export function LedgerRow({ entry, onPress }: LedgerRowProps) {
         <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }}>
           {description}
         </Text>
-        {sessionStatus && (
-          <VerificationBadge status={sessionStatus} />
-        )}
       </View>
 
       {/* Delta column */}

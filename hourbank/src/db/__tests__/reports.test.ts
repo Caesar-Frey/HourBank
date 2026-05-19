@@ -92,35 +92,35 @@ describe('listSessionsForMonth', () => {
 
   afterEach(() => resetDbSingleton());
 
-  it('returns sessions ended in the given month', () => {
-    seedSession(db, 'sess1', 's1', '2026-05-10T14:00:00.000Z', '2026-05-10T15:00:00.000Z', 'pending_verification');
+  it('returns completed sessions ended in the given month', () => {
+    seedSession(db, 'sess1', 's1', '2026-05-10T14:00:00.000Z', '2026-05-10T15:00:00.000Z', 'completed');
     const rows = listSessionsForMonth(2026, 4);
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe('sess1');
     expect(rows[0].student_full_name).toBe('Alice Botha');
-    expect(rows[0].status).toBe('pending_verification');
+    expect(rows[0].status).toBe('completed');
   });
 
   it('computes duration in seconds from started_at and ended_at', () => {
-    seedSession(db, 'sess1', 's1', '2026-05-10T14:00:00.000Z', '2026-05-10T15:00:00.000Z', 'verified');
+    seedSession(db, 'sess1', 's1', '2026-05-10T14:00:00.000Z', '2026-05-10T15:00:00.000Z', 'completed');
     const rows = listSessionsForMonth(2026, 4);
     expect(rows[0].duration).toBe(3600); // 1 hour = 3600 seconds
   });
 
   it('excludes sessions ended before month start', () => {
-    seedSession(db, 'sess1', 's1', '2026-04-30T14:00:00.000Z', '2026-04-30T15:00:00.000Z', 'verified');
+    seedSession(db, 'sess1', 's1', '2026-04-30T14:00:00.000Z', '2026-04-30T15:00:00.000Z', 'completed');
     const rows = listSessionsForMonth(2026, 4);
     expect(rows).toHaveLength(0);
   });
 
   it('excludes sessions ended at next month start boundary', () => {
-    seedSession(db, 'sess1', 's1', '2026-06-01T00:00:00.000Z', '2026-06-01T01:00:00.000Z', 'verified');
+    seedSession(db, 'sess1', 's1', '2026-06-01T00:00:00.000Z', '2026-06-01T01:00:00.000Z', 'completed');
     const rows = listSessionsForMonth(2026, 4);
     expect(rows).toHaveLength(0);
   });
 
   it('includes session ended at month start', () => {
-    seedSession(db, 'sess1', 's1', '2026-04-30T23:00:00.000Z', '2026-05-01T00:00:00.000Z', 'verified');
+    seedSession(db, 'sess1', 's1', '2026-04-30T23:00:00.000Z', '2026-05-01T00:00:00.000Z', 'completed');
     const rows = listSessionsForMonth(2026, 4);
     expect(rows).toHaveLength(1);
   });
@@ -131,10 +131,10 @@ describe('listSessionsForMonth', () => {
     expect(rows).toHaveLength(0);
   });
 
-  it('includes verified sessions', () => {
-    seedSession(db, 'sess1', 's1', '2026-05-10T14:00:00.000Z', '2026-05-10T15:00:00.000Z', 'verified');
+  it('includes completed sessions', () => {
+    seedSession(db, 'sess1', 's1', '2026-05-10T14:00:00.000Z', '2026-05-10T15:00:00.000Z', 'completed');
     const rows = listSessionsForMonth(2026, 4);
     expect(rows).toHaveLength(1);
-    expect(rows[0].status).toBe('verified');
+    expect(rows[0].status).toBe('completed');
   });
 });
