@@ -53,8 +53,8 @@ describe('resetDb (dev only)', () => {
   });
 
   it('works when ledger_entries is protected by an append-only DELETE trigger, and restores it', () => {
-    db.runSync(`CREATE TRIGGER ledger_no_delete BEFORE DELETE ON ledger_entries
-                BEGIN SELECT RAISE(ABORT, 'ledger_entries is append-only'); END`);
+    // Migration 007 installs the append-only guards; prove they are live first.
+    expect(() => db.runSync(`DELETE FROM ledger_entries`)).toThrow(/append-only|ledger/i);
     expect(() => resetDb()).not.toThrow();
     expect(count(db, 'ledger_entries')).toBe(0);
     const trig = db.getFirstSync<{ name: string }>(

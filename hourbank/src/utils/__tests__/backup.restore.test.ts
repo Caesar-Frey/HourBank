@@ -70,19 +70,13 @@ import { wrapBetterSqlite } from '../../db/__tests__/wrapBetterSqlite';
 import { initDb } from '../../db/schema';
 import {
   runMigrations,
-  MIGRATION_002,
-  MIGRATION_003_SESSION_TYPE,
-  MIGRATION_004_CALENDAR_EVENTS,
-  MIGRATION_005_LEDGER_CONSTRAINTS,
-  MIGRATION_006_CLAIMS,
+  ALL_MIGRATIONS,
   type Migration,
 } from '../../db/migrations';
 import { inspectBackup, restoreBackup, importBackup, BackupError } from '../backup';
 
-const MIGRATIONS: Migration[] = [
-  MIGRATION_002, MIGRATION_003_SESSION_TYPE, MIGRATION_004_CALENDAR_EVENTS,
-  MIGRATION_005_LEDGER_CONSTRAINTS, MIGRATION_006_CLAIMS,
-];
+// Same chain the app boots with (incl. 007 columns + ledger append-only triggers).
+const MIGRATIONS: Migration[] = ALL_MIGRATIONS;
 const VERSIONS = MIGRATIONS.map(m => m.version);
 
 let root: string;
