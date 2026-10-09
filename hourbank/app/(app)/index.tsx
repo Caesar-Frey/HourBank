@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -13,9 +12,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import { F } from '../../src/theme/fonts';
 import { StudentCard } from '../../src/components/StudentCard';
+import { ActionSheet, ActionSheetItem } from '../../src/components/ActionSheet';
 import { listActiveStudents, listPausedStudents } from '../../src/db/students';
-import { sessionsThisWeekCount } from '../../src/db/sessions';
-import { formatHours, formatDuration } from '../../src/utils/format';
+import { getWeekLessonStats, WeekLessonStats } from '../../src/db/reports';
+import { formatHours, formatDuration, pluralize } from '../../src/utils/format';
 import { useSessionTimer } from '../../src/contexts/SessionTimerContext';
 import { COLORS } from '../../src/theme/colors';
 import { Student, Session } from '../../src/db/schema';
@@ -52,9 +52,15 @@ export default function HomeScreen() {
   const router = useRouter();
   const { status: timerStatus, sessionId: liveSessionId, studentId: liveStudentId, elapsedSeconds } = useSessionTimer();
   const [sortMode, setSortMode] = useState<SortMode>('balance');
+  const [sortSheetVisible, setSortSheetVisible] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState('');
-  const [weekLessons, setWeekLessons] = useState(0);
+  const [weekStats, setWeekStats] = useState<WeekLessonStats>({
+    completedCount: 0,
+    completedHours: 0,
+    scheduledCount: 0,
+    scheduledHours: 0,
+  });
   const [activeStudents, setActiveStudents] = useState<RosterStudent[]>([]);
   const [pausedStudents, setPausedStudents] = useState<RosterStudent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,9 +86,9 @@ export default function HomeScreen() {
         setLoading(false);
       }
       try {
-        setWeekLessons(sessionsThisWeekCount());
+        setWeekStats(getWeekLessonStats());
       } catch {
-        setWeekLessons(0);
+        setWeekStats({ completedCount: 0, completedHours: 0, scheduledCount: 0, scheduledHours: 0 });
       }
       // Check backup staleness (async, fire-and-forget)
       Promise.all([
@@ -134,28 +140,19 @@ export default function HomeScreen() {
 
   const displayed = showAll ? filtered : sorted.slice(0, 5);
 
-  function handleSort() {
-    const options: { label: string; value: SortMode }[] = [
-      { label: 'Balance ↑', value: 'balance' },
-      { label: 'Next session', value: 'next_session' },
-      { label: 'Name A–Z', value: 'name' },
-      { label: 'Grade', value: 'grade' },
-    ];
-    Alert.alert(
-      'Sort roster',
-      undefined,
-      [
-        ...options.map(o => ({
-          text: o.label + (sortMode === o.value ? ' ✓' : ''),
-          onPress: () => {
-            setSortMode(o.value);
-            AsyncStorage.setItem(SORT_KEY, o.value);
-          },
-        })),
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
-  }
+  const sortItems: ActionSheetItem[] = ([
+    { label: 'Balance ↑', value: 'balance' },
+    { label: 'Next session', value: 'next_session' },
+    { label: 'Name A–Z', value: 'name' },
+    { label: 'Grade', value: 'grade' },
+  ] as { label: string; value: SortMode }[]).map(o => ({
+    label: o.label + (sortMode === o.value ? '  ✓' : ''),
+    onPress: () => {
+      setSortMode(o.value);
+      AsyncStorage.setItem(SORT_KEY, o.value);
+      setSortSheetVisible(false);
+    },
+  }));
 
   const activeCount = activeStudents.length;
   const totalCredits = useMemo(() => {
@@ -163,6 +160,26 @@ export default function HomeScreen() {
       xs.reduce((sum, s) => sum + Math.max(s.current_balance ?? 0, 0), 0);
     return sumPositive(activeStudents) + sumPositive(pausedStudents);
   }, [activeStudents, pausedStudents]);
+
+  // Shared stat-tile styling (kept identical to the original single-row tiles)
+  const tileStyle = {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: COLORS.paperEdge,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.4)',
+    padding: 16,
+  } as const;
+  const tileLabel = {
+    fontFamily: F.mono,
+    fontSize: 9,
+    color: COLORS.inkFaint,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  } as const;
+  const tileNumber = { fontFamily: F.mono, fontSize: 18, color: COLORS.ink } as const;
+  const tileUnit = { fontFamily: F.serifItalic, fontSize: 13, color: COLORS.inkSoft } as const;
+  const tileSub = { fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginTop: 2 } as const;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
@@ -253,64 +270,48 @@ export default function HomeScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Stat tiles */}
-        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
-          {/* This week */}
-          <View style={{
-            flex: 1,
-            borderWidth: 1,
-            borderColor: COLORS.paperEdge,
-            borderRadius: 16,
-            backgroundColor: 'rgba(255,255,255,0.4)',
-            padding: 16,
-          }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>
-              THIS WEEK
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 18, color: COLORS.ink }}>
-                {weekLessons}
-              </Text>
-              <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: COLORS.inkSoft }}>lessons</Text>
+        {/* Stat tiles — 2×2 grid */}
+        <View style={{ gap: 12, marginBottom: 24 }}>
+          {/* This week: completed + scheduled lessons */}
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            {/* Completed this week */}
+            <View style={tileStyle}>
+              <Text style={tileLabel}>THIS WEEK · DONE</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                <Text style={tileNumber}>{weekStats.completedCount}</Text>
+                <Text style={tileUnit}>{pluralize(weekStats.completedCount, 'lesson')}</Text>
+              </View>
+              <Text style={tileSub}>{formatHours(weekStats.completedHours)}</Text>
+            </View>
+
+            {/* Scheduled this week */}
+            <View style={tileStyle}>
+              <Text style={tileLabel}>THIS WEEK · SCHEDULED</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                <Text style={tileNumber}>{weekStats.scheduledCount}</Text>
+                <Text style={tileUnit}>{pluralize(weekStats.scheduledCount, 'lesson')}</Text>
+              </View>
+              <Text style={tileSub}>{formatHours(weekStats.scheduledHours)}</Text>
             </View>
           </View>
 
-          {/* Active */}
-          <View style={{
-            flex: 1,
-            borderWidth: 1,
-            borderColor: COLORS.paperEdge,
-            borderRadius: 16,
-            backgroundColor: 'rgba(255,255,255,0.4)',
-            padding: 16,
-          }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>
-              ACTIVE
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 18, color: COLORS.ink }}>
-                {activeCount}
-              </Text>
-              <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: COLORS.inkSoft }}>students</Text>
+          {/* Active + hours banked */}
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            {/* Active */}
+            <View style={tileStyle}>
+              <Text style={tileLabel}>ACTIVE</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                <Text style={tileNumber}>{activeCount}</Text>
+                <Text style={tileUnit}>{pluralize(activeCount, 'student')}</Text>
+              </View>
             </View>
-          </View>
 
-          {/* Total credits */}
-          <View style={{
-            flex: 1,
-            borderWidth: 1,
-            borderColor: COLORS.paperEdge,
-            borderRadius: 16,
-            backgroundColor: 'rgba(255,255,255,0.4)',
-            padding: 16,
-          }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>
-              HOURS BANKED
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 18, color: COLORS.ink }}>
-                {formatHours(totalCredits)}
-              </Text>
+            {/* Total credits */}
+            <View style={tileStyle}>
+              <Text style={tileLabel}>HOURS BANKED</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                <Text style={tileNumber}>{formatHours(totalCredits)}</Text>
+              </View>
             </View>
           </View>
         </View>
@@ -320,7 +321,7 @@ export default function HomeScreen() {
           <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.ink, textTransform: 'uppercase', flex: 1 }}>
             ACTIVE
           </Text>
-          <TouchableOpacity onPress={handleSort} activeOpacity={0.7} style={{ marginRight: 16 }}>
+          <TouchableOpacity onPress={() => setSortSheetVisible(true)} activeOpacity={0.7} style={{ marginRight: 16 }}>
             <Feather name="sliders" size={16} color={COLORS.inkFaint} />
           </TouchableOpacity>
           <TouchableOpacity
@@ -449,6 +450,12 @@ export default function HomeScreen() {
         {/* Archived students are not listed — just a static muted count line */}
         {/* This placeholder renders nothing; archived count can be added in Phase 2 */}
       </ScrollView>
+
+      <ActionSheet
+        visible={sortSheetVisible}
+        onDismiss={() => setSortSheetVisible(false)}
+        items={sortItems}
+      />
     </SafeAreaView>
   );
 }

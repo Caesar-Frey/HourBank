@@ -50,3 +50,8 @@ export function formatHoursDisplay(h: number): { integer: string; decimal: strin
 export function formatBilledDuration(seconds: number): string {
   return formatHours(seconds / 3600);
 }
+
+export function pluralize(count: number, singular: string, plural?: string): string {
+  // 1 → "lesson", 2 → "lessons"
+  return count === 1 ? singular : (plural ?? `${singular}s`);
+}
