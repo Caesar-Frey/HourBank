@@ -39,6 +39,10 @@ export type CalendarEvent =
       studentName: string;
       scheduledFor: string;
       sessionType: string;
+      /** e.g. 'no_show' | 'discarded' | null for a plain cancel. */
+      cancelReason: string | null;
+      /** > 0 for a charged no-show (counts as delivered in reports/claims). */
+      billedMinutes: number;
     }
   | {
       kind: 'top_up';
@@ -98,6 +102,7 @@ type RawSession = {
   scheduled_for: string | null;
   started_at: string | null;
   ended_at: string | null;
+  cancel_reason: string | null;
   estimated_duration_minutes: number | null;
   duration_minutes: number | null;
   billed_minutes: number | null;
@@ -153,7 +158,7 @@ export function listEventsInRange(
     // Completed lessons are placed at started_at (legacy rows: ended_at).
     const sql = `
       SELECT s.id, s.student_id, st.full_name AS student_name,
-             s.status, s.scheduled_for, s.started_at, s.ended_at,
+             s.status, s.scheduled_for, s.started_at, s.ended_at, s.cancel_reason,
              s.estimated_duration_minutes, s.duration_minutes, s.billed_minutes,
              s.session_type, s.mode
       FROM sessions s
@@ -214,6 +219,8 @@ export function listEventsInRange(
           studentName: row.student_name,
           scheduledFor: row.scheduled_for,
           sessionType: row.session_type,
+          cancelReason: row.cancel_reason,
+          billedMinutes: row.billed_minutes ?? 0,
         });
       }
     }

@@ -28,6 +28,20 @@ export { formatClaimPeriod, inclusivePeriodEnd } from '../utils/format';
  */
 export const DEFAULT_PAYOUT_RATE = 600;
 
+/**
+ * SQL predicate: a session counts as a DELIVERED, billable lesson — completed,
+ * or a charged no-show (cancelled + cancel_reason 'no_show' + billed minutes).
+ * Shared by claims and reports so both agree on what was delivered.
+ */
+export function billableSessionSql(alias = 's'): string {
+  return `(${alias}.status = 'completed' OR (${alias}.status = 'cancelled' AND ${alias}.cancel_reason = 'no_show' AND COALESCE(${alias}.billed_minutes, 0) > 0))`;
+}
+
+/** SQL: the instant a billable lesson is dated by (no-shows may lack ended_at). */
+export function billableSessionDateSql(alias = 's'): string {
+  return `COALESCE(${alias}.ended_at, ${alias}.started_at, ${alias}.scheduled_for)`;
+}
+
 export type ClaimablePoolLine = {
   session_id: string;
   student_id: string;
@@ -116,14 +130,14 @@ function priceLine(raw: RawPoolRow, profile: ProfileConfig): ClaimablePoolLine {
  * date range [start, end) over sessions.ended_at, and/or restrict to a set of
  * session ids (used by buildClaim preview and finaliseClaim re-check).
  *
- * Claimable = sessions.status='completed' AND NOT referenced by a claim_line of
+ * Claimable = billable (completed, or charged no-show) AND NOT referenced by a claim_line of
  * a non-voided claim (the §2.3 anti-join).
  */
 function derivePoolLines(
   db: Db,
   opts: { range?: { start: string; end: string }; sessionIds?: string[] }
 ): ClaimablePoolLine[] {
-  const where: string[] = [`s.status = 'completed'`];
+  const where: string[] = [billableSessionSql('s')];
   const params: (string | number)[] = [];
 
   where.push(`NOT EXISTS (
@@ -133,7 +147,7 @@ function derivePoolLines(
   )`);
 
   if (opts.range) {
-    where.push('s.ended_at >= ? AND s.ended_at < ?');
+    where.push(`julianday(${billableSessionDateSql('s')}) >= julianday(?) AND julianday(${billableSessionDateSql('s')}) < julianday(?)`);
     params.push(opts.range.start, opts.range.end);
   }
 
@@ -146,12 +160,12 @@ function derivePoolLines(
 
   const rows = db.getAllSync<RawPoolRow>(
     `SELECT s.id AS session_id, s.student_id, st.full_name AS student_full_name,
-            s.ended_at, s.mode, s.billed_minutes, s.duration_minutes,
+            ${billableSessionDateSql('s')} AS ended_at, s.mode, s.billed_minutes, s.duration_minutes,
             st.travel_flat_fee, st.travel_distance_km, st.payout_rate_override
      FROM sessions s
      JOIN students st ON st.id = s.student_id
      WHERE ${where.join(' AND ')}
-     ORDER BY s.ended_at ASC`,
+     ORDER BY julianday(${billableSessionDateSql('s')}) ASC`,
     params
   );
 

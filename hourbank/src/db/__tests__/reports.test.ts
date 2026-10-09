@@ -252,3 +252,29 @@ describe('getWeekLessonStats', () => {
     expect(stats.completedHours).toBe(1);
   });
 });
+
+describe('charged no-shows count as delivered in reports', () => {
+  let db: TestDb;
+  beforeEach(() => {
+    db = createTestDb();
+    seedStudent(db, 's1', 'Alice Botha');
+    db.runSync(
+      `INSERT INTO sessions (id, student_id, mode, scheduled_for, billed_minutes, status, cancel_reason, created_at)
+       VALUES ('ns', 's1', 'online', '2026-05-10T09:00:00.000Z', 60, 'cancelled', 'no_show', '2026-05-01T00:00:00.000Z'),
+              ('cx', 's1', 'online', '2026-05-12T09:00:00.000Z', NULL, 'cancelled', 'no_show', '2026-05-01T00:00:00.000Z')`
+    );
+  });
+  afterEach(() => resetDbSingleton());
+
+  it('lists the charged no-show with its billed length and reason', () => {
+    const rows = listSessionsForMonth(2026, 4);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: 'ns', cancel_reason: 'no_show', billed_minutes: 60, ended_at: '2026-05-10T09:00:00.000Z' });
+  });
+
+  it('includes it in month totals', () => {
+    const sum = getMonthSummary(2026, 4);
+    expect(sum.totalHours).toBe(1);
+    expect(sum.totalLessons).toBe(1);
+  });
+});

@@ -1,4 +1,5 @@
 import { getDb } from './client';
+import { billableSessionSql, billableSessionDateSql } from './claims';
 
 export type StudentMonthRow = {
   studentId: string;
@@ -48,6 +49,7 @@ export type TopUpRow = {
 
 export type SessionListRow = {
   id: string;
+  /** Lesson date: ended_at, or started_at/scheduled_for for a charged no-show. */
   ended_at: string;
   student_id: string;
   student_full_name: string;
@@ -56,8 +58,9 @@ export type SessionListRow = {
   duration: number;
   billed_minutes: number;
   mode: 'in_person' | 'online';
-  /** Always 'completed' — there is no 'verified' status. */
+  /** 'completed', or 'cancelled' for a charged no-show (see cancel_reason). No 'verified' status exists. */
   status: string;
+  cancel_reason: string | null;
   session_type: 'general' | 'review' | 'test_prep' | 'exam_prep';
 };
 
@@ -82,15 +85,16 @@ export function listSessionsForMonth(year: number, monthIdx: number): SessionLis
   const db = getDb();
   const { start, end } = localMonthBounds(year, monthIdx);
   return db.getAllSync<SessionListRow>(
-    `SELECT s.id, s.ended_at, s.started_at, s.student_id, st.full_name AS student_full_name,
+    `SELECT s.id, ${billableSessionDateSql('s')} AS ended_at, s.started_at, s.cancel_reason, s.student_id, st.full_name AS student_full_name,
             s.mode, s.status, s.session_type,
             ROUND(${BILLED_MINUTES_SQL}, 2) AS billed_minutes,
             CAST(ROUND(${BILLED_MINUTES_SQL} * 60) AS INTEGER) AS duration
      FROM sessions s
      JOIN students st ON s.student_id = st.id
-     WHERE s.status = 'completed'
-       AND julianday(s.ended_at) >= julianday(?) AND julianday(s.ended_at) < julianday(?)
-     ORDER BY s.ended_at DESC`,
+     WHERE ${billableSessionSql('s')}
+       AND julianday(${billableSessionDateSql('s')}) >= julianday(?)
+       AND julianday(${billableSessionDateSql('s')}) < julianday(?)
+     ORDER BY julianday(${billableSessionDateSql('s')}) DESC`,
     [start, end]
   );
 }
@@ -125,9 +129,10 @@ export function getWeekLessonStats(): WeekLessonStats {
             COALESCE(SUM(COALESCE(s.billed_minutes, s.duration_minutes)), 0) AS minutes
      FROM sessions s
      JOIN students st ON s.student_id = st.id
-     WHERE s.status = 'completed'
+     WHERE ${billableSessionSql('s')}
        AND st.status != 'archived'
-       AND julianday(s.ended_at) >= julianday(?) AND julianday(s.ended_at) < julianday(?)`,
+       AND julianday(${billableSessionDateSql('s')}) >= julianday(?)
+       AND julianday(${billableSessionDateSql('s')}) < julianday(?)`,
     [startISO, endISO]
   );
 
@@ -167,8 +172,9 @@ export function getMonthSummary(year: number, monthZeroIdx: number): MonthSummar
             COUNT(*) AS sessions
      FROM sessions s
      JOIN students st ON s.student_id = st.id
-     WHERE s.status = 'completed'
-       AND julianday(s.ended_at) >= julianday(?) AND julianday(s.ended_at) < julianday(?)
+     WHERE ${billableSessionSql('s')}
+       AND julianday(${billableSessionDateSql('s')}) >= julianday(?)
+       AND julianday(${billableSessionDateSql('s')}) < julianday(?)
      GROUP BY s.student_id`,
     [start, end]
   );

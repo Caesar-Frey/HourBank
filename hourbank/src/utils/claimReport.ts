@@ -128,7 +128,7 @@ export function buildClaimReportHtml(input: {
 /** Claim lines joined to their lesson's student + time. Money stays the frozen snapshot. */
 function loadReportLines(claimId: string): ClaimReportLine[] {
   const rows = getDb().getAllSync<ClaimLine & { student_name: string | null; lesson_at: string | null }>(
-    `SELECT cl.*, st.full_name AS student_name, COALESCE(s.started_at, s.ended_at) AS lesson_at
+    `SELECT cl.*, st.full_name AS student_name, COALESCE(s.started_at, s.ended_at, s.scheduled_for) AS lesson_at
      FROM claim_lines cl
      LEFT JOIN sessions s ON s.id = cl.session_id
      LEFT JOIN students st ON st.id = s.student_id
