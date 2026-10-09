@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   Pressable,
   ScrollView,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../theme/colors';
 import { F } from '../theme/fonts';
@@ -25,13 +27,13 @@ interface Props {
   students: Student[];
 }
 
-const EVENT_KIND_OPTS: { value: EventKind; label: string }[] = [
-  { value: 'scheduled',  label: 'Scheduled' },
-  { value: 'completed',  label: 'Completed' },
-  { value: 'cancelled',  label: 'Cancelled' },
-  { value: 'top_up',     label: 'Top-up' },
-  { value: 'event',      label: 'Events' },
-  { value: 'time_block', label: 'Blocks' },
+const EVENT_KIND_OPTS: { value: EventKind; label: string; color: string }[] = [
+  { value: 'scheduled',  label: 'Scheduled', color: COLORS.amber },
+  { value: 'completed',  label: 'Completed', color: COLORS.moss },
+  { value: 'cancelled',  label: 'Cancelled', color: COLORS.crimson },
+  { value: 'top_up',     label: 'Top-up',    color: COLORS.indigo },
+  { value: 'event',      label: 'Events',    color: COLORS.plum },
+  { value: 'time_block', label: 'Blocks',    color: COLORS.inkFaint },
 ];
 
 const SESSION_TYPE_OPTS: { value: SessionTypeFilter; label: string }[] = [
@@ -62,10 +64,12 @@ function SectionLabel({ children }: { children: string }) {
 function Chip({
   label,
   selected,
+  dotColor,
   onPress,
 }: {
   label: string;
   selected: boolean;
+  dotColor?: string;
   onPress: () => void;
 }) {
   return (
@@ -73,6 +77,8 @@ function Chip({
       onPress={onPress}
       activeOpacity={0.75}
       style={{
+        flexDirection: 'row',
+        alignItems: 'center',
         backgroundColor: selected ? COLORS.ink : 'transparent',
         borderWidth: 1,
         borderColor: selected ? COLORS.ink : COLORS.paperEdge,
@@ -81,8 +87,19 @@ function Chip({
         paddingVertical: 7,
         marginRight: 8,
         marginBottom: 8,
+        gap: 6,
       }}
     >
+      {dotColor ? (
+        <View
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: 4,
+            backgroundColor: dotColor,
+          }}
+        />
+      ) : null}
       <Text
         style={{
           fontFamily: F.sans,
@@ -105,50 +122,78 @@ export function CalendarFilterSheet({
 }: Props) {
   const insets = useSafeAreaInsets();
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
+  // Draft state — nothing applies until "Done". Re-sync whenever the sheet opens.
+  const [draft, setDraft] = useState<CalendarFilters>(filters);
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    if (visible) {
+      setDraft({
+        studentIds: filters.studentIds,
+        eventKinds: new Set(filters.eventKinds),
+        sessionTypes: new Set(filters.sessionTypes),
+      });
+      setQuery('');
+    }
+  }, [visible]);
+
+  // ── Handlers (mutate draft only) ────────────────────────────────────────────
 
   function toggleStudent(id: string) {
-    if (filters.studentIds === null) {
-      // Was "all" — now exclude this one student (select all others)
-      const others = students.map(s => s.id).filter(sid => sid !== id);
-      onFiltersChange({ ...filters, studentIds: others });
-    } else {
-      const next = filters.studentIds.includes(id)
-        ? filters.studentIds.filter(s => s !== id)
-        : [...filters.studentIds, id];
-      // If all selected or none selected, revert to null (null = all)
-      onFiltersChange({
-        ...filters,
-        studentIds: (next.length === students.length || next.length === 0) ? null : next,
-      });
-    }
+    setDraft(prev => {
+      if (prev.studentIds === null) {
+        // Was "all" — deselecting one means "all others"
+        const others = students.map(s => s.id).filter(sid => sid !== id);
+        return { ...prev, studentIds: others };
+      }
+      const next = prev.studentIds.includes(id)
+        ? prev.studentIds.filter(s => s !== id)
+        : [...prev.studentIds, id];
+      // All or none selected → revert to null (null = all)
+      return {
+        ...prev,
+        studentIds: next.length === students.length || next.length === 0 ? null : next,
+      };
+    });
   }
 
-  function toggleAllStudents() {
-    onFiltersChange({ ...filters, studentIds: null });
+  function selectAllStudents() {
+    setDraft(prev => ({ ...prev, studentIds: null }));
   }
 
   function toggleKind(kind: EventKind) {
-    const next = new Set(filters.eventKinds);
-    if (next.has(kind)) {
-      next.delete(kind);
-    } else {
-      next.add(kind);
-    }
-    onFiltersChange({ ...filters, eventKinds: next });
+    setDraft(prev => {
+      const next = new Set(prev.eventKinds);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return { ...prev, eventKinds: next };
+    });
   }
 
   function toggleSessionType(st: SessionTypeFilter) {
-    const next = new Set(filters.sessionTypes);
-    if (next.has(st)) {
-      next.delete(st);
-    } else {
-      next.add(st);
-    }
-    onFiltersChange({ ...filters, sessionTypes: next });
+    setDraft(prev => {
+      const next = new Set(prev.sessionTypes);
+      if (next.has(st)) next.delete(st);
+      else next.add(st);
+      return { ...prev, sessionTypes: next };
+    });
   }
 
-  const allStudentsSelected = filters.studentIds === null;
+  function apply() {
+    onFiltersChange(draft);
+  }
+
+  const allStudentsSelected = draft.studentIds === null;
+  const q = query.trim().toLowerCase();
+  const visibleStudents = q
+    ? students.filter(s => s.full_name.toLowerCase().includes(q))
+    : students;
+
+  function isStudentSelected(id: string): boolean {
+    return allStudentsSelected || (draft.studentIds?.includes(id) ?? false);
+  }
+
+  const selectedCount = draft.studentIds === null ? students.length : draft.studentIds.length;
 
   return (
     <Modal
@@ -158,7 +203,7 @@ export function CalendarFilterSheet({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      {/* Backdrop */}
+      {/* Backdrop — tap discards draft */}
       <Pressable
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}
         onPress={onClose}
@@ -172,7 +217,7 @@ export function CalendarFilterSheet({
           borderTopRightRadius: 20,
           paddingHorizontal: 24,
           paddingBottom: insets.bottom + 16,
-          maxHeight: '80%',
+          maxHeight: '85%',
         }}
       >
         {/* Handle */}
@@ -193,24 +238,137 @@ export function CalendarFilterSheet({
           <Text style={{ fontFamily: F.serif, fontSize: 20, color: COLORS.ink }}>
             Filters
           </Text>
-          <TouchableOpacity onPress={onClose} activeOpacity={0.7}>
+          <TouchableOpacity onPress={apply} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood }}>Done</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 4 }}>
-          {/* STUDENTS */}
-          <SectionLabel>Students</SectionLabel>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-            <Chip label="All" selected={allStudentsSelected} onPress={toggleAllStudents} />
-            {students.map(s => (
-              <Chip
-                key={s.id}
-                label={s.full_name.trim().split(/\s+/)[0]}
-                selected={allStudentsSelected || (filters.studentIds?.includes(s.id) ?? false)}
-                onPress={() => toggleStudent(s.id)}
-              />
-            ))}
+        <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 4 }} keyboardShouldPersistTaps="handled">
+          {/* STUDENTS — searchable multi-select list */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <SectionLabel>Students</SectionLabel>
+            <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, marginTop: 20 }}>
+              {allStudentsSelected ? 'ALL' : `${selectedCount}/${students.length}`}
+            </Text>
+          </View>
+
+          {/* Search field */}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: COLORS.paperDeep,
+              borderRadius: 10,
+              paddingHorizontal: 12,
+              height: 40,
+              gap: 8,
+            }}
+          >
+            <Feather name="search" size={15} color={COLORS.inkFaint} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search students"
+              placeholderTextColor={COLORS.inkFaint}
+              style={{ flex: 1, fontFamily: F.sans, fontSize: 14, color: COLORS.ink, padding: 0 }}
+              autoCorrect={false}
+            />
+            {query.length > 0 ? (
+              <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Feather name="x" size={15} color={COLORS.inkFaint} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* "All students" quick toggle */}
+          <TouchableOpacity
+            onPress={selectAllStudents}
+            activeOpacity={0.7}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingVertical: 11,
+              marginTop: 6,
+              gap: 12,
+            }}
+          >
+            <View
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 6,
+                borderWidth: 1.5,
+                borderColor: allStudentsSelected ? COLORS.ink : COLORS.paperEdge,
+                backgroundColor: allStudentsSelected ? COLORS.ink : 'transparent',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {allStudentsSelected ? <Feather name="check" size={13} color={COLORS.paper} /> : null}
+            </View>
+            <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>
+              All students
+            </Text>
+          </TouchableOpacity>
+
+          {/* Scrollable student list */}
+          <View
+            style={{
+              maxHeight: 210,
+              borderTopWidth: 1,
+              borderTopColor: COLORS.paperEdge,
+            }}
+          >
+            <ScrollView showsVerticalScrollIndicator nestedScrollEnabled keyboardShouldPersistTaps="handled">
+              {visibleStudents.map(s => {
+                const sel = isStudentSelected(s.id);
+                return (
+                  <TouchableOpacity
+                    key={s.id}
+                    onPress={() => toggleStudent(s.id)}
+                    activeOpacity={0.7}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: 11,
+                      borderBottomWidth: 1,
+                      borderBottomColor: COLORS.paperEdge,
+                      gap: 12,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 6,
+                        borderWidth: 1.5,
+                        borderColor: sel ? COLORS.ink : COLORS.paperEdge,
+                        backgroundColor: sel ? COLORS.ink : 'transparent',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {sel ? <Feather name="check" size={13} color={COLORS.paper} /> : null}
+                    </View>
+                    <Text style={{ flex: 1, fontFamily: F.sans, fontSize: 15, color: COLORS.ink }} numberOfLines={1}>
+                      {s.full_name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+              {visibleStudents.length === 0 ? (
+                <Text
+                  style={{
+                    fontFamily: F.sans,
+                    fontSize: 13,
+                    color: COLORS.inkFaint,
+                    paddingVertical: 16,
+                  }}
+                >
+                  No students match “{query}”
+                </Text>
+              ) : null}
+            </ScrollView>
           </View>
 
           {/* EVENT TYPE */}
@@ -220,7 +378,8 @@ export function CalendarFilterSheet({
               <Chip
                 key={opt.value}
                 label={opt.label}
-                selected={filters.eventKinds.has(opt.value)}
+                dotColor={opt.color}
+                selected={draft.eventKinds.has(opt.value)}
                 onPress={() => toggleKind(opt.value)}
               />
             ))}
@@ -233,7 +392,7 @@ export function CalendarFilterSheet({
               <Chip
                 key={opt.value}
                 label={opt.label}
-                selected={filters.sessionTypes.has(opt.value)}
+                selected={draft.sessionTypes.has(opt.value)}
                 onPress={() => toggleSessionType(opt.value)}
               />
             ))}

@@ -128,8 +128,8 @@ function kindColor(kind: CalendarEvent['kind']): string {
     case 'session_scheduled': return COLORS.amber;
     case 'session_completed': return COLORS.moss;
     case 'session_cancelled': return COLORS.crimson;
-    case 'top_up':            return COLORS.moss;
-    case 'event':             return COLORS.amber;
+    case 'top_up':            return COLORS.indigo;
+    case 'event':             return COLORS.plum;
     case 'time_block':        return COLORS.inkFaint;
   }
 }
@@ -139,9 +139,56 @@ function kindBg(kind: CalendarEvent['kind']): string {
     case 'session_scheduled': return COLORS.warnFill;
     case 'session_completed': return COLORS.okFill;
     case 'session_cancelled': return COLORS.badFill;
-    case 'top_up':            return COLORS.goodFill;
-    case 'event':             return COLORS.warnFill;
+    case 'top_up':            return COLORS.indigoFill;
+    case 'event':             return COLORS.plumFill;
     case 'time_block':        return COLORS.paperEdge;
+  }
+}
+
+// ─── Legend (colour key, consistent across views) ─────────────────────────────
+
+const LEGEND: { color: string; label: string }[] = [
+  { color: COLORS.amber,    label: 'Scheduled' },
+  { color: COLORS.moss,     label: 'Completed' },
+  { color: COLORS.crimson,  label: 'Cancelled' },
+  { color: COLORS.indigo,   label: 'Top-up' },
+  { color: COLORS.plum,     label: 'Event' },
+  { color: COLORS.inkFaint, label: 'Blocked' },
+];
+
+function Legend() {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ paddingHorizontal: 16, gap: 14, alignItems: 'center' }}
+      style={{ flexGrow: 0, marginBottom: 6 }}
+    >
+      {LEGEND.map(item => (
+        <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.color }} />
+          <Text style={{ fontFamily: F.sans, fontSize: 11, color: COLORS.inkSoft }}>
+            {item.label}
+          </Text>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+/** Short label for a dense chip (month view). */
+function chipShortLabel(e: CalendarEvent): string {
+  switch (e.kind) {
+    case 'session_scheduled':
+    case 'session_completed':
+    case 'session_cancelled':
+      return e.studentName.trim().split(/\s+/)[0];
+    case 'top_up':
+      return `+${e.hours}h`;
+    case 'event':
+      return e.title;
+    case 'time_block':
+      return e.title || 'Blocked';
   }
 }
 
@@ -156,12 +203,7 @@ function kindIcon(kind: CalendarEvent['kind']): React.ComponentProps<typeof Feat
   }
 }
 
-// ─── CalendarEventPill ────────────────────────────────────────────────────────
-
-interface PillProps {
-  event: CalendarEvent;
-  onPress: () => void;
-}
+// ─── Duration helper ──────────────────────────────────────────────────────────
 
 function formatDurationMin(min: number): string {
   if (min <= 0) return '';
@@ -170,62 +212,6 @@ function formatDurationMin(min: number): string {
   if (h > 0 && m > 0) return `${h}h ${m}m`;
   if (h > 0) return `${h}h`;
   return `${m}m`;
-}
-
-function CalendarEventPill({ event, onPress }: PillProps) {
-  const color = kindColor(event.kind);
-  const bg = kindBg(event.kind);
-  const icon = kindIcon(event.kind);
-  const studentName = 'studentName' in event ? event.studentName : undefined;
-
-  let suffix = '';
-  if (
-    (event.kind === 'session_scheduled' || event.kind === 'session_completed') &&
-    event.durationMin > 0
-  ) {
-    suffix = ` · ${formatDurationMin(event.durationMin)}`;
-  } else if (event.kind === 'top_up' && event.paymentMethod) {
-    suffix = ` · ${event.paymentMethod.toUpperCase()}`;
-  }
-
-  const sessionType =
-    (event.kind === 'session_scheduled' || event.kind === 'session_completed' || event.kind === 'session_cancelled')
-      ? (event.sessionType !== 'general' ? event.sessionType.replace('_', ' ') : null)
-      : null;
-
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.75}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: bg,
-        borderLeftWidth: 3,
-        borderLeftColor: color,
-        borderRadius: 8,
-        paddingHorizontal: 8,
-        paddingVertical: 6,
-        marginBottom: 4,
-        gap: 6,
-      }}
-    >
-      <Feather name={icon} size={13} color={color} />
-      <View style={{ flex: 1 }}>
-        <Text
-          style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.ink }}
-          numberOfLines={1}
-        >
-          {studentName}
-        </Text>
-        {(sessionType || suffix) ? (
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint }} numberOfLines={1}>
-            {sessionType ?? ''}{suffix}
-          </Text>
-        ) : null}
-      </View>
-    </TouchableOpacity>
-  );
 }
 
 // ─── Month View ───────────────────────────────────────────────────────────────
@@ -280,7 +266,7 @@ function MonthView({ cursor, events, gridStart, gridEnd, onDayPress }: MonthView
               const isToday = sameDay(day, today);
               const key = isoDate(day);
               const dayEvents = byDate.get(key) ?? [];
-              const dots = dayEvents.slice(0, 3);
+              const shown = dayEvents.slice(0, 3);
               const extra = dayEvents.length - 3;
 
               return (
@@ -288,47 +274,71 @@ function MonthView({ cursor, events, gridStart, gridEnd, onDayPress }: MonthView
                   key={key}
                   onPress={() => onDayPress(day)}
                   activeOpacity={0.7}
-                  style={{ flex: 1, alignItems: 'center', paddingVertical: 6, minHeight: 52 }}
+                  style={{
+                    flex: 1,
+                    minHeight: 84,
+                    paddingHorizontal: 2,
+                    paddingTop: 4,
+                    paddingBottom: 4,
+                    borderWidth: 0.5,
+                    borderColor: COLORS.paperEdge,
+                    backgroundColor: inMonth ? 'transparent' : COLORS.paperDeep,
+                  }}
                 >
-                  <View
-                    style={isToday ? {
-                      width: 26,
-                      height: 26,
-                      borderRadius: 13,
-                      backgroundColor: COLORS.oxblood,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    } : { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    <Text
-                      style={{
-                        fontFamily: F.mono,
-                        fontSize: 13,
-                        color: isToday ? COLORS.paper : inMonth ? COLORS.ink : COLORS.inkFaint,
-                      }}
+                  {/* Date number */}
+                  <View style={{ alignItems: 'center', marginBottom: 3 }}>
+                    <View
+                      style={isToday ? {
+                        minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 4,
+                        backgroundColor: COLORS.oxblood, alignItems: 'center', justifyContent: 'center',
+                      } : { minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}
                     >
-                      {day.getDate()}
-                    </Text>
+                      <Text
+                        style={{
+                          fontFamily: F.mono,
+                          fontSize: 12,
+                          color: isToday ? COLORS.paper : inMonth ? COLORS.ink : COLORS.inkFaint,
+                        }}
+                      >
+                        {day.getDate()}
+                      </Text>
+                    </View>
                   </View>
-                  {/* Event dots + overflow */}
-                  <View style={{ flexDirection: 'row', gap: 2, marginTop: 2, height: 10, alignItems: 'center' }}>
-                    {dots.map((e, i) => (
+
+                  {/* Dense colour-coded event chips */}
+                  {shown.map((e, i) => {
+                    const numeric = e.kind === 'top_up';
+                    return (
                       <View
                         key={i}
                         style={{
-                          width: 5,
-                          height: 5,
+                          backgroundColor: kindBg(e.kind),
+                          borderLeftWidth: 2,
+                          borderLeftColor: kindColor(e.kind),
                           borderRadius: 3,
-                          backgroundColor: kindColor(e.kind),
+                          paddingHorizontal: 3,
+                          paddingVertical: 1,
+                          marginBottom: 2,
                         }}
-                      />
-                    ))}
-                    {extra > 0 && (
-                      <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint }}>
-                        +{extra}
-                      </Text>
-                    )}
-                  </View>
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            fontFamily: numeric ? F.monoMed : F.sans,
+                            fontSize: 9,
+                            color: COLORS.ink,
+                          }}
+                        >
+                          {chipShortLabel(e)}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                  {extra > 0 && (
+                    <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, paddingLeft: 2 }}>
+                      +{extra}
+                    </Text>
+                  )}
                 </TouchableOpacity>
               );
             })}
@@ -372,79 +382,123 @@ function WeekView({ cursor, events, onDayPress, onEventPress }: WeekViewProps) {
   }
 
   const DAY_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-
   const hasAnyEvents = events.length > 0;
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', flex: 1, minHeight: 400 }}>
-        {days.map((day, i) => {
-          const key = isoDate(day);
-          const dayEvents = byDate.get(key) ?? [];
-          const overflow = dayEvents.length > 3 ? dayEvents.length - 3 : 0;
-          const shown = dayEvents.slice(0, 3);
-          const isToday = sameDay(day, today);
-          const isCursor = sameDay(day, cursor);
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      style={{ flex: 1 }}
+      contentContainerStyle={{ paddingBottom: 40 }}
+    >
+      {/* Horizontal day rows — each row's height scales to its content */}
+      {days.map((day, i) => {
+        const key = isoDate(day);
+        const dayEvents = byDate.get(key) ?? [];
+        const isToday = sameDay(day, today);
 
-          return (
-            <View
-              key={key}
-              style={{
-                flex: 1,
-                borderRightWidth: i < 6 ? 1 : 0,
-                borderRightColor: COLORS.paperEdge,
-                paddingHorizontal: 2,
-              }}
+        return (
+          <View
+            key={key}
+            style={{
+              flexDirection: 'row',
+              borderBottomWidth: 1,
+              borderBottomColor: COLORS.paperEdge,
+              backgroundColor: isToday ? COLORS.paperDeep : 'transparent',
+            }}
+          >
+            {/* Day label column */}
+            <TouchableOpacity
+              onPress={() => onDayPress(day)}
+              activeOpacity={0.7}
+              style={{ width: 56, alignItems: 'center', paddingTop: 12, paddingBottom: 12 }}
             >
-              {/* Column header */}
-              <TouchableOpacity
-                onPress={() => onDayPress(day)}
-                activeOpacity={0.7}
+              <Text style={{ fontFamily: F.sansMed, fontSize: 10, color: COLORS.inkFaint, textTransform: 'uppercase' }}>
+                {DAY_SHORT[i]}
+              </Text>
+              <Text
                 style={{
-                  alignItems: 'center',
-                  paddingVertical: 8,
-                  marginBottom: 8,
-                  backgroundColor: isToday || isCursor ? COLORS.paperDeep : 'transparent',
-                  borderRadius: 8,
+                  fontFamily: F.mono,
+                  fontSize: 18,
+                  color: isToday ? COLORS.oxblood : COLORS.ink,
+                  marginTop: 2,
                 }}
               >
-                <Text style={{ fontFamily: F.sansMed, fontSize: 10, color: COLORS.inkFaint }}>
-                  {DAY_SHORT[i]}
-                </Text>
-                <Text
-                  style={{
-                    fontFamily: F.mono,
-                    fontSize: 14,
-                    color: isToday ? COLORS.oxblood : COLORS.ink,
-                  }}
-                >
-                  {day.getDate()}
-                </Text>
-              </TouchableOpacity>
+                {day.getDate()}
+              </Text>
+            </TouchableOpacity>
 
-              {/* Events */}
-              {shown.map((e) => (
-                <CalendarEventPill
-                  key={e.kind === 'top_up' ? e.ledgerEntryId : e.id}
-                  event={e}
-                  onPress={() => onEventPress(e)}
-                />
-              ))}
-              {overflow > 0 && (
-                <TouchableOpacity onPress={() => onDayPress(day)} activeOpacity={0.7}>
-                  <Text style={{ fontFamily: F.sans, fontSize: 11, color: COLORS.inkFaint, marginTop: 2 }}>
-                    +{overflow} more
-                  </Text>
-                </TouchableOpacity>
+            {/* Events column (auto height, detail per event) */}
+            <View style={{ flex: 1, paddingVertical: 8, paddingRight: 12, justifyContent: 'center' }}>
+              {dayEvents.length === 0 ? (
+                <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint }}>—</Text>
+              ) : (
+                dayEvents.map((e) => {
+                  const isAllDay = (e.kind === 'event' || e.kind === 'time_block') && e.allDay;
+                  const time = isAllDay ? 'All day' : formatTime(eventTime(e));
+                  const displayName =
+                    'studentName' in e && e.studentName
+                      ? e.studentName
+                      : 'title' in e
+                        ? e.title
+                        : '';
+                  let meta = '';
+                  if (
+                    (e.kind === 'session_scheduled' || e.kind === 'session_completed' || e.kind === 'session_cancelled') &&
+                    e.sessionType !== 'general'
+                  ) {
+                    meta = e.sessionType.replace('_', ' ');
+                  }
+                  if ((e.kind === 'session_scheduled' || e.kind === 'session_completed') && e.durationMin > 0) {
+                    const dur = formatDurationMin(e.durationMin);
+                    meta = meta ? `${meta} · ${dur}` : dur;
+                  }
+                  if (e.kind === 'top_up' && e.paymentMethod) {
+                    meta = e.paymentMethod.toUpperCase();
+                  }
+
+                  return (
+                    <TouchableOpacity
+                      key={e.kind === 'top_up' ? e.ledgerEntryId : e.id}
+                      onPress={() => onEventPress(e)}
+                      activeOpacity={0.75}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: kindBg(e.kind),
+                        borderLeftWidth: 3,
+                        borderLeftColor: kindColor(e.kind),
+                        borderRadius: 6,
+                        paddingHorizontal: 8,
+                        paddingVertical: 6,
+                        marginBottom: 4,
+                        gap: 8,
+                      }}
+                    >
+                      <Text style={{ fontFamily: F.monoMed, fontSize: 11, color: kindColor(e.kind), width: 48 }} numberOfLines={1}>
+                        {time}
+                      </Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.ink }} numberOfLines={1}>
+                          {displayName}
+                        </Text>
+                        {meta ? (
+                          <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }} numberOfLines={1}>
+                            {meta}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
               )}
             </View>
-          );
-        })}
-      </View>
+          </View>
+        );
+      })}
 
       {/* B7 — empty state */}
       {!hasAnyEvents && (
-        <View style={{ alignItems: 'center', paddingTop: 12 }}>
+        <View style={{ alignItems: 'center', paddingTop: 16 }}>
           <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkFaint }}>
             Nothing scheduled this week
           </Text>
@@ -780,6 +834,9 @@ export default function CalendarScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* Colour legend (month & week) */}
+      {(view === 'month' || view === 'week') && <Legend />}
 
       {/* Content area */}
       <View style={{ flex: 1 }}>

@@ -14,5 +14,10 @@ export const COLORS = {
   warnFill:    '#F0E0CB',
   badFill:     '#EFD7D7',
   goodFill:    '#E8F2EA',
+  // Event-type accents (calendar colour-coding)
+  indigo:      '#445A7A',
+  indigoFill:  '#DEE3EC',
+  plum:        '#6E4B63',
+  plumFill:    '#E9DEE6',
   sessionBg:   '#1B1714',
 } as const;
