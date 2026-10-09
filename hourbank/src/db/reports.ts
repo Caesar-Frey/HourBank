@@ -1,4 +1,5 @@
 import { getDb } from './client';
+import { billableSessionSql, billableSessionDateSql } from './claims';
 
 export type StudentMonthRow = {
   studentId: string;
@@ -13,9 +14,26 @@ export type StudentMonthRow = {
 export type MonthSummary = {
   monthLabel: string;
   totalCashRand: number;
+  /** Billed hours of completed lessons in the month. */
   totalHours: number;
+  totalLessons: number;
   perStudent: StudentMonthRow[];
 };
+
+/**
+ * [start, end) ISO bounds for a calendar month at LOCAL midnight (SAST is
+ * UTC+2 — UTC bounds misfiled the first two hours of each month).
+ */
+export function localMonthBounds(year: number, monthIdx: number): { start: string; end: string } {
+  return {
+    start: new Date(year, monthIdx, 1).toISOString(),
+    end: new Date(year, monthIdx + 1, 1).toISOString(),
+  };
+}
+
+/** Billed minutes, falling back to active duration, then wall-clock (legacy rows). */
+const BILLED_MINUTES_SQL = `COALESCE(s.billed_minutes, s.duration_minutes,
+  (julianday(s.ended_at) - julianday(s.started_at)) * 1440)`;
 
 export type TopUpRow = {
   id: string;
@@ -24,30 +42,40 @@ export type TopUpRow = {
   student_full_name: string;
   hours_delta: number;
   notes: string | null;
+  /** Rands paid for the linked credit package (null for legacy/unlinked top-ups). */
+  amount_paid: number | null;
+  payment_method: string | null;
 };
 
 export type SessionListRow = {
   id: string;
+  /** Lesson date: ended_at, or started_at/scheduled_for for a charged no-show. */
   ended_at: string;
   student_id: string;
   student_full_name: string;
+  started_at: string | null;
+  /** BILLED length in seconds (kept in seconds for formatBilledDuration). */
   duration: number;
+  billed_minutes: number;
   mode: 'in_person' | 'online';
+  /** 'completed', or 'cancelled' for a charged no-show (see cancel_reason). No 'verified' status exists. */
   status: string;
+  cancel_reason: string | null;
   session_type: 'general' | 'review' | 'test_prep' | 'exam_prep';
 };
 
 export function listTopUpsForMonth(year: number, monthIdx: number): TopUpRow[] {
   const db = getDb();
-  const start = new Date(Date.UTC(year, monthIdx, 1)).toISOString();
-  const end = new Date(Date.UTC(year, monthIdx + 1, 1)).toISOString();
+  const { start, end } = localMonthBounds(year, monthIdx);
   return db.getAllSync<TopUpRow>(
     `SELECT le.id, le.created_at, le.student_id, st.full_name AS student_full_name,
-            le.hours_delta, le.reason AS notes
+            le.hours_delta, le.reason AS notes,
+            cp.amount_paid, cp.payment_method
      FROM ledger_entries le
      JOIN students st ON le.student_id = st.id
+     LEFT JOIN credit_packages cp ON cp.id = le.related_package_id
      WHERE le.type = 'top_up'
-       AND le.created_at >= ? AND le.created_at < ?
+       AND julianday(le.created_at) >= julianday(?) AND julianday(le.created_at) < julianday(?)
      ORDER BY le.created_at DESC`,
     [start, end]
   );
@@ -55,17 +83,18 @@ export function listTopUpsForMonth(year: number, monthIdx: number): TopUpRow[] {
 
 export function listSessionsForMonth(year: number, monthIdx: number): SessionListRow[] {
   const db = getDb();
-  const start = new Date(Date.UTC(year, monthIdx, 1)).toISOString();
-  const end = new Date(Date.UTC(year, monthIdx + 1, 1)).toISOString();
+  const { start, end } = localMonthBounds(year, monthIdx);
   return db.getAllSync<SessionListRow>(
-    `SELECT s.id, s.ended_at, s.student_id, st.full_name AS student_full_name,
+    `SELECT s.id, ${billableSessionDateSql('s')} AS ended_at, s.started_at, s.cancel_reason, s.student_id, st.full_name AS student_full_name,
             s.mode, s.status, s.session_type,
-            CAST(ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400) AS INTEGER) AS duration
+            ROUND(${BILLED_MINUTES_SQL}, 2) AS billed_minutes,
+            CAST(ROUND(${BILLED_MINUTES_SQL} * 60) AS INTEGER) AS duration
      FROM sessions s
      JOIN students st ON s.student_id = st.id
-     WHERE s.status = 'completed'
-       AND s.ended_at >= ? AND s.ended_at < ?
-     ORDER BY s.ended_at DESC`,
+     WHERE ${billableSessionSql('s')}
+       AND julianday(${billableSessionDateSql('s')}) >= julianday(?)
+       AND julianday(${billableSessionDateSql('s')}) < julianday(?)
+     ORDER BY julianday(${billableSessionDateSql('s')}) DESC`,
     [start, end]
   );
 }
@@ -97,9 +126,13 @@ export function getWeekLessonStats(): WeekLessonStats {
 
   const completed = db.getFirstSync<{ count: number; minutes: number }>(
     `SELECT COUNT(*) AS count,
-            COALESCE(SUM(COALESCE(billed_minutes, duration_minutes)), 0) AS minutes
-     FROM sessions
-     WHERE status = 'completed' AND ended_at >= ? AND ended_at < ?`,
+            COALESCE(SUM(COALESCE(s.billed_minutes, s.duration_minutes)), 0) AS minutes
+     FROM sessions s
+     JOIN students st ON s.student_id = st.id
+     WHERE ${billableSessionSql('s')}
+       AND st.status != 'archived'
+       AND julianday(${billableSessionDateSql('s')}) >= julianday(?)
+       AND julianday(${billableSessionDateSql('s')}) < julianday(?)`,
     [startISO, endISO]
   );
 
@@ -110,7 +143,7 @@ export function getWeekLessonStats(): WeekLessonStats {
      JOIN students st ON s.student_id = st.id
      WHERE s.status = 'scheduled'
        AND st.status != 'archived'
-       AND s.scheduled_for >= ? AND s.scheduled_for < ?`,
+       AND julianday(s.scheduled_for) >= julianday(?) AND julianday(s.scheduled_for) < julianday(?)`,
     [startISO, endISO]
   );
 
@@ -129,19 +162,19 @@ const MONTH_NAMES = [
 
 export function getMonthSummary(year: number, monthZeroIdx: number): MonthSummary {
   const db = getDb();
-  const start = new Date(Date.UTC(year, monthZeroIdx, 1)).toISOString();
-  const end = new Date(Date.UTC(year, monthZeroIdx + 1, 1)).toISOString();
+  const { start, end } = localMonthBounds(year, monthZeroIdx);
   const monthLabel = `${MONTH_NAMES[monthZeroIdx]} ${year}`;
 
   type SessionRow = { student_id: string; name: string; grade: number; subject: string; hours: number; sessions: number };
   const sessionRows = db.getAllSync<SessionRow>(
     `SELECT s.student_id, st.full_name AS name, st.grade, st.subject,
-            COALESCE(SUM(COALESCE(s.billed_minutes, s.duration_minutes)) / 60.0, 0) AS hours,
+            COALESCE(SUM(${BILLED_MINUTES_SQL}) / 60.0, 0) AS hours,
             COUNT(*) AS sessions
      FROM sessions s
      JOIN students st ON s.student_id = st.id
-     WHERE s.status = 'completed'
-       AND s.ended_at >= ? AND s.ended_at < ?
+     WHERE ${billableSessionSql('s')}
+       AND julianday(${billableSessionDateSql('s')}) >= julianday(?)
+       AND julianday(${billableSessionDateSql('s')}) < julianday(?)
      GROUP BY s.student_id`,
     [start, end]
   );
@@ -152,7 +185,7 @@ export function getMonthSummary(year: number, monthZeroIdx: number): MonthSummar
             COALESCE(SUM(cp.amount_paid), 0) AS cashRand
      FROM credit_packages cp
      JOIN students st ON cp.student_id = st.id
-     WHERE cp.created_at >= ? AND cp.created_at < ?
+     WHERE julianday(cp.created_at) >= julianday(?) AND julianday(cp.created_at) < julianday(?)
      GROUP BY cp.student_id`,
     [start, end]
   );
@@ -192,6 +225,7 @@ export function getMonthSummary(year: number, monthZeroIdx: number): MonthSummar
 
   const totalCashRand = pkgRows.reduce((sum, r) => sum + r.cashRand, 0);
   const totalHours = sessionRows.reduce((sum, r) => sum + r.hours, 0);
+  const totalLessons = sessionRows.reduce((sum, r) => sum + r.sessions, 0);
 
-  return { monthLabel, totalCashRand, totalHours, perStudent };
+  return { monthLabel, totalCashRand, totalHours, totalLessons, perStudent };
 }

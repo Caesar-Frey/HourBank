@@ -1,6 +1,12 @@
 import { getDb } from './client';
 import type { CalendarEventRow } from './schema';
 
+/** SQL: ISO-8601 text → integer epoch seconds. */
+const epoch = (expr: string) => `CAST(strftime('%s', ${expr}) AS INTEGER)`;
+
+/** Assumed length of a scheduled lesson with no estimated duration. */
+export const DEFAULT_LESSON_MINUTES = 60;
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type CalendarEvent =
@@ -19,6 +25,8 @@ export type CalendarEvent =
       id: string;
       studentId: string;
       studentName: string;
+      /** Placement time: when the lesson started (falls back to ended_at for legacy rows). */
+      startedAt: string;
       endedAt: string;
       durationMin: number;
       sessionType: string;
@@ -31,6 +39,10 @@ export type CalendarEvent =
       studentName: string;
       scheduledFor: string;
       sessionType: string;
+      /** e.g. 'no_show' | 'discarded' | null for a plain cancel. */
+      cancelReason: string | null;
+      /** > 0 for a charged no-show (counts as delivered in reports/claims). */
+      billedMinutes: number;
     }
   | {
       kind: 'top_up';
@@ -88,7 +100,10 @@ type RawSession = {
   student_name: string;
   status: string;
   scheduled_for: string | null;
+  started_at: string | null;
   ended_at: string | null;
+  cancel_reason: string | null;
+  estimated_duration_minutes: number | null;
   duration_minutes: number | null;
   billed_minutes: number | null;
   session_type: string;
@@ -140,22 +155,27 @@ export function listEventsInRange(
         ? `AND s.student_id IN (${filters.studentIds.map(() => '?').join(',')})`
         : '';
 
+    // Completed lessons are placed at started_at (legacy rows: ended_at).
     const sql = `
       SELECT s.id, s.student_id, st.full_name AS student_name,
-             s.status, s.scheduled_for, s.ended_at,
-             s.duration_minutes, s.billed_minutes,
+             s.status, s.scheduled_for, s.started_at, s.ended_at, s.cancel_reason,
+             s.estimated_duration_minutes, s.duration_minutes, s.billed_minutes,
              s.session_type, s.mode
       FROM sessions s
       JOIN students st ON s.student_id = st.id
       WHERE s.status IN (${statuses.join(',')})
+        AND st.status != 'archived'
         AND (
-          (s.status IN ('scheduled','cancelled') AND s.scheduled_for >= ? AND s.scheduled_for < ?)
+          (s.status IN ('scheduled','cancelled')
+            AND julianday(s.scheduled_for) >= julianday(?) AND julianday(s.scheduled_for) < julianday(?))
           OR
-          (s.status = 'completed' AND s.ended_at >= ? AND s.ended_at < ?)
+          (s.status = 'completed'
+            AND julianday(COALESCE(s.started_at, s.ended_at)) >= julianday(?)
+            AND julianday(COALESCE(s.started_at, s.ended_at)) < julianday(?))
         )
         ${stClause}
         ${stuClause}
-      ORDER BY COALESCE(s.scheduled_for, s.ended_at) ASC
+      ORDER BY COALESCE(s.scheduled_for, s.started_at, s.ended_at) ASC
     `;
 
     const params: (string | number)[] = [
@@ -175,7 +195,7 @@ export function listEventsInRange(
           studentId: row.student_id,
           studentName: row.student_name,
           scheduledFor: row.scheduled_for,
-          durationMin: row.billed_minutes ?? row.duration_minutes ?? 0,
+          durationMin: row.estimated_duration_minutes ?? DEFAULT_LESSON_MINUTES,
           sessionType: row.session_type,
           mode: row.mode,
         });
@@ -185,6 +205,7 @@ export function listEventsInRange(
           id: row.id,
           studentId: row.student_id,
           studentName: row.student_name,
+          startedAt: row.started_at ?? row.ended_at,
           endedAt: row.ended_at,
           durationMin: row.billed_minutes ?? row.duration_minutes ?? 0,
           sessionType: row.session_type,
@@ -198,6 +219,8 @@ export function listEventsInRange(
           studentName: row.student_name,
           scheduledFor: row.scheduled_for,
           sessionType: row.session_type,
+          cancelReason: row.cancel_reason,
+          billedMinutes: row.billed_minutes ?? 0,
         });
       }
     }
@@ -218,7 +241,8 @@ export function listEventsInRange(
       JOIN students st ON le.student_id = st.id
       LEFT JOIN credit_packages cp ON le.related_package_id = cp.id
       WHERE le.type = 'top_up'
-        AND le.created_at >= ? AND le.created_at < ?
+        AND st.status != 'archived'
+        AND julianday(le.created_at) >= julianday(?) AND julianday(le.created_at) < julianday(?)
         ${stuClause}
       ORDER BY le.created_at ASC
     `;
@@ -244,6 +268,8 @@ export function listEventsInRange(
   }
 
   // ── Calendar events + time blocks ────────────────────────────────────────
+  // Range-overlap (not start-in-range) so multi-day events appear on every day
+  // they span. Point events (no end) match when their start is in range.
   const ceKinds = (['event', 'time_block'] as const).filter(k => filters.eventKinds.has(k));
   if (ceKinds.length > 0) {
     const kindPlaceholders = ceKinds.map(() => '?').join(',');
@@ -251,7 +277,7 @@ export function listEventsInRange(
       ? `AND (ce.student_id IN (${filters.studentIds.map(() => '?').join(',')}) OR ce.student_id IS NULL)`
       : '';
     const params: (string | number)[] = [
-      startISO, endISO,
+      endISO, startISO, startISO,
       ...ceKinds,
       ...(filters.studentIds ?? []),
     ];
@@ -259,8 +285,13 @@ export function listEventsInRange(
       `SELECT ce.*, s.full_name as student_name
        FROM calendar_events ce
        LEFT JOIN students s ON s.id = ce.student_id
-       WHERE ce.starts_at >= ? AND ce.starts_at < ?
+       WHERE julianday(ce.starts_at) < julianday(?)
+         AND (
+           julianday(COALESCE(ce.ends_at, ce.starts_at)) > julianday(?)
+           OR julianday(ce.starts_at) >= julianday(?)
+         )
          AND ce.kind IN (${kindPlaceholders})
+         AND (ce.student_id IS NULL OR s.status IS NULL OR s.status != 'archived')
          ${studentFilter}`,
       params
     );
@@ -281,18 +312,19 @@ export function listEventsInRange(
 
   // Sort combined by event time ascending
   events.sort((a, b) => {
-    const timeA = eventTime(a);
-    const timeB = eventTime(b);
-    return timeA < timeB ? -1 : timeA > timeB ? 1 : 0;
+    const timeA = Date.parse(eventTime(a));
+    const timeB = Date.parse(eventTime(b));
+    return timeA - timeB;
   });
 
   return events;
 }
 
+/** Placement (start) time of an item. Completed lessons sit at their start. */
 export function eventTime(e: CalendarEvent): string {
   switch (e.kind) {
     case 'session_scheduled': return e.scheduledFor;
-    case 'session_completed': return e.endedAt;
+    case 'session_completed': return e.startedAt;
     case 'session_cancelled': return e.scheduledFor;
     case 'top_up':            return e.createdAt;
     case 'event':             return e.startsAt;
@@ -300,7 +332,47 @@ export function eventTime(e: CalendarEvent): string {
   }
 }
 
-export function findOverlappingCalendarItems(startsAt: string, endsAt: string): {
+/** End time of an item (start + duration for lessons; start for point items). */
+export function eventEndTime(e: CalendarEvent): string {
+  switch (e.kind) {
+    case 'session_scheduled':
+      return new Date(Date.parse(e.scheduledFor) + e.durationMin * 60_000).toISOString();
+    case 'session_completed': return e.endedAt;
+    case 'session_cancelled': return e.scheduledFor;
+    case 'top_up':            return e.createdAt;
+    case 'event':             return e.endsAt ?? e.startsAt;
+    case 'time_block':        return e.endsAt;
+  }
+}
+
+/**
+ * True when the item touches the LOCAL calendar day containing `day`. Use this
+ * (not the start day) to place multi-day events on every day they span.
+ */
+export function eventOverlapsDay(e: CalendarEvent, day: Date): boolean {
+  const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  const dayEnd = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();
+  const start = Date.parse(eventTime(e));
+  const end = Date.parse(eventEndTime(e));
+  if (end <= start) return start >= dayStart && start < dayEnd;
+  return start < dayEnd && end > dayStart;
+}
+
+/**
+ * Busy-time conflicts for a proposed [startsAt, endsAt) slot.
+ * - Scheduled lessons of non-archived students; null length = 60 min.
+ * - Only time blocks count as busy (events such as exams are informational).
+ *   A block without an end is a point in time; an all-day block without an end
+ *   covers its whole day.
+ * All comparisons use integer epoch seconds (strftime('%s')) on both sides, so
+ * stored ISO strings and duration arithmetic compare exactly — never string vs
+ * datetime() output, which silently never matched.
+ */
+export function findOverlappingCalendarItems(
+  startsAt: string,
+  endsAt: string,
+  opts: { excludeSessionId?: string } = {},
+): {
   sessions: Array<{ id: string; studentName: string; scheduledFor: string }>;
   calendarItems: Array<{ id: string; title: string; kind: 'event' | 'time_block'; startsAt: string }>;
 } {
@@ -309,16 +381,26 @@ export function findOverlappingCalendarItems(startsAt: string, endsAt: string): 
   const sessionRows = db.getAllSync<{ id: string; student_name: string; scheduled_for: string }>(
     `SELECT s.id, st.full_name as student_name, s.scheduled_for
      FROM sessions s
-     LEFT JOIN students st ON st.id = s.student_id
+     JOIN students st ON st.id = s.student_id
      WHERE s.status = 'scheduled'
-       AND s.scheduled_for < ?
-       AND datetime(s.scheduled_for, '+' || CAST(s.estimated_duration_minutes AS TEXT) || ' minutes') > ?`,
-    [endsAt, startsAt]
+       AND st.status != 'archived'
+       AND s.id != ?
+       AND ${epoch('s.scheduled_for')} < ${epoch('?')}
+       AND ${epoch('s.scheduled_for')} + CAST(ROUND(COALESCE(s.estimated_duration_minutes, ${DEFAULT_LESSON_MINUTES}) * 60) AS INTEGER) > ${epoch('?')}
+     ORDER BY s.scheduled_for ASC`,
+    [opts.excludeSessionId ?? '', endsAt, startsAt]
   );
 
   const ceRows = db.getAllSync<{ id: string; title: string; kind: string; starts_at: string }>(
     `SELECT id, title, kind, starts_at FROM calendar_events
-     WHERE starts_at < ? AND (ends_at IS NULL OR ends_at > ?)`,
+     WHERE kind = 'time_block'
+       AND ${epoch('starts_at')} < ${epoch('?')}
+       AND CASE
+             WHEN ends_at IS NOT NULL THEN ${epoch('ends_at')}
+             WHEN all_day = 1 THEN ${epoch('starts_at')} + 86400
+             ELSE ${epoch('starts_at')}
+           END > ${epoch('?')}
+     ORDER BY starts_at ASC`,
     [endsAt, startsAt]
   );
 
@@ -327,3 +409,4 @@ export function findOverlappingCalendarItems(startsAt: string, endsAt: string): 
     calendarItems: ceRows.map(r => ({ id: r.id, title: r.title, kind: r.kind as 'event' | 'time_block', startsAt: r.starts_at })),
   };
 }
+

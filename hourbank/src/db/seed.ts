@@ -211,13 +211,42 @@ export function seedDemoData(): void {
   });
 }
 
+/**
+ * DEV ONLY: wipe all user data. Children are deleted before parents so FK
+ * RESTRICT constraints (claim_lines → sessions, receipts → sessions/packages)
+ * never fire. The ledger's append-only DELETE guard triggers are dropped for
+ * the wipe and recreated from their original SQL inside the same transaction.
+ */
 export function resetDb(): void {
   if (!__DEV__) throw new Error('resetDb is only available in development');
   const db = getDb();
+  const tableExists = (name: string) =>
+    db.getFirstSync<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      [name]
+    ) != null;
+
   db.withTransactionSync(() => {
-    db.runSync('DELETE FROM ledger_entries');
-    db.runSync('DELETE FROM sessions');
-    db.runSync('DELETE FROM credit_packages');
-    db.runSync('DELETE FROM students');
+    const ledgerDeleteGuards = db.getAllSync<{ name: string; sql: string }>(
+      `SELECT name, sql FROM sqlite_master
+       WHERE type = 'trigger' AND tbl_name = 'ledger_entries' AND UPPER(sql) LIKE '%DELETE ON%'`
+    );
+    for (const t of ledgerDeleteGuards) db.runSync(`DROP TRIGGER IF EXISTS "${t.name}"`);
+
+    const ordered = [
+      'claim_lines',
+      'claims',
+      'receipts',
+      'calendar_events',
+      'ledger_entries',
+      'sessions',
+      'credit_packages',
+      'students',
+    ];
+    for (const table of ordered) {
+      if (tableExists(table)) db.runSync(`DELETE FROM ${table}`);
+    }
+
+    for (const t of ledgerDeleteGuards) db.runSync(t.sql);
   });
 }
