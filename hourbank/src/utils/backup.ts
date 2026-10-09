@@ -1,4 +1,7 @@
-import { documentDirectory, cacheDirectory, getInfoAsync, copyAsync } from 'expo-file-system/legacy';
+import { cacheDirectory } from 'expo-file-system/legacy';
+import { backupDatabaseAsync, openDatabaseAsync } from 'expo-sqlite';
+import { randomUUID } from 'expo-crypto';
+import { getDb } from '../db/client';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getTutorProfile, upsertTutorProfile } from '../db/tutorProfile';
@@ -23,18 +26,23 @@ export function shouldShowNudge(daysSince: number, dismissedTier: number | null)
 export { BACKUP_NUDGE_DISMISSED_TIER_KEY };
 
 export async function exportDatabase(): Promise<void> {
-  const DB_PATH = (documentDirectory ?? '') + 'SQLite/hourbank.db';
-  const info = await getInfoAsync(DB_PATH);
-  if (!info.exists) {
-    console.warn('DB file not found at', DB_PATH);
-    return;
+  if (!cacheDirectory) {
+    throw new Error('No cache directory is available for the database export.');
   }
-  const tempUri = (cacheDirectory ?? '') + 'hourbank_backup.db';
-  await copyAsync({ from: DB_PATH, to: tempUri });
-  const isAvailable = await Sharing.isAvailableAsync();
-  if (!isAvailable) {
-    console.warn('Sharing not available on this device');
-    return;
+  if (!(await Sharing.isAvailableAsync())) {
+    throw new Error('Sharing is not available on this device.');
+  }
+
+  // A raw file copy omits committed data in the live database's WAL.
+  // Use a fresh destination so each export is a self-contained snapshot.
+  const backupName = `hourbank_backup_${randomUUID()}.db`;
+  const tempUri = cacheDirectory + backupName;
+  const destination = await openDatabaseAsync(backupName, {}, cacheDirectory);
+  try {
+    await backupDatabaseAsync({ sourceDatabase: getDb(), destDatabase: destination });
+  } finally {
+    // Finish writing the snapshot before another app receives the file.
+    await destination.closeAsync();
   }
   await Sharing.shareAsync(tempUri, {
     mimeType: 'application/x-sqlite3',
