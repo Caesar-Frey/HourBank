@@ -39,7 +39,12 @@ export class ErrorBoundary extends React.Component<Props, State> {
           <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft, textAlign: 'center', marginBottom: 24 }}>
             {error.message}
           </Text>
-          <TouchableOpacity onPress={this.reset} activeOpacity={0.7}>
+          <TouchableOpacity
+            onPress={this.reset}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
             <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.oxblood, textDecorationLine: 'underline' }}>
               Try again
             </Text>

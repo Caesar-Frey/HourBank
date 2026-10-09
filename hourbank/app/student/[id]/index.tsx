@@ -29,7 +29,7 @@ export default function StudentLedgerScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 bg-paper items-center justify-center">
+      <View style={{ flex: 1, backgroundColor: COLORS.paper, alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.inkFaint }}>
           Loading…
         </Text>
@@ -39,7 +39,7 @@ export default function StudentLedgerScreen() {
 
   if (!student) {
     return (
-      <View className="flex-1 bg-paper items-center justify-center px-6">
+      <View style={{ flex: 1, backgroundColor: COLORS.paper, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
         <Text style={{ fontFamily: F.serif, fontSize: 24, color: COLORS.ink, marginBottom: 16 }}>
           Student not found
         </Text>
@@ -111,7 +111,7 @@ export default function StudentLedgerScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-paper" edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
       <ScreenHeader
         backLabel={from ?? 'ROSTER'}
         onBack={() => router.back()}
@@ -126,7 +126,7 @@ export default function StudentLedgerScreen() {
       />
 
       <ScrollView
-        className="flex-1"
+        style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
