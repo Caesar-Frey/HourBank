@@ -8,6 +8,13 @@ import { COLORS } from '../../src/theme/colors';
 import { getLedgerEntryById, LedgerEntryDetail } from '../../src/db/ledger';
 import { formatHours, formatRand } from '../../src/utils/format';
 
+// Renders a balance value, surfacing negatives as the crimson "OWES" convention
+// used on the home card rather than a clamped/raw figure.
+function balanceDisplay(h: number): { text: string; colour: string } {
+  if (h < 0) return { text: `OWES ${formatHours(Math.abs(h))}`, colour: COLORS.oxblood };
+  return { text: formatHours(h), colour: COLORS.ink };
+}
+
 function formatFullDate(isoStr: string): string {
   const d = new Date(isoStr);
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -66,6 +73,10 @@ export default function TransactionDetailScreen() {
   }
 
   const isTopUp = detail.type === 'top_up';
+  // balance_before is derived from existing data — no schema/db change.
+  const balanceBefore = detail.balance_after - detail.hours_delta;
+  const beforeDisplay = balanceDisplay(balanceBefore);
+  const afterDisplay = balanceDisplay(detail.balance_after);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
@@ -140,14 +151,24 @@ export default function TransactionDetailScreen() {
               )}
             </View>
 
-            {/* Balance after */}
-            <View style={{ borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 14, padding: 14, marginBottom: 20 }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>
-                Balance After
-              </Text>
-              <Text style={{ fontFamily: F.monoMed, fontSize: 18, color: COLORS.ink }}>
-                {formatHours(detail.balance_after)}
-              </Text>
+            {/* Balance before → after */}
+            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+              <View style={{ flex: 1, borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 14, padding: 14 }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Balance Before
+                </Text>
+                <Text style={{ fontFamily: F.monoMed, fontSize: 18, color: beforeDisplay.colour }}>
+                  {beforeDisplay.text}
+                </Text>
+              </View>
+              <View style={{ flex: 1, borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 14, padding: 14 }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Balance After
+                </Text>
+                <Text style={{ fontFamily: F.monoMed, fontSize: 18, color: afterDisplay.colour }}>
+                  {afterDisplay.text}
+                </Text>
+              </View>
             </View>
 
             {/* Package details */}
@@ -226,10 +247,18 @@ export default function TransactionDetailScreen() {
               </View>
               <View style={{ flex: 1, borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 14, padding: 14 }}>
                 <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Balance Before
+                </Text>
+                <Text style={{ fontFamily: F.monoMed, fontSize: 18, color: beforeDisplay.colour }}>
+                  {beforeDisplay.text}
+                </Text>
+              </View>
+              <View style={{ flex: 1, borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 14, padding: 14 }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>
                   Balance After
                 </Text>
-                <Text style={{ fontFamily: F.monoMed, fontSize: 18, color: COLORS.ink }}>
-                  {formatHours(detail.balance_after)}
+                <Text style={{ fontFamily: F.monoMed, fontSize: 18, color: afterDisplay.colour }}>
+                  {afterDisplay.text}
                 </Text>
               </View>
             </View>

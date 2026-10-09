@@ -21,7 +21,6 @@ import { F } from '../../../src/theme/fonts';
 import { COLORS } from '../../../src/theme/colors';
 import { formatHours } from '../../../src/utils/format';
 import { balanceStatus, balanceColour } from '../../../src/utils/balance';
-import { sendReceipt } from '../../../src/utils/notifications';
 import { roundToBilledMinutes } from '../../../src/utils/duration';
 import { listTopicsForStudentSubject } from '../../../src/db/catalog';
 import { Student } from '../../../src/db/schema';
@@ -90,6 +89,7 @@ export default function EndSessionScreen() {
 
   const balanceAfter = bal - billedMinutes / 60;
   const bColour = balanceColour(balanceStatus(balanceAfter));
+  const firstName = student?.full_name?.trim().split(/\s+/)[0] ?? 'Student';
 
   const dateDisplay = new Date().toLocaleDateString('en-ZA', {
     weekday: 'long',
@@ -145,12 +145,7 @@ export default function EndSessionScreen() {
   const isOverbilling = billedMinutes > actualDurationMinutes;
   const isZeroBilling = billedMinutes === 0;
 
-  const handleSaveAndSend = async () => {
-    if (submitting) return;
-    if (selectedTopics.length < 1) {
-      setTopicError(true);
-      return;
-    }
+  const proceedZeroOrSave = () => {
     if (isZeroBilling) {
       Alert.alert(
         'Zero charge?',
@@ -162,10 +157,31 @@ export default function EndSessionScreen() {
       );
       return;
     }
-    await doSave();
+    doSave();
   };
 
-  const doSave = async () => {
+  const handleSaveSession = () => {
+    if (submitting) return;
+    if (selectedTopics.length < 1) {
+      setTopicError(true);
+      return;
+    }
+    // Warn-but-allow: logging past zero credit shows a confirm, never a block.
+    if (balanceAfter < 0) {
+      Alert.alert(
+        '⚠ Negative balance',
+        `${firstName} has ${formatHours(bal)} left. This will put them at OWES ${formatHours(Math.abs(balanceAfter))}.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Log anyway', onPress: proceedZeroOrSave },
+        ]
+      );
+      return;
+    }
+    proceedZeroOrSave();
+  };
+
+  const doSave = () => {
     if (submitting) return;
     setSubmitting(true);
     try {
@@ -178,14 +194,6 @@ export default function EndSessionScreen() {
         pausedSeconds: paused,
         topics: selectedTopics,
         sessionNotes: notes.trim(),
-      });
-
-      await sendReceipt({
-        studentName: student?.full_name ?? '',
-        durationMinutes: billedMinutes,
-        topics: selectedTopics,
-        notes: notes.trim(),
-        balanceAfter,
       });
 
       Alert.alert('Session saved.', '', [
@@ -240,7 +248,9 @@ export default function EndSessionScreen() {
     },
     {
       label: 'BALANCE AFTER',
-      value: `${formatHours(balanceAfter)} remaining`,
+      value: balanceAfter < 0
+        ? `OWES ${formatHours(Math.abs(balanceAfter))}`
+        : `${formatHours(balanceAfter)} remaining`,
       valueFamily: F.monoMed,
       valueColour: bColour,
     },
@@ -519,9 +529,9 @@ export default function EndSessionScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Save & send — oxblood */}
+          {/* Save session — oxblood */}
           <TouchableOpacity
-            onPress={handleSaveAndSend}
+            onPress={handleSaveSession}
             disabled={submitting}
             style={{
               flex: 2,
@@ -535,7 +545,7 @@ export default function EndSessionScreen() {
             activeOpacity={0.8}
           >
             <Text style={{ fontFamily: F.mono, fontSize: 14, color: PAPER }}>
-              Save & send ▸
+              Save session ▸
             </Text>
           </TouchableOpacity>
         </View>

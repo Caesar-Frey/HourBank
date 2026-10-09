@@ -179,6 +179,23 @@ function ScheduleScreenInner() {
 
   function handleConfirm() {
     if (submitting) return;
+    // Warn-but-allow: scheduling past zero credit shows a confirm, never a block.
+    if (projectedBalance < 0) {
+      Alert.alert(
+        '⚠ Negative balance',
+        `${firstName} has ${formatHours(balance)} left. This will put them at OWES ${formatHours(Math.abs(projectedBalance))}.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: isReschedule ? 'Reschedule anyway' : 'Schedule anyway', onPress: doConfirm },
+        ]
+      );
+      return;
+    }
+    doConfirm();
+  }
+
+  function doConfirm() {
+    if (submitting) return;
     setSubmitting(true);
     try {
       if (isReschedule && sessionId) {

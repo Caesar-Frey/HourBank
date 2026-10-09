@@ -12,6 +12,13 @@ import { formatHours, formatBilledDuration } from '../../src/utils/format';
 import { Session, LedgerEntry } from '../../src/db/schema';
 import { shareSessionReceipt, getSessionReceipt } from '../../src/utils/receipt';
 
+// Renders a balance value, surfacing negatives as the crimson "OWES" convention
+// used on the home card rather than a clamped "0m".
+function balanceDisplay(h: number): { text: string; colour: string } {
+  if (h < 0) return { text: `OWES ${formatHours(Math.abs(h))}`, colour: COLORS.oxblood };
+  return { text: formatHours(h), colour: COLORS.ink };
+}
+
 function formatLessonDate(isoStr: string): string {
   const d = new Date(isoStr);
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -108,6 +115,14 @@ export default function LessonDetailScreen() {
     ? formatLessonDate(session.scheduled_for)
     : '—';
   const creditDeducted = ledgerEntry ? Math.abs(ledgerEntry.hours_delta) : null;
+  // Prefer the ledger entry's stored balance_after (exact, can be negative).
+  // getBalanceAt(ended_at) excludes the just-created deduction whose created_at
+  // lands microseconds after ended_at, which surfaced as a clamped "0m".
+  const balanceAfterValue = ledgerEntry ? ledgerEntry.balance_after : balanceAt;
+  // balance_before derived from existing data — no schema/db change.
+  const balanceBeforeValue = ledgerEntry ? ledgerEntry.balance_after - ledgerEntry.hours_delta : null;
+  const afterDisplay = balanceDisplay(balanceAfterValue);
+  const beforeDisplay = balanceBeforeValue != null ? balanceDisplay(balanceBeforeValue) : null;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
@@ -216,6 +231,22 @@ export default function LessonDetailScreen() {
               </Text>
             </View>
           )}
+          {beforeDisplay && (
+            <View style={{
+              flex: 1,
+              borderWidth: 1,
+              borderColor: COLORS.paperEdge,
+              borderRadius: 14,
+              padding: 14,
+            }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>
+                Balance before
+              </Text>
+              <Text style={{ fontFamily: F.mono, fontSize: 16, color: beforeDisplay.colour }}>
+                {beforeDisplay.text}
+              </Text>
+            </View>
+          )}
           <View style={{
             flex: 1,
             borderWidth: 1,
@@ -226,8 +257,8 @@ export default function LessonDetailScreen() {
             <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>
               Balance after
             </Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 16, color: COLORS.ink }}>
-              {formatHours(balanceAt)}
+            <Text style={{ fontFamily: F.mono, fontSize: 16, color: afterDisplay.colour }}>
+              {afterDisplay.text}
             </Text>
           </View>
         </View>
