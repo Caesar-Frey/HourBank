@@ -1,9 +1,22 @@
 import * as SQLite from 'expo-sqlite';
 import { getDb } from './client';
 
+type MigrationBase = {
+  version: string;
+  /**
+   * Run with `PRAGMA foreign_keys = OFF`. Required for any migration that rebuilds
+   * a table (CREATE new → copy → DROP old → RENAME): with FKs on, the DROP fires
+   * ON DELETE actions on referencing tables (e.g. nulls ledger_entries.related_session_id).
+   * The pragma is a no-op inside a transaction, so the runner toggles it *outside*
+   * the transaction, runs `PRAGMA foreign_key_check` before COMMIT, and always
+   * restores FKs afterwards.
+   */
+  foreignKeysOff?: boolean;
+};
+
 export type Migration =
-  | { version: string; sql: string }
-  | { version: string; run: (db: SQLite.SQLiteDatabase) => void };
+  | (MigrationBase & { sql: string })
+  | (MigrationBase & { run: (db: SQLite.SQLiteDatabase) => void });
 
 export function hasColumn(db: SQLite.SQLiteDatabase, table: string, column: string): boolean {
   const rows = db.getAllSync<{ name: string }>(`PRAGMA table_info(${table})`);
@@ -35,30 +48,46 @@ export function runMigrations(migrations: Migration[]): void {
     );
     if (already) continue;
 
-    db.withTransactionSync(() => {
-      if ('run' in migration) {
-        migration.run(db);
-      } else {
-        const statements = migration.sql
-          .split(';')
-          .map(s => s.trim())
-          .filter(s => s.length > 0);
-        for (const stmt of statements) {
-          db.runSync(stmt);
+    const fkOff = migration.foreignKeysOff === true;
+    // Must be outside the transaction — PRAGMA foreign_keys is a no-op inside one.
+    if (fkOff) db.runSync('PRAGMA foreign_keys = OFF');
+    try {
+      db.withTransactionSync(() => {
+        if ('run' in migration) {
+          migration.run(db);
+        } else {
+          const statements = migration.sql
+            .split(';')
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+          for (const stmt of statements) {
+            db.runSync(stmt);
+          }
         }
-      }
-      db.runSync(
-        'INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)',
-        [migration.version, new Date().toISOString()]
-      );
-    });
+        if (fkOff) {
+          const violations = db.getAllSync<{ table: string }>('PRAGMA foreign_key_check');
+          if (violations.length > 0) {
+            throw new Error(
+              `Migration ${migration.version} left ${violations.length} foreign key violation(s) (first in table ${violations[0].table})`
+            );
+          }
+        }
+        db.runSync(
+          'INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)',
+          [migration.version, new Date().toISOString()]
+        );
+      });
+    } finally {
+      if (fkOff) db.runSync('PRAGMA foreign_keys = ON');
+    }
   }
 }
 
 export const MIGRATION_002: Migration = {
   version: '002_post_grilling',
+  // Rebuilds `sessions`; FKs must be off or DROP TABLE nulls ledger_entries.related_session_id.
+  foreignKeysOff: true,
   sql: `
-    PRAGMA foreign_keys = OFF;
     CREATE TABLE IF NOT EXISTS sessions_v2 (
       id TEXT PRIMARY KEY,
       student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
@@ -90,7 +119,6 @@ export const MIGRATION_002: Migration = {
     CREATE INDEX IF NOT EXISTS idx_sessions_student_status ON sessions(student_id, status);
     CREATE INDEX IF NOT EXISTS idx_sessions_scheduled ON sessions(status, scheduled_for);
     CREATE UNIQUE INDEX IF NOT EXISTS sessions_one_active ON sessions(status) WHERE status IN ('active', 'paused');
-    PRAGMA foreign_keys = ON;
     ALTER TABLE students ADD COLUMN updated_at TEXT;
     ALTER TABLE students ADD COLUMN tutor_id TEXT;
     ALTER TABLE credit_packages ADD COLUMN updated_at TEXT;
@@ -278,3 +306,134 @@ export const MIGRATION_006_CLAIMS: Migration = {
     db.runSync(`CREATE INDEX IF NOT EXISTS idx_claims_voided       ON claims(voided_at)`);
   },
 };
+
+// ── Ledger immutability guards ───────────────────────────────────────────────
+
+function createLedgerImmutabilityTriggers(db: SQLite.SQLiteDatabase): void {
+  db.runSync(`
+    CREATE TRIGGER IF NOT EXISTS ledger_no_update
+      BEFORE UPDATE ON ledger_entries
+      BEGIN
+        SELECT RAISE(ABORT, 'ledger_entries is append-only: UPDATE not allowed');
+      END
+  `);
+  db.runSync(`
+    CREATE TRIGGER IF NOT EXISTS ledger_no_delete
+      BEFORE DELETE ON ledger_entries
+      BEGIN
+        SELECT RAISE(ABORT, 'ledger_entries is append-only: DELETE not allowed');
+      END
+  `);
+}
+
+function dropLedgerImmutabilityTriggers(db: SQLite.SQLiteDatabase): void {
+  db.runSync('DROP TRIGGER IF EXISTS ledger_no_update');
+  db.runSync('DROP TRIGGER IF EXISTS ledger_no_delete');
+}
+
+/**
+ * Dev-only escape hatch for a full data wipe (seed.ts `resetDb`). Drops the
+ * append-only triggers, runs `fn`, and re-creates them — all in ONE transaction,
+ * so the guards are never left off. `fn` must NOT open its own transaction.
+ */
+export function suspendLedgerGuards(fn: () => void): void {
+  const db = getDb();
+  db.withTransactionSync(() => {
+    dropLedgerImmutabilityTriggers(db);
+    fn();
+    createLedgerImmutabilityTriggers(db);
+  });
+}
+
+/**
+ * 007 — single migration owning all schema changes from the 2026-10-09 audit.
+ * Additive only (no table rebuilds), idempotent when re-run directly.
+ */
+export const MIGRATION_007_AUDIT_REMEDIATION: Migration = {
+  version: '007_audit_remediation',
+  run: (db) => {
+    const now = new Date().toISOString();
+
+    // ── One in-flight session at a time ──────────────────────────────────────
+    // Old index was UNIQUE on (status) → one 'active' AND one 'paused' could coexist.
+    // Resolve any existing conflict first: keep the most recently started.
+    db.runSync(
+      `UPDATE sessions
+         SET status = 'cancelled', cancel_reason = 'discarded',
+             ended_at = COALESCE(ended_at, paused_at, ?), paused_at = NULL
+       WHERE status IN ('active', 'paused')
+         AND id != (
+           SELECT id FROM sessions WHERE status IN ('active', 'paused')
+           ORDER BY started_at DESC, created_at DESC LIMIT 1
+         )`,
+      [now]
+    );
+    db.runSync('DROP INDEX IF EXISTS sessions_one_active');
+    db.runSync(
+      `CREATE UNIQUE INDEX IF NOT EXISTS sessions_one_in_flight
+         ON sessions((1)) WHERE status IN ('active', 'paused')`
+    );
+
+    // Orphans from the old non-atomic createUnscheduled → startSession path.
+    db.runSync(
+      `UPDATE sessions SET status = 'cancelled', cancel_reason = 'discarded'
+       WHERE status = 'scheduled' AND scheduled_for IS NULL AND started_at IS NULL`
+    );
+
+    // ── Ledger: append-only + signed adjustments ─────────────────────────────
+    createLedgerImmutabilityTriggers(db);
+    db.runSync('DROP TRIGGER IF EXISTS chk_ledger_deduction_sign');
+    db.runSync(`
+      CREATE TRIGGER IF NOT EXISTS chk_ledger_deduction_sign
+        BEFORE INSERT ON ledger_entries
+        WHEN NEW.type = 'session_deduction' AND NEW.hours_delta > 0
+        BEGIN
+          SELECT RAISE(ABORT, 'session_deduction must have negative hours_delta');
+        END
+    `);
+    db.runSync(`
+      CREATE TRIGGER IF NOT EXISTS chk_ledger_adjustment
+        BEFORE INSERT ON ledger_entries
+        WHEN NEW.type = 'adjustment'
+          AND (NEW.reason IS NULL OR TRIM(NEW.reason) = '' OR NEW.hours_delta = 0)
+        BEGIN
+          SELECT RAISE(ABORT, 'adjustment requires a non-empty reason and non-zero hours_delta');
+        END
+    `);
+
+    // ── tutor_profile: parent price split, payment details, billing rounding ─
+    if (!hasColumn(db, 'tutor_profile', 'parent_hourly_price')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN parent_hourly_price REAL NOT NULL DEFAULT 600`);
+      db.runSync(`UPDATE tutor_profile SET parent_hourly_price = hourly_rate`);
+    }
+    if (!hasColumn(db, 'tutor_profile', 'payment_details')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN payment_details TEXT`);
+    }
+    if (!hasColumn(db, 'tutor_profile', 'billing_round_minutes')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN billing_round_minutes INTEGER NOT NULL DEFAULT 15`);
+    }
+
+    // ── students: parent contact ─────────────────────────────────────────────
+    if (!hasColumn(db, 'students', 'parent_name')) {
+      db.runSync(`ALTER TABLE students ADD COLUMN parent_name TEXT`);
+    }
+    if (!hasColumn(db, 'students', 'parent_phone')) {
+      db.runSync(`ALTER TABLE students ADD COLUMN parent_phone TEXT`);
+    }
+
+    // ── sessions: cancel_reason (already added by 002 on most DBs) ───────────
+    if (!hasColumn(db, 'sessions', 'cancel_reason')) {
+      db.runSync(`ALTER TABLE sessions ADD COLUMN cancel_reason TEXT`);
+    }
+  },
+};
+
+/** Ordered migration chain run at app boot (app/_layout.tsx) and by test DBs. */
+export const ALL_MIGRATIONS: Migration[] = [
+  MIGRATION_002,
+  MIGRATION_003_SESSION_TYPE,
+  MIGRATION_004_CALENDAR_EVENTS,
+  MIGRATION_005_LEDGER_CONSTRAINTS,
+  MIGRATION_006_CLAIMS,
+  MIGRATION_007_AUDIT_REMEDIATION,
+];

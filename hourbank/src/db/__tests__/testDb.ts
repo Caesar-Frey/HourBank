@@ -10,7 +10,7 @@
 import BetterSQLite from 'better-sqlite3';
 import { __setDb } from '../client';
 import { initDb } from '../schema';
-import { runMigrations, MIGRATION_002, MIGRATION_003_SESSION_TYPE, MIGRATION_004_CALENDAR_EVENTS, MIGRATION_005_LEDGER_CONSTRAINTS, MIGRATION_006_CLAIMS } from '../migrations';
+import { runMigrations, ALL_MIGRATIONS } from '../migrations';
 import { wrapBetterSqlite } from './wrapBetterSqlite';
 
 // Re-export TestDb so test files can import it from here.
@@ -39,7 +39,7 @@ export function createTestDb() {
 /** Service-test database with the same migration chain used at application boot. */
 export function createMigratedTestDb() {
   const db = createTestDb();
-  runMigrations([MIGRATION_002, MIGRATION_003_SESSION_TYPE, MIGRATION_004_CALENDAR_EVENTS, MIGRATION_005_LEDGER_CONSTRAINTS, MIGRATION_006_CLAIMS]);
+  runMigrations(ALL_MIGRATIONS);
   return db;
 }
 

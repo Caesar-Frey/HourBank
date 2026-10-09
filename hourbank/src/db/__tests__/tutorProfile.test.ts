@@ -1,4 +1,4 @@
-import { createTestDb, resetDbSingleton } from './testDb';
+import { createMigratedTestDb as createTestDb, resetDbSingleton } from './testDb';
 import type { TestDb } from './testDb';
 import { getTutorProfile, upsertTutorProfile, getOrCreateTutorProfile } from '../tutorProfile';
 
@@ -113,6 +113,31 @@ describe('tutorProfile', () => {
       getOrCreateTutorProfile();
       const rows = db.getAllSync('SELECT * FROM tutor_profile');
       expect(rows).toHaveLength(1);
+    });
+  });
+
+  describe('migration 007 fields', () => {
+    it('new profile: parent_hourly_price defaults to hourly_rate, rounding 15, no payment details', () => {
+      const p = upsertTutorProfile({ hourly_rate: 450 });
+      expect(p.parent_hourly_price).toBe(450);
+      expect(p.billing_round_minutes).toBe(15);
+      expect(p.payment_details).toBeNull();
+      expect(getTutorProfile()?.parent_hourly_price).toBe(450);
+    });
+
+    it('persists parent_hourly_price, payment_details, billing_round_minutes on update', () => {
+      upsertTutorProfile({});
+      upsertTutorProfile({ parent_hourly_price: 550, payment_details: 'FNB 123', billing_round_minutes: 30 });
+      const p = getTutorProfile()!;
+      expect(p.parent_hourly_price).toBe(550);
+      expect(p.payment_details).toBe('FNB 123');
+      expect(p.billing_round_minutes).toBe(30);
+    });
+
+    it('changing payout rate (hourly_rate) does not change parent price', () => {
+      upsertTutorProfile({ hourly_rate: 400, parent_hourly_price: 600 });
+      upsertTutorProfile({ hourly_rate: 300 });
+      expect(getTutorProfile()?.parent_hourly_price).toBe(600);
     });
   });
 });

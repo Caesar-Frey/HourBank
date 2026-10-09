@@ -5,7 +5,7 @@ import { Alert, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack, useRouter, usePathname } from 'expo-router';
 import { initDb } from '../src/db/schema';
-import { runMigrations, MIGRATION_002, MIGRATION_003_SESSION_TYPE, MIGRATION_004_CALENDAR_EVENTS, MIGRATION_005_LEDGER_CONSTRAINTS, MIGRATION_006_CLAIMS } from '../src/db/migrations';
+import { runMigrations, ALL_MIGRATIONS } from '../src/db/migrations';
 import { seedCatalog } from '../src/db/catalog';
 import { getActiveOrPausedSession } from '../src/db/sessions';
 import { getDb } from '../src/db/client';
@@ -81,7 +81,7 @@ export default function RootLayout() {
   useEffect(() => {
     try {
       initDb();
-      runMigrations([MIGRATION_002, MIGRATION_003_SESSION_TYPE, MIGRATION_004_CALENDAR_EVENTS, MIGRATION_005_LEDGER_CONSTRAINTS, MIGRATION_006_CLAIMS]);
+      runMigrations(ALL_MIGRATIONS);
       seedCatalog();
 
       // Check for orphan session on launch
