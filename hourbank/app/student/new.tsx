@@ -15,6 +15,7 @@ import { COLORS } from '../../src/theme/colors';
 import { SHOW_ALL_GRADES_KEY } from '../(app)/profile';
 import { ScreenHeader } from '../../src/components/ScreenHeader';
 import { createStudent } from '../../src/db/students';
+import { getTutorProfile } from '../../src/db/tutorProfile';
 import { listSubjects, listCurricula } from '../../src/db/catalog';
 import { Student } from '../../src/db/schema';
 const ALL_GRADES = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -38,6 +39,20 @@ const INPUT_STYLE = {
   marginBottom: 24,
 };
 
+const MONO_INPUT_STYLE = {
+  ...INPUT_STYLE,
+  fontFamily: F.mono,
+};
+
+const SECTION_LABEL_STYLE = {
+  fontFamily: F.mono,
+  fontSize: 11,
+  color: COLORS.inkFaint,
+  textTransform: 'uppercase' as const,
+  letterSpacing: 0.5,
+  marginBottom: 12,
+};
+
 export default function NewStudentScreen() {
   const [fullName, setFullName] = useState('');
   const [grade, setGrade] = useState<number | null>(null);
@@ -50,11 +65,21 @@ export default function NewStudentScreen() {
   const [nameError, setNameError] = useState('');
   const [gradeError, setGradeError] = useState('');
   const [subjectError, setSubjectError] = useState('');
+  // Tutor travel mode decides which travel field is surfaced (flat fee vs distance).
+  const [tutorTravelMode, setTutorTravelMode] = useState<'flat' | 'distance'>('flat');
+  const [travelFlatFee, setTravelFlatFee] = useState('');
+  const [travelDistanceKm, setTravelDistanceKm] = useState('');
 
   useEffect(() => {
     AsyncStorage.getItem(SHOW_ALL_GRADES_KEY).then(v => {
       setShowAllGrades(v === 'true');
     });
+    try {
+      const profile = getTutorProfile();
+      if (profile) setTutorTravelMode(profile.travel_mode === 'distance' ? 'distance' : 'flat');
+    } catch {
+      // Fall back to 'flat'
+    }
     try {
       const dbSubjects = listSubjects();
       if (dbSubjects.length > 0) {
@@ -104,6 +129,9 @@ export default function NewStudentScreen() {
         grade: grade!,
         subject: subject.trim(),
         curriculum,
+        travelFlatFee: parseFloat(travelFlatFee) || 0,
+        travelDistanceKm: parseFloat(travelDistanceKm) || 0,
+        // payout_rate_override intentionally omitted — ships dormant this phase (stays NULL).
       });
       router.back();
     } catch (e) {
@@ -280,6 +308,36 @@ export default function NewStudentScreen() {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Travel */}
+        <Text style={SECTION_LABEL_STYLE}>Travel</Text>
+        {tutorTravelMode === 'flat' ? (
+          <>
+            <Text style={LABEL_STYLE}>Flat travel fee</Text>
+            <TextInput
+              value={travelFlatFee}
+              onChangeText={setTravelFlatFee}
+              keyboardType="numeric"
+              placeholder="0"
+              placeholderTextColor={COLORS.inkFaint}
+              style={MONO_INPUT_STYLE}
+            />
+          </>
+        ) : (
+          <>
+            <Text style={LABEL_STYLE}>Distance (km)</Text>
+            <TextInput
+              value={travelDistanceKm}
+              onChangeText={setTravelDistanceKm}
+              keyboardType="numeric"
+              placeholder="0"
+              placeholderTextColor={COLORS.inkFaint}
+              style={MONO_INPUT_STYLE}
+            />
+          </>
+        )}
+
+        {/* payout_rate_override — built but hidden this phase; ships dormant (stays NULL). */}
 
         {/* Submit button */}
         <TouchableOpacity

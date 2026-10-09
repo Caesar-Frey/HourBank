@@ -79,6 +79,8 @@ export default function ProfileScreen() {
   const [maxOweHours, setMaxOweHours] = useState('0');
   const [tierEnabled, setTierEnabled] = useState(true);
   const [tiers, setTiers] = useState<PackageTier[]>([]);
+  const [travelMode, setTravelMode] = useState<'flat' | 'distance'>('flat');
+  const [perKmRate, setPerKmRate] = useState('0');
   const [profileLoaded, setProfileLoaded] = useState(false);
 
   useEffect(() => {
@@ -93,6 +95,8 @@ export default function ProfileScreen() {
       setCurrency(profile.currency);
       setMaxOweHours(String(profile.max_owe_hours));
       setTierEnabled(profile.tier_system_enabled === 1);
+      setTravelMode(profile.travel_mode === 'distance' ? 'distance' : 'flat');
+      setPerKmRate(String(profile.per_km_rate));
       try {
         const parsed: PackageTier[] = JSON.parse(profile.package_tiers);
         setTiers(Array.isArray(parsed) ? parsed : []);
@@ -119,21 +123,35 @@ export default function ProfileScreen() {
         max_owe_hours: parseFloat(maxOweHours) || 0,
         tier_system_enabled: tierEnabled ? 1 : 0,
         package_tiers: JSON.stringify(tiers),
+        travel_mode: travelMode,
+        per_km_rate: parseFloat(perKmRate) || 0,
       });
+      return true;
     } catch (e) {
-      console.error('Failed to save tutor profile', e);
+      Alert.alert('Error', 'Could not save settings. Please try again.');
+      return false;
     }
-  }, [fullName, hourlyRate, currency, maxOweHours, tierEnabled, tiers]);
+  }, [fullName, hourlyRate, currency, maxOweHours, tierEnabled, tiers, travelMode, perKmRate]);
 
   function handleAddTier() {
+    // Derive sort_order from max(existing)+1 so it can't collide after a delete.
+    const nextSortOrder =
+      tiers.length > 0 ? Math.max(...tiers.map(t => t.sort_order)) + 1 : 0;
     const newTier: PackageTier = {
       hours: 0,
       price: 0,
       label: '',
-      sort_order: tiers.length,
+      sort_order: nextSortOrder,
     };
     const updated = [...tiers, newTier];
     setTiers(updated);
+  }
+
+  // Integrity guard: a tier's displayed size derives from `hours`, which is also
+  // what gets credited. Block save of nonsensical tiers (hours must be > 0,
+  // price >= 0) so an unusable tier can never be persisted.
+  function tiersValid(list: PackageTier[]): boolean {
+    return list.every(t => t.hours > 0 && t.price >= 0);
   }
 
   function handleDeleteTier(index: number) {
@@ -217,19 +235,6 @@ export default function ProfileScreen() {
         </View>
 
         <View style={ROW_CONTAINER}>
-          <Text style={FIELD_LABEL}>Hourly rate</Text>
-          <TextInput
-            value={hourlyRate}
-            onChangeText={setHourlyRate}
-            onBlur={saveProfile}
-            keyboardType="numeric"
-            placeholder="600"
-            placeholderTextColor={COLORS.inkFaint}
-            style={MONO_INPUT_STYLE}
-          />
-        </View>
-
-        <View style={ROW_CONTAINER}>
           <Text style={FIELD_LABEL}>Currency</Text>
           <TextInput
             value={currency}
@@ -242,6 +247,84 @@ export default function ProfileScreen() {
             style={MONO_INPUT_STYLE}
           />
         </View>
+
+        {/* ── PAYOUT section ────────────────────────────────────────────── */}
+        <Text style={SECTION_LABEL}>Payout</Text>
+
+        <View style={ROW_CONTAINER}>
+          <Text style={FIELD_LABEL}>Payout rate (per hour)</Text>
+          <TextInput
+            value={hourlyRate}
+            onChangeText={setHourlyRate}
+            onBlur={saveProfile}
+            keyboardType="numeric"
+            placeholder="600"
+            placeholderTextColor={COLORS.inkFaint}
+            style={MONO_INPUT_STYLE}
+          />
+          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 6 }}>
+            What you pay yourself per delivered hour
+          </Text>
+        </View>
+
+        <View style={ROW_CONTAINER}>
+          <Text style={FIELD_LABEL}>Travel mode</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+            {(['flat', 'distance'] as const).map(m => (
+              <TouchableOpacity
+                key={m}
+                onPress={() => {
+                  setTravelMode(m);
+                  // Save immediately — pass new value directly to avoid stale closure.
+                  // upsert merges with existing, so other fields are preserved.
+                  try {
+                    upsertTutorProfile({ travel_mode: m, per_km_rate: parseFloat(perKmRate) || 0 });
+                  } catch (e) {
+                    console.error('Failed to save tutor profile', e);
+                  }
+                }}
+                activeOpacity={0.7}
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: travelMode === m ? COLORS.oxblood : COLORS.paperEdge,
+                  borderRadius: 8,
+                  paddingVertical: 10,
+                  alignItems: 'center',
+                  backgroundColor: travelMode === m ? COLORS.oxblood : 'rgba(255,255,255,0.4)',
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: F.sansMed,
+                    fontSize: 13,
+                    color: travelMode === m ? COLORS.paper : COLORS.inkSoft,
+                  }}
+                >
+                  {m === 'flat' ? 'Flat' : 'Distance'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 8 }}>
+            Flat: a set travel fee per student. Distance: charged per km travelled.
+          </Text>
+        </View>
+
+        {travelMode === 'distance' && (
+          <View style={ROW_CONTAINER}>
+            <Text style={FIELD_LABEL}>Per-km rate</Text>
+            <TextInput
+              value={perKmRate}
+              onChangeText={setPerKmRate}
+              onBlur={saveProfile}
+              keyboardType="numeric"
+              placeholder="0"
+              placeholderTextColor={COLORS.inkFaint}
+              style={MONO_INPUT_STYLE}
+            />
+          </View>
+        )}
 
         {/* ── CREDIT LIMITS section ─────────────────────────────────────── */}
         <Text style={SECTION_LABEL}>Credit Limits</Text>
@@ -325,8 +408,11 @@ export default function ProfileScreen() {
                     }}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                      {/* Heading auto-derives from the numeric hours field — the
+                          single source of truth — so it can never disagree with
+                          what actually gets credited. */}
                       <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, flex: 1, textTransform: 'uppercase' }}>
-                        Tier {i + 1}
+                        {tier.hours > 0 ? `${tier.hours} HOURS` : 'NEW TIER'}
                       </Text>
                       <TouchableOpacity
                         onPress={() => {
@@ -383,7 +469,7 @@ export default function ProfileScreen() {
                     </View>
 
                     <View style={{ marginTop: 10 }}>
-                      <Text style={FIELD_LABEL}>Label</Text>
+                      <Text style={FIELD_LABEL}>Promo label (optional)</Text>
                       <TextInput
                         value={tier.label}
                         onChangeText={v => handleTierChange(realIndex, 'label', v)}
@@ -392,6 +478,9 @@ export default function ProfileScreen() {
                         placeholderTextColor={COLORS.inkFaint}
                         style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 6 }}
                       />
+                      <Text style={{ fontFamily: F.sans, fontSize: 11, color: COLORS.inkFaint, marginTop: 6 }}>
+                        Promo copy only (e.g. "Best Value"). The package size comes from Hours above — don't restate it here.
+                      </Text>
                     </View>
                   </View>
                 );
@@ -445,7 +534,15 @@ export default function ProfileScreen() {
 
         {/* Save button */}
         <TouchableOpacity
-          onPress={() => { saveProfile(); Alert.alert('Saved', 'Settings saved.'); }}
+          onPress={() => {
+            if (tierEnabled && !tiersValid(tiers)) {
+              Alert.alert('Check package tiers', 'Every tier needs hours greater than 0 and a price of 0 or more.');
+              return;
+            }
+            if (saveProfile()) {
+              Alert.alert('Saved', 'Settings saved.');
+            }
+          }}
           activeOpacity={0.85}
           style={{
             backgroundColor: COLORS.ink,

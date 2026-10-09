@@ -41,6 +41,13 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
+        name="payouts"
+        options={{
+          title: 'PAYOUTS',
+          tabBarIcon: ({ color, size }) => <Feather name="dollar-sign" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'PROFILE',

@@ -5,8 +5,10 @@ import { F } from '../theme/fonts';
 import { COLORS } from '../theme/colors';
 
 interface PackageCardProps {
+  /** Authoritative package size — rendered as the big mono number. */
   hours: number;
   price: number | null;
+  /** OPTIONAL promo pill only (e.g. "Best Value"). Never the hour count. */
   badge: string | null;
   save: number | null;
   selected: boolean;
