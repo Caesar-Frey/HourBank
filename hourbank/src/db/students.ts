@@ -1,5 +1,6 @@
 import { getDb } from './client';
-import { Student, Session } from './schema';
+import { Student, Session, LedgerEntry } from './schema';
+import { appendEntry } from './ledger';
 import { newId } from './uuid';
 
 // ── Shared query helpers ──────────────────────────────────────────────────────
@@ -48,6 +49,8 @@ export function createStudent(data: {
   travelFlatFee?: number;
   travelDistanceKm?: number;
   payoutRateOverride?: number | null;
+  parentName?: string | null;
+  parentPhone?: string | null;
 }): Student {
   const db = getDb();
   const id = newId();
@@ -55,11 +58,13 @@ export function createStudent(data: {
   const travelFlatFee = data.travelFlatFee ?? 0;
   const travelDistanceKm = data.travelDistanceKm ?? 0;
   const payoutRateOverride = data.payoutRateOverride ?? null;
+  const parentName = blankToNull(data.parentName);
+  const parentPhone = blankToNull(data.parentPhone);
 
   db.runSync(
-    `INSERT INTO students (id, full_name, grade, subject, curriculum, status, travel_flat_fee, travel_distance_km, payout_rate_override, created_at)
-     VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
-    [id, data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, now]
+    `INSERT INTO students (id, full_name, grade, subject, curriculum, status, travel_flat_fee, travel_distance_km, payout_rate_override, parent_name, parent_phone, created_at)
+     VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
+    [id, data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, parentName, parentPhone, now]
   );
 
   return {
@@ -73,7 +78,15 @@ export function createStudent(data: {
     travel_flat_fee: travelFlatFee,
     travel_distance_km: travelDistanceKm,
     payout_rate_override: payoutRateOverride,
+    parent_name: parentName,
+    parent_phone: parentPhone,
   };
+}
+
+function blankToNull(v: string | null | undefined): string | null {
+  if (v === undefined || v === null) return null;
+  const t = v.trim();
+  return t.length > 0 ? t : null;
 }
 
 export function listActiveStudents(): Array<Student & { current_balance: number; next_session: Session | null }> {
@@ -111,24 +124,32 @@ export function updateStudent(id: string, data: {
   travelFlatFee?: number;
   travelDistanceKm?: number;
   payoutRateOverride?: number | null;
+  /** undefined = keep existing; null/'' = clear. */
+  parentName?: string | null;
+  /** undefined = keep existing; null/'' = clear. */
+  parentPhone?: string | null;
 }): void {
   const db = getDb();
-  // Preserve existing travel/override values when a caller omits them, so editing
-  // a student's core fields never silently clobbers dormant payout config.
+  // Preserve existing travel/override/parent values when a caller omits them, so editing
+  // a student's core fields never silently clobbers other config.
   const existing = db.getFirstSync<{
     travel_flat_fee: number;
     travel_distance_km: number;
     payout_rate_override: number | null;
-  }>('SELECT travel_flat_fee, travel_distance_km, payout_rate_override FROM students WHERE id = ?', [id]);
+    parent_name: string | null;
+    parent_phone: string | null;
+  }>('SELECT travel_flat_fee, travel_distance_km, payout_rate_override, parent_name, parent_phone FROM students WHERE id = ?', [id]);
 
   const travelFlatFee = data.travelFlatFee ?? existing?.travel_flat_fee ?? 0;
   const travelDistanceKm = data.travelDistanceKm ?? existing?.travel_distance_km ?? 0;
   const payoutRateOverride =
     data.payoutRateOverride !== undefined ? data.payoutRateOverride : existing?.payout_rate_override ?? null;
+  const parentName = data.parentName !== undefined ? blankToNull(data.parentName) : existing?.parent_name ?? null;
+  const parentPhone = data.parentPhone !== undefined ? blankToNull(data.parentPhone) : existing?.parent_phone ?? null;
 
   db.runSync(
-    'UPDATE students SET full_name=?, grade=?, subject=?, curriculum=?, travel_flat_fee=?, travel_distance_km=?, payout_rate_override=? WHERE id=?',
-    [data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, id]
+    'UPDATE students SET full_name=?, grade=?, subject=?, curriculum=?, travel_flat_fee=?, travel_distance_km=?, payout_rate_override=?, parent_name=?, parent_phone=? WHERE id=?',
+    [data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, parentName, parentPhone, id]
   );
 }
 
@@ -144,20 +165,78 @@ export function reactivateStudent(id: string): void {
   if (result.changes === 0) throw new Error('Student not found or not in paused state');
 }
 
-export function archiveStudent(id: string): void {
+/**
+ * Soft-delete a student. Also cancels every still-scheduled lesson for them
+ * (cancel_reason 'student_archived') in the same transaction.
+ * Returns how many lessons were cancelled so the UI can confirm it.
+ */
+export function archiveStudent(id: string): { cancelledLessons: number } {
   const db = getDb();
+  let cancelledLessons = 0;
 
-  // Guard: student must exist and be active or paused (not already archived)
-  const student = db.getFirstSync<Student>('SELECT * FROM students WHERE id = ?', [id]);
-  if (!student) throw new Error(`Student ${id} not found`);
-  if (student.status === 'archived') throw new Error(`Student ${id} is already archived`);
+  db.withTransactionSync(() => {
+    // Guard: student must exist and be active or paused (not already archived)
+    const student = db.getFirstSync<Student>('SELECT * FROM students WHERE id = ?', [id]);
+    if (!student) throw new Error(`Student ${id} not found`);
+    if (student.status === 'archived') throw new Error(`Student ${id} is already archived`);
 
-  // Guard: no active or paused sessions
-  const activeSession = db.getFirstSync<{ id: string }>(
-    "SELECT id FROM sessions WHERE student_id = ? AND status IN ('active', 'paused') LIMIT 1",
+    // Guard: no active or paused sessions
+    const activeSession = db.getFirstSync<{ id: string }>(
+      "SELECT id FROM sessions WHERE student_id = ? AND status IN ('active', 'paused') LIMIT 1",
+      [id]
+    );
+    if (activeSession) throw new Error(`Student ${id} has an active or paused session — end it before archiving`);
+
+    cancelledLessons = db.runSync(
+      "UPDATE sessions SET status = 'cancelled', cancel_reason = 'student_archived' WHERE student_id = ? AND status = 'scheduled'",
+      [id]
+    ).changes;
+
+    db.runSync("UPDATE students SET status = 'archived' WHERE id = ?", [id]);
+  });
+
+  return { cancelledLessons };
+}
+
+/** Number of scheduled lessons that archiving would cancel (for the confirm dialog). */
+export function countScheduledLessons(studentId: string): number {
+  const row = getDb().getFirstSync<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM sessions WHERE student_id = ? AND status = 'scheduled'",
+    [studentId]
+  );
+  return row?.n ?? 0;
+}
+
+export function listArchivedStudents(): Array<Student & { current_balance: number }> {
+  return getDb().getAllSync<Student & { current_balance: number }>(`
+    SELECT s.*,
+      COALESCE((SELECT SUM(le.hours_delta) FROM ledger_entries le WHERE le.student_id = s.id), 0) AS current_balance
+    FROM students s
+    WHERE s.status = 'archived'
+    ORDER BY s.full_name COLLATE NOCASE ASC
+  `);
+}
+
+/** Un-archive: archived → active. Lessons cancelled by the archive are NOT restored. */
+export function restoreStudent(id: string): void {
+  const result = getDb().runSync(
+    "UPDATE students SET status = 'active' WHERE id = ? AND status = 'archived'",
     [id]
   );
-  if (activeSession) throw new Error(`Student ${id} has an active or paused session — end it before archiving`);
+  if (result.changes === 0) throw new Error('Student not found or not archived');
+}
 
-  db.runSync("UPDATE students SET status = 'archived' WHERE id = ?", [id]);
+/**
+ * Append a balance correction to the ledger (append-only — never edits rows).
+ * `hoursDelta` may be positive (credit) or negative (debit); `reason` is required.
+ */
+export function createAdjustment(data: { studentId: string; hoursDelta: number; reason: string }): LedgerEntry {
+  const reason = data.reason.trim();
+  if (!Number.isFinite(data.hoursDelta) || data.hoursDelta === 0) {
+    throw new Error('Adjustment hours must be a non-zero number');
+  }
+  if (reason.length === 0) throw new Error('Adjustment requires a reason');
+  const exists = getDb().getFirstSync<{ id: string }>('SELECT id FROM students WHERE id = ?', [data.studentId]);
+  if (!exists) throw new Error(`Student ${data.studentId} not found`);
+  return appendEntry({ studentId: data.studentId, type: 'adjustment', hoursDelta: data.hoursDelta, reason });
 }

@@ -1,13 +1,56 @@
 import { getDb } from './client';
-import { Session } from './schema';
+import { Session, Student } from './schema';
 import { LedgerEntry } from './schema';
-import { appendEntryInTx } from './ledger';
+import { appendEntryInTx, currentBalance } from './ledger';
 import { newId } from './uuid';
+
+// ── Typed errors ─────────────────────────────────────────────────────────────
+
+export type SessionErrorCode =
+  | 'NOT_FOUND'
+  | 'NOT_STARTABLE'
+  | 'ALREADY_ACTIVE'
+  | 'OVER_OWE_LIMIT'
+  | 'INVALID_STATE'
+  | 'INVALID_INPUT';
+
+export class SessionError extends Error {
+  readonly code: SessionErrorCode;
+  readonly details?: Record<string, unknown>;
+
+  constructor(code: SessionErrorCode, message?: string, details?: Record<string, unknown>) {
+    super(message ? `${code}: ${message}` : code);
+    this.name = 'SessionError';
+    this.code = code;
+    this.details = details;
+    // Keep `instanceof` working when transpiled to ES5-style classes.
+    Object.setPrototypeOf(this, SessionError.prototype);
+  }
+}
+
+export function isSessionError(e: unknown, code?: SessionErrorCode): e is SessionError {
+  return e instanceof SessionError && (code === undefined || e.code === code);
+}
+
+/** Lesson length assumed for owe checks when no booked length is known. */
+export const DEFAULT_LESSON_MINUTES = 60;
+
+const EPS = 1e-9;
+
+// ── Reads ────────────────────────────────────────────────────────────────────
 
 export function getSession(sessionId: string): Session | null {
   const db = getDb();
   return db.getFirstSync<Session>('SELECT * FROM sessions WHERE id = ?', [sessionId]) ?? null;
 }
+
+function mustGet(sessionId: string): Session {
+  const s = getSession(sessionId);
+  if (!s) throw new SessionError('NOT_FOUND', `Session ${sessionId} not found`);
+  return s;
+}
+
+// ── Create ───────────────────────────────────────────────────────────────────
 
 export function createScheduled(data: {
   studentId: string;
@@ -53,6 +96,10 @@ export function createScheduled(data: {
   };
 }
 
+/**
+ * @deprecated Non-atomic: leaves an orphan 'scheduled' row if the subsequent
+ * startSession throws. Use `createAndStartUnscheduled`.
+ */
 export function createUnscheduled(studentId: string, mode: Session['mode'], session_type: Session['session_type'] = 'general'): Session {
   const db = getDb();
   const id = newId();
@@ -88,49 +135,216 @@ export function createUnscheduled(studentId: string, mode: Session['mode'], sess
   };
 }
 
-export function startSession(sessionId: string): Session {
-  const db = getDb();
-  const now = new Date().toISOString();
+// ── Owe limit (nudge, never a hard block) ────────────────────────────────────
 
-  // Guard: throw if another session is already active/paused
-  const existing = getActiveOrPausedSession();
-  if (existing && existing.id !== sessionId) {
-    throw new Error('ALREADY_ACTIVE');
+export type OweCheck = {
+  balanceHours: number;
+  projectedBalanceHours: number;
+  /** 0 = owing not allowed; N > 0 = may owe up to N hours. */
+  maxOweHours: number;
+  lessonMinutes: number;
+  /** true → UI should confirm ("Start anyway") and retry with allowOverOwe. */
+  overLimit: boolean;
+};
+
+export function checkOweLimit(studentId: string, lessonMinutes: number): OweCheck {
+  const db = getDb();
+  const profile = db.getFirstSync<{ max_owe_hours: number }>('SELECT max_owe_hours FROM tutor_profile LIMIT 1');
+  const maxOweHours = Math.max(0, profile?.max_owe_hours ?? 0);
+  const balanceHours = currentBalance(studentId);
+  const projectedBalanceHours = balanceHours - lessonMinutes / 60;
+  return {
+    balanceHours,
+    projectedBalanceHours,
+    maxOweHours,
+    lessonMinutes,
+    overLimit: projectedBalanceHours < -maxOweHours - EPS,
+  };
+}
+
+// ── Start ────────────────────────────────────────────────────────────────────
+
+export type StartSessionOptions = {
+  /** Tutor confirmed "Start anyway" after an OVER_OWE_LIMIT nudge. */
+  allowOverOwe?: boolean;
+  /** Injected clock (tests). */
+  now?: Date;
+};
+
+/** Must be called inside withTransactionSync. */
+function startSessionInTx(sessionId: string, opts: StartSessionOptions): Session {
+  const db = getDb();
+  const target = mustGet(sessionId);
+
+  // Idempotent for the session that is already running — never resets started_at.
+  if (target.status === 'active' || target.status === 'paused') return target;
+  if (target.status !== 'scheduled') {
+    throw new SessionError('NOT_STARTABLE', `Session ${sessionId} cannot be started (status: ${target.status})`, {
+      status: target.status,
+    });
   }
 
-  // Guard: max_owe_hours check
-  const targetSession = db.getFirstSync<{ student_id: string }>('SELECT student_id FROM sessions WHERE id = ?', [sessionId]);
-  if (targetSession) {
-    const profile = db.getFirstSync<{ max_owe_hours: number }>('SELECT max_owe_hours FROM tutor_profile LIMIT 1');
-    const maxOwe = profile?.max_owe_hours ?? 0;
-    if (maxOwe > 0) {
-      const balRow = db.getFirstSync<{ bal: number }>(
-        'SELECT COALESCE(SUM(hours_delta), 0) AS bal FROM ledger_entries WHERE student_id = ?',
-        [targetSession.student_id]
-      );
-      const bal = balRow?.bal ?? 0;
-      if (bal <= -maxOwe) {
-        throw new Error('MAX_OWE_EXCEEDED');
-      }
+  const student = db.getFirstSync<{ status: Student['status'] }>('SELECT status FROM students WHERE id = ?', [target.student_id]);
+  if (!student || student.status === 'archived') {
+    throw new SessionError('NOT_STARTABLE', 'Student is archived', { studentStatus: student?.status ?? null });
+  }
+
+  const other = db.getFirstSync<{ id: string; student_id: string }>(
+    "SELECT id, student_id FROM sessions WHERE status IN ('active','paused') AND id != ? LIMIT 1",
+    [sessionId]
+  );
+  if (other) {
+    throw new SessionError('ALREADY_ACTIVE', 'Another lesson is already in progress', {
+      activeSessionId: other.id,
+      activeStudentId: other.student_id,
+    });
+  }
+
+  if (!opts.allowOverOwe) {
+    const check = checkOweLimit(target.student_id, target.estimated_duration_minutes ?? DEFAULT_LESSON_MINUTES);
+    if (check.overLimit) {
+      const { overLimit: _overLimit, ...details } = check;
+      throw new SessionError('OVER_OWE_LIMIT', 'Starting this lesson exceeds the owing limit', details);
     }
   }
 
-  db.runSync(
-    `UPDATE sessions SET started_at = ?, status = 'active' WHERE id = ?`,
-    [now, sessionId]
-  );
-
-  const session = db.getFirstSync<Session>('SELECT * FROM sessions WHERE id = ?', [sessionId]);
-  if (!session) throw new Error(`Session ${sessionId} not found`);
-  return session;
+  const startedAt = (opts.now ?? new Date()).toISOString();
+  let changes = 0;
+  try {
+    changes = db.runSync(
+      `UPDATE sessions SET started_at = ?, status = 'active', paused_at = NULL, paused_seconds = 0
+       WHERE id = ? AND status = 'scheduled'`,
+      [startedAt, sessionId]
+    ).changes;
+  } catch (e) {
+    // sessions_one_in_flight unique index — a concurrent start won the race.
+    if (e instanceof Error && /UNIQUE/i.test(e.message)) {
+      throw new SessionError('ALREADY_ACTIVE', 'Another lesson is already in progress');
+    }
+    throw e;
+  }
+  if (changes === 0) throw new SessionError('NOT_STARTABLE', `Session ${sessionId} is no longer scheduled`);
+  return mustGet(sessionId);
 }
+
+/**
+ * Start a scheduled lesson (status 'scheduled' → 'active'), atomically.
+ * Throws SessionError: NOT_FOUND | NOT_STARTABLE | ALREADY_ACTIVE | OVER_OWE_LIMIT.
+ * OVER_OWE_LIMIT is a nudge — retry with `{ allowOverOwe: true }` after the tutor confirms.
+ * Calling it for the session that is already active/paused returns it unchanged.
+ */
+export function startSession(sessionId: string, opts: StartSessionOptions = {}): Session {
+  let result: Session | null = null;
+  getDb().withTransactionSync(() => {
+    result = startSessionInTx(sessionId, opts);
+  });
+  return result!;
+}
+
+/** Create an unscheduled lesson and start it in ONE transaction (no orphan row on failure). */
+export function createAndStartUnscheduled(data: {
+  studentId: string;
+  mode: Session['mode'];
+  sessionType?: Session['session_type'];
+  /** Expected length; used for the owe projection (defaults to 60) and stored as estimate. */
+  estimatedMinutes?: number;
+  allowOverOwe?: boolean;
+  now?: Date;
+}): Session {
+  const db = getDb();
+  let result: Session | null = null;
+  db.withTransactionSync(() => {
+    const id = newId();
+    const createdAt = (data.now ?? new Date()).toISOString();
+    db.runSync(
+      `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, session_type, status, created_at)
+       VALUES (?, ?, ?, NULL, ?, '[]', NULL, ?, 'scheduled', ?)`,
+      [id, data.studentId, data.mode, data.estimatedMinutes ?? null, data.sessionType ?? 'general', createdAt]
+    );
+    // Owe projection uses estimatedMinutes, or DEFAULT_LESSON_MINUTES when unknown.
+    result = startSessionInTx(id, { allowOverOwe: data.allowOverOwe, now: data.now });
+  });
+  return result!;
+}
+
+// ── Pause / resume / discard ─────────────────────────────────────────────────
+
+/** active → paused. Throws INVALID_STATE if the session is not active. */
+export function pauseSession(sessionId: string, at: Date = new Date()): Session {
+  const db = getDb();
+  const changes = db.runSync(
+    `UPDATE sessions SET paused_at = ?, status = 'paused' WHERE id = ? AND status = 'active'`,
+    [at.toISOString(), sessionId]
+  ).changes;
+  if (changes === 0) throw new SessionError('INVALID_STATE', `Session ${sessionId} is not active`);
+  return mustGet(sessionId);
+}
+
+/** paused → active, adding the closed pause interval to paused_seconds. */
+export function resumeSession(sessionId: string, at: Date = new Date()): Session {
+  const db = getDb();
+  db.withTransactionSync(() => {
+    const s = mustGet(sessionId);
+    if (s.status !== 'paused') throw new SessionError('INVALID_STATE', `Session ${sessionId} is not paused`);
+    const pausedSeconds = (s.paused_seconds ?? 0) + openPauseSeconds(s, at);
+    db.runSync(
+      `UPDATE sessions SET paused_at = NULL, paused_seconds = ?, status = 'active' WHERE id = ? AND status = 'paused'`,
+      [pausedSeconds, sessionId]
+    );
+  });
+  return mustGet(sessionId);
+}
+
+/**
+ * Throw away an in-flight lesson (no deduction). Guarded: only active/paused.
+ * Returns false (no-op) if the session was not in flight.
+ */
+export function discardSession(sessionId: string, at: Date = new Date()): boolean {
+  const changes = getDb().runSync(
+    `UPDATE sessions SET status = 'cancelled', cancel_reason = 'discarded', ended_at = ?, paused_at = NULL
+     WHERE id = ? AND status IN ('active','paused')`,
+    [at.toISOString(), sessionId]
+  ).changes;
+  return changes > 0;
+}
+
+// ── Elapsed time ─────────────────────────────────────────────────────────────
+
+function openPauseSeconds(s: Pick<Session, 'status' | 'paused_at'>, until: Date): number {
+  if (s.status !== 'paused' || !s.paused_at) return 0;
+  return Math.max(0, Math.floor((until.getTime() - new Date(s.paused_at).getTime()) / 1000));
+}
+
+/**
+ * Teaching seconds for a session: wall time since started_at minus all pauses.
+ * Paused sessions are frozen at paused_at; completed/cancelled use ended_at.
+ */
+export function computeElapsedSeconds(
+  session: Pick<Session, 'status' | 'started_at' | 'ended_at' | 'paused_at' | 'paused_seconds'>,
+  now: Date = new Date(),
+): number {
+  if (!session.started_at) return 0;
+  const end =
+    (session.status === 'completed' || session.status === 'cancelled') && session.ended_at
+      ? new Date(session.ended_at)
+      : now;
+  const wall = Math.floor((end.getTime() - new Date(session.started_at).getTime()) / 1000);
+  const paused = (session.paused_seconds ?? 0) + openPauseSeconds(session, end);
+  return Math.max(0, wall - paused);
+}
+
+// ── End / log ────────────────────────────────────────────────────────────────
 
 export function endSession(data: {
   sessionId: string;
   endedAt: string;
   durationMinutes: number;
   billedMinutes: number;
-  pausedSeconds: number;
+  /**
+   * @deprecated The DB is authoritative (paused_seconds + any open pause interval).
+   * Kept for compatibility: the larger of the two is stored.
+   */
+  pausedSeconds?: number;
   topics: string[];
   sessionNotes?: string;
 }): { session: Session; entry: LedgerEntry } {
@@ -141,15 +355,21 @@ export function endSession(data: {
   db.withTransactionSync(() => {
     // read inside transaction
     const existing = db.getFirstSync<Session>('SELECT * FROM sessions WHERE id = ?', [data.sessionId]);
-    if (!existing) throw new Error(`Session ${data.sessionId} not found`);
-    if (!['active', 'paused'].includes(existing.status)) throw new Error(`Session ${data.sessionId} cannot be ended (status: ${existing.status})`);
+    if (!existing) throw new SessionError('NOT_FOUND', `Session ${data.sessionId} not found`);
+    if (!['active', 'paused'].includes(existing.status)) {
+      throw new SessionError('INVALID_STATE', `Session ${data.sessionId} cannot be ended (status: ${existing.status})`);
+    }
+
+    // Close an open pause interval if ending while paused.
+    const dbPaused = (existing.paused_seconds ?? 0) + openPauseSeconds(existing, new Date(data.endedAt));
+    const pausedSeconds = Math.max(dbPaused, data.pausedSeconds ?? 0);
 
     const topicsJson = JSON.stringify(data.topics);
     const result = db.runSync(
-      `UPDATE sessions SET ended_at = ?, duration_minutes = ?, billed_minutes = ?, paused_seconds = ?, topics = ?, session_notes = ?, status = 'completed' WHERE id = ? AND status IN ('active', 'paused')`,
-      [data.endedAt, data.durationMinutes, data.billedMinutes, data.pausedSeconds, topicsJson, data.sessionNotes ?? null, data.sessionId]
+      `UPDATE sessions SET ended_at = ?, duration_minutes = ?, billed_minutes = ?, paused_seconds = ?, paused_at = NULL, topics = ?, session_notes = ?, status = 'completed' WHERE id = ? AND status IN ('active', 'paused')`,
+      [data.endedAt, data.durationMinutes, data.billedMinutes, pausedSeconds, topicsJson, data.sessionNotes ?? null, data.sessionId]
     );
-    if (result.changes === 0) throw new Error(`Failed to end session ${data.sessionId} — status may have changed`);
+    if (result.changes === 0) throw new SessionError('INVALID_STATE', `Failed to end session ${data.sessionId} — status may have changed`);
 
     entry = appendEntryInTx({
       studentId: existing.student_id,
@@ -164,14 +384,162 @@ export function endSession(data: {
   return { session: session!, entry: entry! };
 }
 
-export function cancelSession(sessionId: string): void {
+/**
+ * Record a lesson that already happened: completed session + deduction in one
+ * transaction. With `sessionId`, completes that scheduled lesson ("Log as taught");
+ * otherwise inserts a new completed lesson ("Log past lesson"). Not subject to
+ * the owe limit (the lesson already happened).
+ */
+export function logPastSession(data: {
+  studentId: string;
+  /** ISO start time; must not be in the future. */
+  startedAt: string;
+  /** Actual lesson length. */
+  minutes: number;
+  /** Defaults to `minutes`. */
+  billedMinutes?: number;
+  topics: string[];
+  notes?: string;
+  sessionId?: string;
+  mode?: Session['mode'];
+  sessionType?: Session['session_type'];
+  now?: Date;
+}): { session: Session; entry: LedgerEntry } {
   const db = getDb();
-  const session = db.getFirstSync<Session>('SELECT status FROM sessions WHERE id = ?', [sessionId]);
-  if (!session || !['scheduled', 'active', 'paused'].includes(session.status)) return;
-  db.runSync(
-    `UPDATE sessions SET status = 'cancelled' WHERE id = ?`,
+  const billed = data.billedMinutes ?? data.minutes;
+  const start = new Date(data.startedAt);
+  const now = data.now ?? new Date();
+  if (!Number.isFinite(data.minutes) || data.minutes <= 0 || !Number.isFinite(billed) || billed <= 0) {
+    throw new SessionError('INVALID_INPUT', 'Lesson length must be greater than zero');
+  }
+  if (Number.isNaN(start.getTime())) throw new SessionError('INVALID_INPUT', 'Invalid start time');
+  if (start.getTime() > now.getTime() + 60_000) {
+    throw new SessionError('INVALID_INPUT', 'A past lesson cannot start in the future');
+  }
+
+  const startedAt = start.toISOString();
+  const endedAt = new Date(start.getTime() + data.minutes * 60_000).toISOString();
+  const topicsJson = JSON.stringify(data.topics);
+  let session: Session | null = null;
+  let entry: LedgerEntry | null = null;
+
+  db.withTransactionSync(() => {
+    let id = data.sessionId;
+    if (id) {
+      const existing = mustGet(id);
+      if (existing.student_id !== data.studentId) throw new SessionError('INVALID_INPUT', 'Session belongs to another student');
+      const changes = db.runSync(
+        `UPDATE sessions SET started_at = ?, ended_at = ?, duration_minutes = ?, billed_minutes = ?, paused_seconds = 0,
+           paused_at = NULL, topics = ?, session_notes = COALESCE(?, session_notes), status = 'completed'
+         WHERE id = ? AND status = 'scheduled'`,
+        [startedAt, endedAt, data.minutes, billed, topicsJson, data.notes ?? null, id]
+      ).changes;
+      if (changes === 0) {
+        throw new SessionError('INVALID_STATE', `Session ${id} is not scheduled (status: ${existing.status})`);
+      }
+    } else {
+      id = newId();
+      db.runSync(
+        `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, started_at, ended_at, paused_seconds,
+           duration_minutes, billed_minutes, topics, session_notes, session_type, status, created_at)
+         VALUES (?, ?, ?, NULL, NULL, ?, ?, 0, ?, ?, ?, ?, ?, 'completed', ?)`,
+        [id, data.studentId, data.mode ?? 'in_person', startedAt, endedAt, data.minutes, billed, topicsJson,
+          data.notes ?? null, data.sessionType ?? 'general', now.toISOString()]
+      );
+    }
+
+    entry = appendEntryInTx({
+      studentId: data.studentId,
+      type: 'session_deduction',
+      hoursDelta: -(billed / 60),
+      relatedSessionId: id,
+    });
+    session = mustGet(id);
+  });
+
+  return { session: session!, entry: entry! };
+}
+
+// ── Scheduled-lesson actions ─────────────────────────────────────────────────
+
+/**
+ * Student didn't show. Cancels the scheduled lesson with cancel_reason 'no_show'.
+ * With `charge: true`, also deducts `minutes` (default: booked length, else 60)
+ * and records them in billed_minutes.
+ */
+export function markNoShow(
+  sessionId: string,
+  opts: { charge: boolean; minutes?: number },
+): { session: Session; entry: LedgerEntry | null } {
+  const db = getDb();
+  let session: Session | null = null;
+  let entry: LedgerEntry | null = null;
+
+  db.withTransactionSync(() => {
+    const existing = mustGet(sessionId);
+    if (existing.status !== 'scheduled') {
+      throw new SessionError('INVALID_STATE', `Session ${sessionId} is not scheduled (status: ${existing.status})`);
+    }
+    const minutes = opts.charge ? opts.minutes ?? existing.estimated_duration_minutes ?? DEFAULT_LESSON_MINUTES : null;
+    if (minutes !== null && (!Number.isFinite(minutes) || minutes <= 0)) {
+      throw new SessionError('INVALID_INPUT', 'Charged minutes must be greater than zero');
+    }
+    db.runSync(
+      `UPDATE sessions SET status = 'cancelled', cancel_reason = 'no_show', billed_minutes = ? WHERE id = ? AND status = 'scheduled'`,
+      [minutes, sessionId]
+    );
+    if (minutes !== null) {
+      entry = appendEntryInTx({
+        studentId: existing.student_id,
+        type: 'session_deduction',
+        hoursDelta: -(minutes / 60),
+        relatedSessionId: sessionId,
+        reason: 'No-show',
+      });
+    }
+    session = mustGet(sessionId);
+  });
+
+  return { session: session!, entry };
+}
+
+/** Move a scheduled lesson to a new ISO start time (optionally new length). */
+export function rescheduleSession(
+  sessionId: string,
+  newScheduledFor: string,
+  opts: { estimatedDurationMinutes?: number } = {},
+): Session {
+  const when = new Date(newScheduledFor);
+  if (Number.isNaN(when.getTime())) throw new SessionError('INVALID_INPUT', 'Invalid date');
+  const existing = mustGet(sessionId);
+  const changes = getDb().runSync(
+    `UPDATE sessions SET scheduled_for = ?, estimated_duration_minutes = COALESCE(?, estimated_duration_minutes)
+     WHERE id = ? AND status = 'scheduled'`,
+    [when.toISOString(), opts.estimatedDurationMinutes ?? null, sessionId]
+  ).changes;
+  if (changes === 0) throw new SessionError('INVALID_STATE', `Session ${sessionId} is not scheduled (status: ${existing.status})`);
+  return mustGet(sessionId);
+}
+
+/** Cancel a scheduled (not started) lesson. Throws INVALID_STATE otherwise. */
+export function cancelScheduled(sessionId: string): void {
+  const existing = mustGet(sessionId);
+  const changes = getDb().runSync(
+    `UPDATE sessions SET status = 'cancelled', cancel_reason = 'cancelled' WHERE id = ? AND status = 'scheduled'`,
     [sessionId]
-  );
+  ).changes;
+  if (changes === 0) throw new SessionError('INVALID_STATE', `Session ${sessionId} is not scheduled (status: ${existing.status})`);
+}
+
+/**
+ * @deprecated Use `cancelScheduled` (scheduled) or `discardSession` (in flight).
+ * Lenient legacy wrapper: no-op for completed/cancelled/missing sessions.
+ */
+export function cancelSession(sessionId: string): void {
+  const session = getSession(sessionId);
+  if (!session) return;
+  if (session.status === 'scheduled') cancelScheduled(sessionId);
+  else if (session.status === 'active' || session.status === 'paused') discardSession(sessionId);
 }
 
 export function updateScheduled(
@@ -191,12 +559,34 @@ export function updateScheduled(
   );
 }
 
+// ── Lists ────────────────────────────────────────────────────────────────────
+
 export function listUpcoming(studentId: string): Session[] {
   const db = getDb();
   return db.getAllSync<Session>(
     `SELECT * FROM sessions WHERE student_id = ? AND status = 'scheduled' AND datetime(scheduled_for) >= datetime('now') ORDER BY scheduled_for ASC`,
     [studentId]
   );
+}
+
+/**
+ * A student's future scheduled lessons, each with the balance projected after it
+ * (current balance minus all booked lessons up to and including that one).
+ * Negative `projected_balance_after` → UI warns "will owe Xh".
+ */
+export function listUpcomingWithProjection(
+  studentId: string,
+  now: Date = new Date(),
+): Array<Session & { projected_balance_after: number }> {
+  const rows = getDb().getAllSync<Session>(
+    `SELECT * FROM sessions WHERE student_id = ? AND status = 'scheduled' AND scheduled_for IS NOT NULL ORDER BY scheduled_for ASC`,
+    [studentId]
+  ).filter(s => new Date(s.scheduled_for!).getTime() >= now.getTime());
+  let running = currentBalance(studentId);
+  return rows.map(s => {
+    running -= (s.estimated_duration_minutes ?? DEFAULT_LESSON_MINUTES) / 60;
+    return { ...s, projected_balance_after: Math.round(running * 1e6) / 1e6 };
+  });
 }
 
 export function listAllUpcoming(): Array<Session & { student_full_name: string; student_subject: string }> {
@@ -209,6 +599,65 @@ export function listAllUpcoming(): Array<Session & { student_full_name: string; 
        AND students.status NOT IN ('archived', 'paused')
      ORDER BY sessions.scheduled_for ASC`
   );
+}
+
+export type AgendaItem = Session & {
+  student_full_name: string;
+  student_subject: string;
+  student_status: Student['status'];
+};
+
+export type Agenda = {
+  /** Active or paused lesson (0 or 1 item). Not repeated in the other buckets. */
+  inProgress: AgendaItem[];
+  /** Scheduled, not started, and the booked slot has already ended. Oldest first. */
+  overdue: AgendaItem[];
+  /** Scheduled for the rest of today (LOCAL day), slot not yet over. */
+  today: AgendaItem[];
+  /** Scheduled from LOCAL start of tomorrow onwards. */
+  upcoming: AgendaItem[];
+};
+
+/**
+ * Agenda buckets relative to `now` using LOCAL day boundaries.
+ * A lesson is overdue once scheduled_for + booked length (default 60 min) has
+ * passed without it being started. Excludes archived students.
+ */
+export function listAgenda(now: Date = new Date()): Agenda {
+  const rows = getDb().getAllSync<AgendaItem>(
+    `SELECT sessions.*, students.full_name AS student_full_name, students.subject AS student_subject,
+            students.status AS student_status
+     FROM sessions JOIN students ON sessions.student_id = students.id
+     WHERE students.status != 'archived'
+       AND (sessions.status IN ('active','paused')
+            OR (sessions.status = 'scheduled' AND sessions.scheduled_for IS NOT NULL))`
+  );
+
+  const startOfTomorrow = new Date(now);
+  startOfTomorrow.setHours(0, 0, 0, 0);
+  startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+  const nowMs = now.getTime();
+  const tomorrowMs = startOfTomorrow.getTime();
+
+  const agenda: Agenda = { inProgress: [], overdue: [], today: [], upcoming: [] };
+  for (const r of rows) {
+    if (r.status === 'active' || r.status === 'paused') {
+      agenda.inProgress.push(r);
+      continue;
+    }
+    const startMs = new Date(r.scheduled_for!).getTime();
+    if (Number.isNaN(startMs)) continue;
+    const endMs = startMs + (r.estimated_duration_minutes ?? DEFAULT_LESSON_MINUTES) * 60_000;
+    if (endMs <= nowMs) agenda.overdue.push(r);
+    else if (startMs < tomorrowMs) agenda.today.push(r);
+    else agenda.upcoming.push(r);
+  }
+  const byStart = (a: AgendaItem, b: AgendaItem) =>
+    new Date(a.scheduled_for ?? a.started_at ?? 0).getTime() - new Date(b.scheduled_for ?? b.started_at ?? 0).getTime();
+  agenda.overdue.sort(byStart);
+  agenda.today.sort(byStart);
+  agenda.upcoming.sort(byStart);
+  return agenda;
 }
 
 export function listForStudent(studentId: string, limit?: number): Session[] {
@@ -243,29 +692,36 @@ export function getActiveOrPausedSession(): (Session & { student_full_name: stri
   ) ?? null;
 }
 
+// ── Week stats (Monday-start, local time; archived students excluded) ───────
+
+function startOfLocalWeek(now: Date = new Date()): Date {
+  const dow = now.getDay();              // 0=Sun, 1=Mon, ...
+  const diff = dow === 0 ? -6 : 1 - dow; // Monday-start
+  const start = new Date(now);
+  start.setDate(now.getDate() + diff);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+/** Billed hours of lessons completed this week. */
 export function sessionsThisWeek(): number {
   const db = getDb();
-  const startOfWeek = new Date();
-  startOfWeek.setHours(0, 0, 0, 0);
-  startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
   const row = db.getFirstSync<{ total: number }>(
-    `SELECT COALESCE(SUM(duration_minutes), 0) as total FROM sessions WHERE status = 'completed' AND ended_at >= ?`,
-    [startOfWeek.toISOString()]
+    `SELECT COALESCE(SUM(COALESCE(se.billed_minutes, se.duration_minutes)), 0) as total
+     FROM sessions se JOIN students st ON st.id = se.student_id
+     WHERE se.status = 'completed' AND se.ended_at >= ? AND st.status != 'archived'`,
+    [startOfLocalWeek().toISOString()]
   );
   return (row?.total ?? 0) / 60;
 }
 
 export function sessionsThisWeekCount(): number {
   const db = getDb();
-  const now = new Date();
-  const dow = now.getDay();              // 0=Sun, 1=Mon, ...
-  const diff = dow === 0 ? -6 : 1 - dow; // Monday-start
-  const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() + diff);
-  startOfWeek.setHours(0, 0, 0, 0);
   const row = db.getFirstSync<{ count: number }>(
-    `SELECT COUNT(*) as count FROM sessions WHERE status = 'completed' AND ended_at >= ?`,
-    [startOfWeek.toISOString()]
+    `SELECT COUNT(*) as count
+     FROM sessions se JOIN students st ON st.id = se.student_id
+     WHERE se.status = 'completed' AND se.ended_at >= ? AND st.status != 'archived'`,
+    [startOfLocalWeek().toISOString()]
   );
   return row?.count ?? 0;
 }

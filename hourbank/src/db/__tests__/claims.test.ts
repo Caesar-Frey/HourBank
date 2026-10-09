@@ -24,20 +24,7 @@ import {
 } from '../claims';
 
 function allMigrations() {
-  const {
-    MIGRATION_002,
-    MIGRATION_003_SESSION_TYPE,
-    MIGRATION_004_CALENDAR_EVENTS,
-    MIGRATION_005_LEDGER_CONSTRAINTS,
-    MIGRATION_006_CLAIMS,
-  } = require('../migrations');
-  return [
-    MIGRATION_002,
-    MIGRATION_003_SESSION_TYPE,
-    MIGRATION_004_CALENDAR_EVENTS,
-    MIGRATION_005_LEDGER_CONSTRAINTS,
-    MIGRATION_006_CLAIMS,
-  ];
+  return require('../migrations').ALL_MIGRATIONS;
 }
 
 describe('claims service', () => {

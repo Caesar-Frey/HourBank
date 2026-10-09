@@ -11,6 +11,10 @@ export type Student = {
   travel_flat_fee: number;
   travel_distance_km: number;
   payout_rate_override: number | null;
+  /** Added by migration 007. Optional on the type so legacy object literals still compile. */
+  parent_name?: string | null;
+  /** WhatsApp/phone number as typed by the tutor (normalise at send time). Migration 007. */
+  parent_phone?: string | null;
 };
 
 export type CreditPackage = {
@@ -25,6 +29,15 @@ export type CreditPackage = {
   created_at: string;
 };
 
+/**
+ * Why a session ended up `cancelled`:
+ * - cancelled: scheduled lesson called off
+ * - no_show: student didn't attend (may carry a deduction if charged)
+ * - discarded: in-flight timer thrown away (or orphan cleaned by migration 007)
+ * - student_archived: future lesson cancelled because the student was archived
+ */
+export type SessionCancelReason = 'cancelled' | 'no_show' | 'discarded' | 'student_archived';
+
 export type Session = {
   id: string;
   student_id: string;
@@ -37,7 +50,7 @@ export type Session = {
   duration_minutes: number | null;
   billed_minutes: number | null;
   paused_at: string | null;
-  cancel_reason: string | null;
+  cancel_reason: SessionCancelReason | null;
   topics: string;
   session_notes: string | null;
   status: 'scheduled' | 'active' | 'paused' | 'completed' | 'cancelled';

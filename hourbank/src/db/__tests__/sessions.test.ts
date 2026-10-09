@@ -54,7 +54,7 @@ describe('sessions', () => {
 
     it('startSession after createUnscheduled flips status to active', () => {
       const session = createUnscheduled('student-1', 'in_person');
-      const active = startSession(session.id);
+      const active = startSession(session.id, { allowOverOwe: true });
       expect(active.status).toBe('active');
       expect(active.started_at).not.toBeNull();
     });
@@ -199,12 +199,14 @@ describe('sessions', () => {
     });
   });
 
-  describe('startSession MAX_OWE_EXCEEDED', () => {
+  // Semantics changed 2026-10-09: 0 = owing not allowed; check uses the projected
+  // balance after the lesson (unscheduled → 60 min); OVER_OWE_LIMIT is overridable.
+  describe('startSession OVER_OWE_LIMIT', () => {
     beforeEach(() => {
       ensureTutorProfileTable();
     });
 
-    it('throws MAX_OWE_EXCEEDED when balance <= -max_owe_hours', () => {
+    it('throws OVER_OWE_LIMIT when the lesson would push owing past max_owe_hours', () => {
       // Set max_owe_hours = 2
       db.runSync(
         `INSERT INTO tutor_profile (id, full_name, hourly_rate, currency, max_owe_hours, tier_system_enabled, package_tiers, selected_subject_ids, created_at, updated_at)
@@ -217,7 +219,7 @@ describe('sessions', () => {
         ['le-1', 'student-1', -2, -2, NOW]
       );
       const session = createUnscheduled('student-1', 'in_person');
-      expect(() => startSession(session.id)).toThrow('MAX_OWE_EXCEEDED');
+      expect(() => startSession(session.id)).toThrow('OVER_OWE_LIMIT');
     });
 
     it('allows start when balance > -max_owe_hours', () => {
@@ -235,7 +237,7 @@ describe('sessions', () => {
       expect(() => startSession(session.id)).not.toThrow();
     });
 
-    it('allows start when max_owe_hours = 0 (no limit) even with negative balance', () => {
+    it('max_owe_hours = 0 means owing not allowed; allowOverOwe overrides', () => {
       db.runSync(
         `INSERT INTO tutor_profile (id, full_name, hourly_rate, currency, max_owe_hours, tier_system_enabled, package_tiers, selected_subject_ids, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -246,17 +248,17 @@ describe('sessions', () => {
         ['le-3', 'student-1', -100, -100, NOW]
       );
       const session = createUnscheduled('student-1', 'in_person');
-      expect(() => startSession(session.id)).not.toThrow();
+      expect(() => startSession(session.id)).toThrow('OVER_OWE_LIMIT');
+      expect(() => startSession(session.id, { allowOverOwe: true })).not.toThrow();
     });
 
-    it('allows start when no tutor_profile row exists', () => {
-      // No profile inserted — max_owe defaults to 0, no block
+    it('no tutor_profile row behaves like max_owe_hours = 0', () => {
       db.runSync(
         `INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, created_at) VALUES (?, ?, 'session_deduction', ?, ?, ?)`,
         ['le-4', 'student-1', -50, -50, NOW]
       );
       const session = createUnscheduled('student-1', 'in_person');
-      expect(() => startSession(session.id)).not.toThrow();
+      expect(() => startSession(session.id)).toThrow('OVER_OWE_LIMIT');
     });
   });
 
