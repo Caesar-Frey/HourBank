@@ -1,11 +1,11 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
-import { getClaim, getClaimLines, setClaimReportPath } from '../db/claims';
-import { getSessionWithStudent } from '../db/sessions';
-import { getTutorProfile } from '../db/tutorProfile';
+import { getDb } from '../db/client';
+import { getClaim, setClaimReportPath } from '../db/claims';
 import { Claim, ClaimLine } from '../db/schema';
-import { formatRand, formatHours } from './format';
+import { formatRand, formatHours, formatClaimPeriod, inclusivePeriodEnd, formatDateLong } from './format';
+import { escapeHtml, escapeHtmlMultiline } from './html';
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -16,72 +16,77 @@ function dateStamp(date: Date): string {
   return `${d}${m}${y}`;
 }
 
-function claimReportFilename(claim: Claim): string {
+/** Claim_01Sep2026_30Sep2026.pdf — end is the INCLUSIVE last day; voided claims get _VOID. */
+export function claimReportFilename(claim: Claim): string {
+  const suffix = claim.voided_at ? '_VOID' : '';
   if (claim.period_start && claim.period_end) {
-    return `Claim_${dateStamp(new Date(claim.period_start))}_${dateStamp(new Date(claim.period_end))}.pdf`;
+    return `Claim_${dateStamp(new Date(claim.period_start))}_${dateStamp(inclusivePeriodEnd(claim.period_end))}${suffix}.pdf`;
   }
-  return `Claim_All_${dateStamp(new Date(claim.created_at))}.pdf`;
-}
-
-function periodLabel(claim: Claim): string {
-  if (!claim.period_start || !claim.period_end) return 'All';
-  return `${dateStamp(new Date(claim.period_start))} – ${dateStamp(new Date(claim.period_end))}`;
+  return `Claim_All_${dateStamp(new Date(claim.created_at))}${suffix}.pdf`;
 }
 
 function modeLabel(mode: 'in_person' | 'online'): string {
   return mode === 'online' ? 'Online' : 'In-person';
 }
 
-function lineDateLabel(endedAt: string | null): string {
-  if (!endedAt) return '—';
-  return dateStamp(new Date(endedAt));
+function lineDateLabel(at: string | null): string {
+  if (!at) return '—';
+  return dateStamp(new Date(at));
 }
 
 const MONO = "font-family: 'Courier New', monospace;";
+const CELL = 'padding: 6px 8px; border-bottom: 1px solid lightgray;';
 
-export async function shareClaimReport(claimId: string): Promise<void> {
-  const claim = getClaim(claimId);
-  if (!claim) return;
+export type ClaimReportLine = { line: ClaimLine; studentName: string; lessonAt: string | null };
 
-  const lines = getClaimLines(claimId);
-  const profile = getTutorProfile();
-  const tutorName = profile?.full_name?.trim() || 'Tutor';
+/** Pure HTML for a claim statement. All user text is escaped. */
+export function buildClaimReportHtml(input: {
+  claim: Claim;
+  tutorName: string;
+  lines: ClaimReportLine[];
+}): string {
+  const { claim, tutorName, lines } = input;
+  const voided = claim.voided_at != null;
 
-  // Resolve display name/date per session from the completed session (Phase 4 approach).
-  // claim_lines snapshot only money/mode/hours — never recompute money.
-  const enriched = lines.map((line: ClaimLine) => {
-    const session = getSessionWithStudent(line.session_id);
-    return {
-      line,
-      studentName: session?.student_name ?? 'Unknown student',
-      endedAt: session?.ended_at ?? null,
-    };
-  });
-
-  const rows = enriched
-    .map(({ line, studentName, endedAt }) => `
+  const rows = lines
+    .map(({ line, studentName, lessonAt }) => `
       <tr>
-        <td style="${MONO} padding: 6px 8px; border-bottom: 1px solid lightgray;">${lineDateLabel(endedAt)}</td>
-        <td style="padding: 6px 8px; border-bottom: 1px solid lightgray;">${studentName}</td>
-        <td style="padding: 6px 8px; border-bottom: 1px solid lightgray;">${modeLabel(line.mode)}</td>
-        <td style="${MONO} padding: 6px 8px; border-bottom: 1px solid lightgray; text-align: right;">${formatHours(line.billed_hours)}</td>
-        <td style="${MONO} padding: 6px 8px; border-bottom: 1px solid lightgray; text-align: right;">${formatRand(line.lesson_fee)}</td>
-        <td style="${MONO} padding: 6px 8px; border-bottom: 1px solid lightgray; text-align: right;">${formatRand(line.travel_fee)}</td>
-        <td style="${MONO} padding: 6px 8px; border-bottom: 1px solid lightgray; text-align: right;">${formatRand(line.lesson_fee + line.travel_fee)}</td>
+        <td style="${MONO} ${CELL}">${escapeHtml(lineDateLabel(lessonAt))}</td>
+        <td style="${CELL}">${escapeHtml(studentName)}</td>
+        <td style="${CELL}">${modeLabel(line.mode)}</td>
+        <td style="${MONO} ${CELL} text-align: right;">${escapeHtml(formatHours(line.billed_hours))}</td>
+        <td style="${MONO} ${CELL} text-align: right;">${escapeHtml(formatRand(line.lesson_fee))}</td>
+        <td style="${MONO} ${CELL} text-align: right;">${escapeHtml(formatRand(line.travel_fee))}</td>
+        <td style="${MONO} ${CELL} text-align: right;">${escapeHtml(formatRand(line.lesson_fee + line.travel_fee))}</td>
       </tr>`)
     .join('');
 
   const travelModeLabel = claim.travel_mode === 'distance' ? 'Per-km' : 'Flat';
 
-  const html = `
+  const watermark = voided
+    ? `<div style="position: fixed; top: 38%; left: 0; right: 0; text-align: center; transform: rotate(-30deg);
+                   font-size: 160px; letter-spacing: 16px; color: rgba(200, 0, 0, 0.14); z-index: 0; pointer-events: none;">VOID</div>`
+    : '';
+  const voidBanner = voided
+    ? `<p style="margin: 0 0 16px 0; padding: 8px 12px; border: 2px solid crimson; color: crimson;">
+         VOID — voided ${escapeHtml(formatDateLong(claim.voided_at!))}${
+           claim.void_reason?.trim() ? `: ${escapeHtmlMultiline(claim.void_reason.trim())}` : ''
+         }. This claim is not payable.
+       </p>`
+    : '';
+
+  return `
     <html>
     <body style="font-family: -apple-system, Helvetica, Arial, sans-serif; padding: 32px; max-width: 760px; color: black;">
+      ${watermark}
+      <div style="position: relative; z-index: 1;">
       <h2 style="margin: 0 0 4px 0;">HourBank Claim Statement</h2>
-      <p style="margin: 0 0 16px 0; color: gray;">${tutorName}</p>
+      <p style="margin: 0 0 16px 0; color: gray;">${escapeHtml(tutorName)}</p>
+      ${voidBanner}
 
       <table style="margin-bottom: 20px; border-collapse: collapse;">
-        <tr><td style="padding: 2px 16px 2px 0; color: gray;">Period</td><td style="${MONO}">${periodLabel(claim)}</td></tr>
-        <tr><td style="padding: 2px 16px 2px 0; color: gray;">Payout rate</td><td style="${MONO}">${formatRand(claim.payout_rate)}/h</td></tr>
+        <tr><td style="padding: 2px 16px 2px 0; color: gray;">Period</td><td style="${MONO}">${escapeHtml(formatClaimPeriod(claim.period_start, claim.period_end))}</td></tr>
+        <tr><td style="padding: 2px 16px 2px 0; color: gray;">Payout rate</td><td style="${MONO}">${escapeHtml(formatRand(claim.payout_rate))}/h</td></tr>
         <tr><td style="padding: 2px 16px 2px 0; color: gray;">Travel mode</td><td>${travelModeLabel}</td></tr>
       </table>
 
@@ -103,20 +108,49 @@ export async function shareClaimReport(claimId: string): Promise<void> {
       <table style="width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px;">
         <tr>
           <td style="padding: 4px 8px; text-align: right; color: gray;">Lesson fees</td>
-          <td style="${MONO} padding: 4px 8px; text-align: right; width: 140px;">${formatRand(claim.lesson_fee_total)}</td>
+          <td style="${MONO} padding: 4px 8px; text-align: right; width: 140px;">${escapeHtml(formatRand(claim.lesson_fee_total))}</td>
         </tr>
         <tr>
           <td style="padding: 4px 8px; text-align: right; color: gray;">Travel</td>
-          <td style="${MONO} padding: 4px 8px; text-align: right;">${formatRand(claim.travel_total)}</td>
+          <td style="${MONO} padding: 4px 8px; text-align: right;">${escapeHtml(formatRand(claim.travel_total))}</td>
         </tr>
         <tr style="border-top: 2px solid black;">
-          <td style="padding: 8px 8px; text-align: right;">Grand total</td>
-          <td style="${MONO} padding: 8px 8px; text-align: right;">${formatRand(claim.grand_total)}</td>
+          <td style="padding: 8px 8px; text-align: right;">Grand total${voided ? ' (VOID)' : ''}</td>
+          <td style="${MONO} padding: 8px 8px; text-align: right;${voided ? ' text-decoration: line-through;' : ''}">${escapeHtml(formatRand(claim.grand_total))}</td>
         </tr>
       </table>
+      </div>
     </body>
     </html>
   `;
+}
+
+/** Claim lines joined to their lesson's student + time. Money stays the frozen snapshot. */
+function loadReportLines(claimId: string): ClaimReportLine[] {
+  const rows = getDb().getAllSync<ClaimLine & { student_name: string | null; lesson_at: string | null }>(
+    `SELECT cl.*, st.full_name AS student_name, COALESCE(s.started_at, s.ended_at) AS lesson_at
+     FROM claim_lines cl
+     LEFT JOIN sessions s ON s.id = cl.session_id
+     LEFT JOIN students st ON st.id = s.student_id
+     WHERE cl.claim_id = ?
+     ORDER BY lesson_at ASC, cl.created_at ASC`,
+    [claimId]
+  );
+  return rows.map(({ student_name, lesson_at, ...line }) => ({
+    line: line as ClaimLine,
+    studentName: student_name ?? 'Unknown student',
+    lessonAt: lesson_at,
+  }));
+}
+
+export async function shareClaimReport(claimId: string): Promise<void> {
+  const claim = getClaim(claimId);
+  if (!claim) return;
+
+  const profile = getDb().getFirstSync<{ full_name: string | null }>('SELECT full_name FROM tutor_profile LIMIT 1');
+  const tutorName = profile?.full_name?.trim() || 'Tutor';
+
+  const html = buildClaimReportHtml({ claim, tutorName, lines: loadReportLines(claimId) });
 
   const { uri } = await Print.printToFileAsync({ html });
   setClaimReportPath(claimId, uri);
@@ -124,5 +158,5 @@ export async function shareClaimReport(claimId: string): Promise<void> {
   const filename = claimReportFilename(claim);
   const destUri = `${FileSystem.cacheDirectory}${filename}`;
   await FileSystem.copyAsync({ from: uri, to: destUri });
-  await Sharing.shareAsync(destUri, { mimeType: 'application/pdf', dialogTitle: 'Share Claim Report' });
+  await Sharing.shareAsync(destUri, { mimeType: 'application/pdf', dialogTitle: 'Share Claim Report', UTI: 'com.adobe.pdf' });
 }
