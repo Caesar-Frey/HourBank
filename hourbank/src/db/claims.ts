@@ -17,6 +17,17 @@ import { Claim, ClaimLine } from './schema';
 import { newId } from './uuid';
 import { effectiveRate, lessonFee, travelFee, roundCents } from '../utils/claim';
 
+// Claim periods are stored half-open [start, end) with `end` = local midnight
+// AFTER the last included day. Always display through formatClaimPeriod.
+export { formatClaimPeriod, inclusivePeriodEnd } from '../utils/format';
+
+/**
+ * Payout rate used when no tutor_profile row exists yet. Mirrors the default
+ * Settings shows (tutorProfile.ts upsert default / schema DEFAULT 600.0) so a
+ * fresh install never silently prices lessons at R0.
+ */
+export const DEFAULT_PAYOUT_RATE = 600;
+
 export type ClaimablePoolLine = {
   session_id: string;
   student_id: string;
@@ -65,7 +76,7 @@ function readProfileConfig(db: Db): ProfileConfig {
     'SELECT hourly_rate, travel_mode, per_km_rate FROM tutor_profile LIMIT 1'
   );
   return {
-    hourly_rate: row?.hourly_rate ?? 0,
+    hourly_rate: row?.hourly_rate ?? DEFAULT_PAYOUT_RATE,
     travel_mode: row?.travel_mode ?? 'flat',
     per_km_rate: row?.per_km_rate ?? 0,
   };
@@ -149,6 +160,16 @@ function derivePoolLines(
 }
 
 // ── Read functions ───────────────────────────────────────────────────────────
+
+/** The tutor's default payout rate (R/h) used for claims; for "R0" hints in UI. */
+export function getDefaultPayoutRate(): number {
+  return readProfileConfig(getDb()).hourly_rate;
+}
+
+/** True when the claim has been voided (show VOID badge / watermark). */
+export function isClaimVoided(claim: Pick<Claim, 'voided_at'>): boolean {
+  return claim.voided_at != null;
+}
 
 /** All currently-claimable completed sessions, fee-priced live. */
 export function listClaimablePool(range?: { start: string; end: string }): ClaimablePoolLine[] {
