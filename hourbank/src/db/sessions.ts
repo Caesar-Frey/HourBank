@@ -194,7 +194,7 @@ export function updateScheduled(
 export function listUpcoming(studentId: string): Session[] {
   const db = getDb();
   return db.getAllSync<Session>(
-    `SELECT * FROM sessions WHERE student_id = ? AND status = 'scheduled' AND scheduled_for >= datetime('now') ORDER BY scheduled_for ASC`,
+    `SELECT * FROM sessions WHERE student_id = ? AND status = 'scheduled' AND datetime(scheduled_for) >= datetime('now') ORDER BY scheduled_for ASC`,
     [studentId]
   );
 }
@@ -205,7 +205,7 @@ export function listAllUpcoming(): Array<Session & { student_full_name: string; 
     `SELECT sessions.*, students.full_name AS student_full_name, students.subject AS student_subject
      FROM sessions JOIN students ON sessions.student_id = students.id
      WHERE sessions.status = 'scheduled'
-       AND sessions.scheduled_for >= datetime('now')
+       AND datetime(sessions.scheduled_for) >= datetime('now')
        AND students.status NOT IN ('archived', 'paused')
      ORDER BY sessions.scheduled_for ASC`
   );

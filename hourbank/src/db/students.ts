@@ -23,7 +23,7 @@ const STUDENT_SELECT_FIELDS = `
     FROM sessions se
     WHERE se.student_id = s.id
       AND se.status = 'scheduled'
-      AND se.scheduled_for >= datetime('now')
+      AND datetime(se.scheduled_for) >= datetime('now')
     ORDER BY se.scheduled_for ASC
     LIMIT 1
   ) AS next_session_json
@@ -45,15 +45,21 @@ export function createStudent(data: {
   grade: number;
   subject: string;
   curriculum: Student['curriculum'];
+  travelFlatFee?: number;
+  travelDistanceKm?: number;
+  payoutRateOverride?: number | null;
 }): Student {
   const db = getDb();
   const id = newId();
   const now = new Date().toISOString();
+  const travelFlatFee = data.travelFlatFee ?? 0;
+  const travelDistanceKm = data.travelDistanceKm ?? 0;
+  const payoutRateOverride = data.payoutRateOverride ?? null;
 
   db.runSync(
-    `INSERT INTO students (id, full_name, grade, subject, curriculum, status, created_at)
-     VALUES (?, ?, ?, ?, ?, 'active', ?)`,
-    [id, data.fullName, data.grade, data.subject, data.curriculum, now]
+    `INSERT INTO students (id, full_name, grade, subject, curriculum, status, travel_flat_fee, travel_distance_km, payout_rate_override, created_at)
+     VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
+    [id, data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, now]
   );
 
   return {
@@ -64,6 +70,9 @@ export function createStudent(data: {
     curriculum: data.curriculum,
     status: 'active',
     created_at: now,
+    travel_flat_fee: travelFlatFee,
+    travel_distance_km: travelDistanceKm,
+    payout_rate_override: payoutRateOverride,
   };
 }
 
@@ -99,10 +108,27 @@ export function updateStudent(id: string, data: {
   grade: number;
   subject: string;
   curriculum: Student['curriculum'];
+  travelFlatFee?: number;
+  travelDistanceKm?: number;
+  payoutRateOverride?: number | null;
 }): void {
-  getDb().runSync(
-    'UPDATE students SET full_name=?, grade=?, subject=?, curriculum=? WHERE id=?',
-    [data.fullName, data.grade, data.subject, data.curriculum, id]
+  const db = getDb();
+  // Preserve existing travel/override values when a caller omits them, so editing
+  // a student's core fields never silently clobbers dormant payout config.
+  const existing = db.getFirstSync<{
+    travel_flat_fee: number;
+    travel_distance_km: number;
+    payout_rate_override: number | null;
+  }>('SELECT travel_flat_fee, travel_distance_km, payout_rate_override FROM students WHERE id = ?', [id]);
+
+  const travelFlatFee = data.travelFlatFee ?? existing?.travel_flat_fee ?? 0;
+  const travelDistanceKm = data.travelDistanceKm ?? existing?.travel_distance_km ?? 0;
+  const payoutRateOverride =
+    data.payoutRateOverride !== undefined ? data.payoutRateOverride : existing?.payout_rate_override ?? null;
+
+  db.runSync(
+    'UPDATE students SET full_name=?, grade=?, subject=?, curriculum=?, travel_flat_fee=?, travel_distance_km=?, payout_rate_override=? WHERE id=?',
+    [data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, id]
   );
 }
 

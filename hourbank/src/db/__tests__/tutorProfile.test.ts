@@ -16,6 +16,8 @@ function addTutorProfileTable(db: TestDb) {
       package_tiers TEXT NOT NULL DEFAULT '[]',
       selected_subject_ids TEXT NOT NULL DEFAULT '[]',
       last_backup_at TEXT,
+      travel_mode TEXT NOT NULL DEFAULT 'flat' CHECK (travel_mode IN ('flat','distance')),
+      per_km_rate REAL NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )

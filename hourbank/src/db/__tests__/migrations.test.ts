@@ -146,3 +146,86 @@ describe('runMigrations — migration 002 schema effects', () => {
     expect(row?.updated_at).toBe(NOW);
   });
 });
+
+describe('runMigrations — migration 006 claims schema effects', () => {
+  let db: TestDb;
+
+  function colNames(table: string): string[] {
+    return db
+      .getAllSync<{ name: string }>(`PRAGMA table_info(${table})`)
+      .map(r => r.name);
+  }
+
+  function allMigrations() {
+    const {
+      MIGRATION_002,
+      MIGRATION_003_SESSION_TYPE,
+      MIGRATION_004_CALENDAR_EVENTS,
+      MIGRATION_005_LEDGER_CONSTRAINTS,
+      MIGRATION_006_CLAIMS,
+    } = require('../migrations');
+    return [
+      MIGRATION_002,
+      MIGRATION_003_SESSION_TYPE,
+      MIGRATION_004_CALENDAR_EVENTS,
+      MIGRATION_005_LEDGER_CONSTRAINTS,
+      MIGRATION_006_CLAIMS,
+    ];
+  }
+
+  beforeEach(() => {
+    db = createTestDb();
+    runMigrations(allMigrations());
+  });
+  afterEach(() => { resetDbSingleton(); });
+
+  it('creates the claims table with all columns', () => {
+    const cols = colNames('claims');
+    expect(cols).toEqual(expect.arrayContaining([
+      'id', 'tutor_id', 'period_start', 'period_end', 'payout_rate',
+      'travel_mode', 'per_km_rate', 'lesson_fee_total', 'travel_total',
+      'grand_total', 'report_path', 'voided_at', 'void_reason', 'created_at',
+    ]));
+  });
+
+  it('creates the claim_lines table with all columns', () => {
+    const cols = colNames('claim_lines');
+    expect(cols).toEqual(expect.arrayContaining([
+      'id', 'claim_id', 'session_id', 'billed_hours', 'mode',
+      'lesson_fee', 'travel_fee', 'created_at',
+    ]));
+  });
+
+  it('adds travel_mode and per_km_rate columns to tutor_profile', () => {
+    const cols = colNames('tutor_profile');
+    expect(cols).toEqual(expect.arrayContaining(['travel_mode', 'per_km_rate']));
+  });
+
+  it('adds travel columns and payout_rate_override to students', () => {
+    const cols = colNames('students');
+    expect(cols).toEqual(expect.arrayContaining([
+      'travel_flat_fee', 'travel_distance_km', 'payout_rate_override',
+    ]));
+  });
+
+  it('creates the claim_lines and claims indexes', () => {
+    const idx = db
+      .getAllSync<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='index'"
+      )
+      .map(r => r.name);
+    expect(idx).toEqual(expect.arrayContaining([
+      'idx_claim_lines_session', 'idx_claim_lines_claim', 'idx_claims_voided',
+    ]));
+  });
+
+  it('is idempotent — re-running migration 006 is a no-op', () => {
+    const { MIGRATION_006_CLAIMS } = require('../migrations');
+    const before = colNames('claims').length;
+    // Re-run directly against the same db; guards must prevent duplicate work / errors.
+    expect(() => MIGRATION_006_CLAIMS.run(db)).not.toThrow();
+    expect(colNames('claims').length).toBe(before);
+    // And via the runner (already recorded → skipped, no throw).
+    expect(() => runMigrations(allMigrations())).not.toThrow();
+  });
+});

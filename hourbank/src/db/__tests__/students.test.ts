@@ -164,3 +164,21 @@ describe('students', () => {
     });
   });
 });
+
+
+describe('roster next lesson', () => {
+  afterEach(() => resetDbSingleton());
+
+  it.each(['active', 'paused'] as const)('skips elapsed same-day lessons for %s students', (status) => {
+    const db = createTestDb();
+    insertStudent(db, 'student-boundary', status);
+    const query = db.getAllSync.bind(db);
+    jest.spyOn(db, 'getAllSync').mockImplementation((sql, params) =>
+      query(sql.replace(/'now'/g, "'2026-09-12 12:00:00'"), params));
+    for (const [id, date] of [['past', '2026-09-12T06:00:00.000Z'], ['future', '2026-09-12T13:00:00.000Z']]) {
+      db.runSync("INSERT INTO sessions (id, student_id, scheduled_for) VALUES (?, 'student-boundary', ?)", [id, date]);
+    }
+    const rows = status === 'active' ? listActiveStudents() : listPausedStudents();
+    expect(rows[0].next_session?.id).toBe('future');
+  });
+});

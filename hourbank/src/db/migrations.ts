@@ -210,3 +210,71 @@ export const MIGRATION_004_CALENDAR_EVENTS: Migration = {
     }
   },
 };
+
+export const MIGRATION_006_CLAIMS: Migration = {
+  version: '006_claims',
+  run: (db) => {
+    // ── New tables ────────────────────────────────────────────────────────────
+    if (!hasTable(db, 'claims')) {
+      db.runSync(`
+        CREATE TABLE IF NOT EXISTS claims (
+          id               TEXT PRIMARY KEY,
+          tutor_id         TEXT,
+          period_start     TEXT,
+          period_end       TEXT,
+          payout_rate      REAL NOT NULL,
+          travel_mode      TEXT NOT NULL DEFAULT 'flat' CHECK (travel_mode IN ('flat','distance')),
+          per_km_rate      REAL,
+          lesson_fee_total REAL NOT NULL,
+          travel_total     REAL NOT NULL,
+          grand_total      REAL NOT NULL,
+          report_path      TEXT,
+          voided_at        TEXT,
+          void_reason      TEXT,
+          created_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    }
+
+    if (!hasTable(db, 'claim_lines')) {
+      db.runSync(`
+        CREATE TABLE IF NOT EXISTS claim_lines (
+          id           TEXT PRIMARY KEY,
+          claim_id     TEXT NOT NULL REFERENCES claims(id) ON DELETE RESTRICT,
+          session_id   TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,
+          billed_hours REAL NOT NULL,
+          mode         TEXT NOT NULL CHECK (mode IN ('in_person','online')),
+          lesson_fee   REAL NOT NULL,
+          travel_fee   REAL NOT NULL,
+          created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    }
+
+    // ── New columns on tutor_profile ─────────────────────────────────────────
+    if (!hasColumn(db, 'tutor_profile', 'travel_mode')) {
+      db.runSync(
+        `ALTER TABLE tutor_profile ADD COLUMN travel_mode TEXT NOT NULL DEFAULT 'flat' CHECK (travel_mode IN ('flat','distance'))`
+      );
+    }
+    if (!hasColumn(db, 'tutor_profile', 'per_km_rate')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN per_km_rate REAL NOT NULL DEFAULT 0`);
+    }
+
+    // ── New columns on students ──────────────────────────────────────────────
+    if (!hasColumn(db, 'students', 'travel_flat_fee')) {
+      db.runSync(`ALTER TABLE students ADD COLUMN travel_flat_fee REAL NOT NULL DEFAULT 0`);
+    }
+    if (!hasColumn(db, 'students', 'travel_distance_km')) {
+      db.runSync(`ALTER TABLE students ADD COLUMN travel_distance_km REAL NOT NULL DEFAULT 0`);
+    }
+    if (!hasColumn(db, 'students', 'payout_rate_override')) {
+      db.runSync(`ALTER TABLE students ADD COLUMN payout_rate_override REAL`);
+    }
+
+    // ── Indexes ──────────────────────────────────────────────────────────────
+    db.runSync(`CREATE INDEX IF NOT EXISTS idx_claim_lines_session ON claim_lines(session_id)`);
+    db.runSync(`CREATE INDEX IF NOT EXISTS idx_claim_lines_claim   ON claim_lines(claim_id)`);
+    db.runSync(`CREATE INDEX IF NOT EXISTS idx_claims_voided       ON claims(voided_at)`);
+  },
+};

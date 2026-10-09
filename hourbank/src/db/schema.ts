@@ -8,6 +8,9 @@ export type Student = {
   curriculum: 'CAPS' | 'IEB' | 'Cambridge' | 'Other';
   status: 'active' | 'paused' | 'archived';
   created_at: string;
+  travel_flat_fee: number;
+  travel_distance_km: number;
+  payout_rate_override: number | null;
 };
 
 export type CreditPackage = {
@@ -57,6 +60,34 @@ export type LedgerEntry = {
   created_at: string;
 };
 
+export type Claim = {
+  id: string;
+  tutor_id: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  payout_rate: number;
+  travel_mode: 'flat' | 'distance';
+  per_km_rate: number | null;
+  lesson_fee_total: number;
+  travel_total: number;
+  grand_total: number;
+  report_path: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
+  created_at: string;
+};
+
+export type ClaimLine = {
+  id: string;
+  claim_id: string;
+  session_id: string;
+  billed_hours: number;
+  mode: 'in_person' | 'online';
+  lesson_fee: number;
+  travel_fee: number;
+  created_at: string;
+};
+
 export type Topic = {
   id: string;
   subject_id: string;
@@ -96,6 +127,9 @@ export function initDb(): void {
       subject TEXT NOT NULL,
       curriculum TEXT NOT NULL DEFAULT 'CAPS' CHECK (curriculum IN ('CAPS','IEB','Cambridge','Other')),
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused','archived')),
+      travel_flat_fee REAL NOT NULL DEFAULT 0,
+      travel_distance_km REAL NOT NULL DEFAULT 0,
+      payout_rate_override REAL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -149,6 +183,8 @@ export function initDb(): void {
       package_tiers TEXT NOT NULL DEFAULT '[]',
       selected_subject_ids TEXT NOT NULL DEFAULT '[]',
       last_backup_at TEXT,
+      travel_mode TEXT NOT NULL DEFAULT 'flat' CHECK (travel_mode IN ('flat','distance')),
+      per_km_rate REAL NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )

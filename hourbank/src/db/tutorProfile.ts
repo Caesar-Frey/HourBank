@@ -11,21 +11,28 @@ export type TutorProfile = {
   package_tiers: string; // JSON string: [{hours, price, label, sort_order}]
   selected_subject_ids: string; // JSON string: []
   last_backup_at: string | null;
+  travel_mode: 'flat' | 'distance';
+  per_km_rate: number;
   created_at: string;
   updated_at: string;
 };
 
 export type PackageTier = {
+  /** Authoritative package size. Single source of truth — this is what gets credited. */
   hours: number;
   price: number;
+  /**
+   * OPTIONAL promo copy only (e.g. "Best Value"). Must NEVER restate the hour count.
+   * The displayed package size always derives from `hours`, never from this field.
+   */
   label: string;
   sort_order: number;
 };
 
 const DEFAULT_TIERS: PackageTier[] = [
-  { hours: 5,  price: 3000, label: '5 hours',  sort_order: 0 },
-  { hours: 10, price: 5500, label: '10 hours', sort_order: 1 },
-  { hours: 15, price: 8000, label: '15 hours', sort_order: 2 },
+  { hours: 5,  price: 3000, label: '',           sort_order: 0 },
+  { hours: 10, price: 5500, label: 'Best Value', sort_order: 1 },
+  { hours: 15, price: 8000, label: '',           sort_order: 2 },
 ];
 
 export function getTutorProfile(): TutorProfile | null {
@@ -50,6 +57,8 @@ export function upsertTutorProfile(data: Partial<TutorProfile>): TutorProfile {
         package_tiers = ?,
         selected_subject_ids = ?,
         last_backup_at = ?,
+        travel_mode = ?,
+        per_km_rate = ?,
         updated_at = ?
        WHERE id = ?`,
       [
@@ -61,6 +70,8 @@ export function upsertTutorProfile(data: Partial<TutorProfile>): TutorProfile {
         merged.package_tiers,
         merged.selected_subject_ids,
         merged.last_backup_at ?? null,
+        merged.travel_mode ?? 'flat',
+        merged.per_km_rate ?? 0,
         merged.updated_at,
         merged.id,
       ]
@@ -80,13 +91,15 @@ export function upsertTutorProfile(data: Partial<TutorProfile>): TutorProfile {
     package_tiers: data.package_tiers ?? JSON.stringify(DEFAULT_TIERS),
     selected_subject_ids: data.selected_subject_ids ?? '[]',
     last_backup_at: data.last_backup_at ?? null,
+    travel_mode: data.travel_mode ?? 'flat',
+    per_km_rate: data.per_km_rate ?? 0,
     created_at: data.created_at ?? now,
     updated_at: now,
   };
 
   db.runSync(
-    `INSERT INTO tutor_profile (id, full_name, hourly_rate, currency, max_owe_hours, tier_system_enabled, package_tiers, selected_subject_ids, last_backup_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO tutor_profile (id, full_name, hourly_rate, currency, max_owe_hours, tier_system_enabled, package_tiers, selected_subject_ids, last_backup_at, travel_mode, per_km_rate, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       row.id,
       row.full_name,
@@ -97,6 +110,8 @@ export function upsertTutorProfile(data: Partial<TutorProfile>): TutorProfile {
       row.package_tiers,
       row.selected_subject_ids,
       row.last_backup_at,
+      row.travel_mode,
+      row.per_km_rate,
       row.created_at,
       row.updated_at,
     ]

@@ -1,4 +1,4 @@
-import { createTestDb, resetDbSingleton } from './testDb';
+import { createMigratedTestDb as createTestDb, resetDbSingleton } from './testDb';
 import type { TestDb } from './testDb';
 import { listTopUpsForMonth, listSessionsForMonth } from '../reports';
 

@@ -1,6 +1,6 @@
-import { createTestDb, resetDbSingleton } from './testDb';
+import { createMigratedTestDb as createTestDb, resetDbSingleton } from './testDb';
 import type { TestDb } from './testDb';
-import { createUnscheduled, startSession, sessionsThisWeekCount, getActiveOrPausedSession, cancelSession, endSession } from '../sessions';
+import { createUnscheduled, startSession, sessionsThisWeekCount, getActiveOrPausedSession, cancelSession, endSession, listUpcoming, listAllUpcoming } from '../sessions';
 
 describe('sessions', () => {
   let db: TestDb;
@@ -289,5 +289,26 @@ describe('sessions', () => {
       const row = db.getFirstSync<{ status: string }>('SELECT status FROM sessions WHERE id = ?', ['sess-already']);
       expect(row!.status).toBe('cancelled');
     });
+  });
+});
+
+
+describe('upcoming session time boundaries', () => {
+  afterEach(() => resetDbSingleton());
+
+  it.each(['student', 'all'])('excludes elapsed same-day lessons from %s upcoming sessions', (scope) => {
+    const db = createTestDb();
+    db.runSync("INSERT INTO students (id, full_name, subject) VALUES ('boundary-student', 'Boundary Student', 'Mathematics')");
+    // Fix SQLite's clock while keeping actual SQL execution and timestamp conversion.
+    const query = db.getAllSync.bind(db);
+    jest.spyOn(db, 'getAllSync').mockImplementation((sql, params) =>
+      query(sql.replace(/'now'/g, "'2026-09-12 12:00:00'"), params));
+    const past = '2026-09-12T06:00:00.000Z';
+    const future = '2026-09-12T13:00:00.000Z';
+    for (const [id, date] of [['past', past], ['future', future]]) {
+      db.runSync("INSERT INTO sessions (id, student_id, scheduled_for) VALUES (?, 'boundary-student', ?)", [id, date]);
+    }
+    const rows = scope === 'student' ? listUpcoming('boundary-student') : listAllUpcoming();
+    expect(rows.map(row => row.id)).toEqual(['future']);
   });
 });
