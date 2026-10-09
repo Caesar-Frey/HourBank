@@ -11,7 +11,8 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../theme/colors';
-import { F } from '../theme/fonts';
+import { F, MIN_TOUCH } from '../theme/fonts';
+import { EVENT_KIND_COLORS } from '../theme/eventColors';
 import { CalendarFilters, EventKind, SessionTypeFilter } from '../db/calendar';
 
 interface Student {
@@ -27,13 +28,14 @@ interface Props {
   students: Student[];
 }
 
+// Colours come from the shared map so filter dots match calendar + legend.
 const EVENT_KIND_OPTS: { value: EventKind; label: string; color: string }[] = [
-  { value: 'scheduled',  label: 'Scheduled', color: COLORS.amber },
-  { value: 'completed',  label: 'Completed', color: COLORS.moss },
-  { value: 'cancelled',  label: 'Cancelled', color: COLORS.crimson },
-  { value: 'top_up',     label: 'Top-up',    color: COLORS.indigo },
-  { value: 'event',      label: 'Events',    color: COLORS.plum },
-  { value: 'time_block', label: 'Blocks',    color: COLORS.inkFaint },
+  { value: 'scheduled',  label: 'Scheduled', color: EVENT_KIND_COLORS.scheduled.fg },
+  { value: 'completed',  label: 'Completed', color: EVENT_KIND_COLORS.completed.fg },
+  { value: 'cancelled',  label: 'Cancelled', color: EVENT_KIND_COLORS.cancelled.fg },
+  { value: 'top_up',     label: 'Top-up',    color: EVENT_KIND_COLORS.top_up.fg },
+  { value: 'event',      label: 'Events',    color: EVENT_KIND_COLORS.event.fg },
+  { value: 'time_block', label: 'Blocks',    color: EVENT_KIND_COLORS.time_block.fg },
 ];
 
 const SESSION_TYPE_OPTS: { value: SessionTypeFilter; label: string }[] = [
@@ -76,6 +78,10 @@ function Chip({
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.75}
+      hitSlop={{ top: 4, bottom: 4, left: 0, right: 0 }}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={label}
       style={{
         flexDirection: 'row',
         alignItems: 'center',
@@ -84,7 +90,7 @@ function Chip({
         borderColor: selected ? COLORS.ink : COLORS.paperEdge,
         borderRadius: 999,
         paddingHorizontal: 14,
-        paddingVertical: 7,
+        minHeight: 36,
         marginRight: 8,
         marginBottom: 8,
         gap: 6,
@@ -205,7 +211,7 @@ export function CalendarFilterSheet({
     >
       {/* Backdrop — tap discards draft */}
       <Pressable
-        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}
+        style={{ flex: 1, backgroundColor: COLORS.scrimSoft }}
         onPress={onClose}
       />
 
@@ -238,7 +244,13 @@ export function CalendarFilterSheet({
           <Text style={{ fontFamily: F.serif, fontSize: 20, color: COLORS.ink }}>
             Filters
           </Text>
-          <TouchableOpacity onPress={apply} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity
+            onPress={apply}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            style={{ minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, alignItems: 'flex-end', justifyContent: 'center' }}
+          >
             <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood }}>Done</Text>
           </TouchableOpacity>
         </View>
@@ -274,7 +286,12 @@ export function CalendarFilterSheet({
               autoCorrect={false}
             />
             {query.length > 0 ? (
-              <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <TouchableOpacity
+                onPress={() => setQuery('')}
+                hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+              >
                 <Feather name="x" size={15} color={COLORS.inkFaint} />
               </TouchableOpacity>
             ) : null}
@@ -288,6 +305,7 @@ export function CalendarFilterSheet({
               flexDirection: 'row',
               alignItems: 'center',
               paddingVertical: 11,
+              minHeight: MIN_TOUCH,
               marginTop: 6,
               gap: 12,
             }}
@@ -331,6 +349,7 @@ export function CalendarFilterSheet({
                       flexDirection: 'row',
                       alignItems: 'center',
                       paddingVertical: 11,
+                      minHeight: MIN_TOUCH,
                       borderBottomWidth: 1,
                       borderBottomColor: COLORS.paperEdge,
                       gap: 12,

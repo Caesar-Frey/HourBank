@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { SessionTimerProvider } from '../src/contexts/SessionTimerContext';
 import { Alert, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ToastProvider } from '../src/components/Toast';
 import { Stack, useRouter, usePathname } from 'expo-router';
 import { initDb } from '../src/db/schema';
 import { runMigrations, ALL_MIGRATIONS } from '../src/db/migrations';
@@ -107,6 +108,7 @@ export default function RootLayout() {
   return (
     <SessionTimerProvider>
       <SafeAreaProvider>
+        <ToastProvider>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(app)" options={{ headerShown: false }} />
           <Stack.Screen name="student" options={{ headerShown: false }} />
@@ -114,6 +116,7 @@ export default function RootLayout() {
           <Stack.Screen name="transaction" options={{ headerShown: false }} />
           <Stack.Screen name="lesson" options={{ headerShown: false }} />
         </Stack>
+        </ToastProvider>
       </SafeAreaProvider>
     </SessionTimerProvider>
   );

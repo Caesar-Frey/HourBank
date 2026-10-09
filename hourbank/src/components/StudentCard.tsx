@@ -37,7 +37,7 @@ export function StudentCard({ student, onPress }: StudentCardProps) {
         borderWidth: 1,
         borderColor: COLORS.paperEdge,
         borderRadius: 16,
-        backgroundColor: 'rgba(255,255,255,0.4)',
+        backgroundColor: COLORS.cardFill,
         padding: 16,
         flexDirection: 'row',
       }}

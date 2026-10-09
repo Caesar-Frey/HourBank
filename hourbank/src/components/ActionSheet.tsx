@@ -43,7 +43,7 @@ export function ActionSheet({ visible, onDismiss, items, theme = 'paper' }: Acti
   // Derive theme colours
   const sheetBg = theme === 'dark' ? COLORS.sessionBg : COLORS.paper;
   const textColor = theme === 'dark' ? COLORS.paper : COLORS.ink;
-  const dividerColor = theme === 'dark' ? 'rgba(244,239,230,0.12)' : COLORS.paperEdge;
+  const dividerColor = theme === 'dark' ? COLORS.paper12 : COLORS.paperEdge;
 
   useEffect(() => {
     if (visible) {
@@ -119,7 +119,7 @@ export function ActionSheet({ visible, onDismiss, items, theme = 'paper' }: Acti
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'black',
+            backgroundColor: COLORS.ink,
             opacity: backdropOpacity,
           }}
         />

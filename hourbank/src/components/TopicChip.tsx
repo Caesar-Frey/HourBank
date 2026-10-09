@@ -1,5 +1,5 @@
 import React from 'react';
-import { TouchableOpacity, Text } from 'react-native';
+import { TouchableOpacity, Text, ViewStyle } from 'react-native';
 import { F } from '../theme/fonts';
 import { COLORS } from '../theme/colors';
 
@@ -10,22 +10,45 @@ interface TopicChipProps {
   dark?: boolean;
 }
 
-export function TopicChip({ label, selected, onPress, dark = false }: TopicChipProps) {
-  const containerStyle = dark
-    ? selected
-      ? 'border border-paper rounded-full px-3 py-1.5 bg-paper/10'
-      : 'border border-paper/30 rounded-full px-3 py-1.5'
-    : selected
-    ? 'border border-ink rounded-full px-3 py-1.5 bg-ink'
-    : 'border border-ink rounded-full px-3 py-1.5';
+// Visual height 36pt; hitSlop extends the touch target to 44pt.
+const CHIP_HEIGHT = 36;
+const CHIP_SLOP = { top: 4, bottom: 4, left: 2, right: 2 };
 
+function chipStyle(selected: boolean, dark: boolean): ViewStyle {
+  if (dark) {
+    return selected
+      ? { borderColor: COLORS.paper, backgroundColor: COLORS.paper20 }
+      : { borderColor: COLORS.paper30, backgroundColor: COLORS.transparent };
+  }
+  return selected
+    ? { borderColor: COLORS.ink, backgroundColor: COLORS.ink }
+    : { borderColor: COLORS.ink, backgroundColor: COLORS.transparent };
+}
+
+export function TopicChip({ label, selected, onPress, dark = false }: TopicChipProps) {
   const textColor = dark ? COLORS.paper : selected ? COLORS.paper : COLORS.ink;
 
   return (
-    <TouchableOpacity className={containerStyle} onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.75}
+      hitSlop={CHIP_SLOP}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={label}
+      style={{
+        borderWidth: 1,
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        minHeight: CHIP_HEIGHT,
+        justifyContent: 'center',
+        alignItems: 'center',
+        ...chipStyle(selected, dark),
+      }}
+    >
       <Text
         style={{
-          fontFamily: selected && !dark ? F.sansMed : F.sans,
+          fontFamily: selected ? F.sansMed : F.sans,
           fontSize: 13,
           color: textColor,
         }}

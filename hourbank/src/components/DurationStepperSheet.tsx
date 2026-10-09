@@ -78,7 +78,7 @@ export function DurationStepperSheet({
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: 'rgba(27,23,20,0.55)',
+          backgroundColor: COLORS.scrim,
         }}
         onPress={onCancel}
       />
@@ -141,6 +141,9 @@ export function DurationStepperSheet({
             disabled={!canDecrement}
             activeOpacity={0.7}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Decrease by 15 minutes"
+            accessibilityState={{ disabled: !canDecrement }}
             style={{
               width: 48,
               height: 48,
@@ -175,6 +178,9 @@ export function DurationStepperSheet({
             disabled={!canIncrement}
             activeOpacity={0.7}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Increase by 15 minutes"
+            accessibilityState={{ disabled: !canIncrement }}
             style={{
               width: 48,
               height: 48,
@@ -218,7 +224,8 @@ export function DurationStepperSheet({
         <TouchableOpacity
           onPress={onCancel}
           activeOpacity={0.7}
-          style={{ alignItems: 'center', paddingVertical: 8 }}
+          accessibilityRole="button"
+          style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 8, minHeight: 44 }}
         >
           <Text
             style={{
