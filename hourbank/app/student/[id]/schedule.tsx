@@ -65,7 +65,7 @@ export default function ScheduleScreen() {
 }
 
 function ScheduleScreenInner() {
-  const { id, sessionId, date: dateParam } = useLocalSearchParams<{ id: string; sessionId?: string; date?: string }>();
+  const { id, sessionId, date: dateParam, from } = useLocalSearchParams<{ id: string; sessionId?: string; date?: string; from?: string }>();
   const isReschedule = !!sessionId;
   const router = useRouter();
   const toast = useToast();
@@ -152,7 +152,7 @@ function ScheduleScreenInner() {
 
   function logAsPast() {
     // Built by hand: RN's URLSearchParams polyfill lacks set().
-    const query = `startedAt=${encodeURIComponent(date.toISOString())}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''}`;
+    const query = `startedAt=${encodeURIComponent(date.toISOString())}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''}${from === 'lesson' ? '&from=lesson' : ''}`;
     router.replace(`/student/${id}/log-past?${query}`);
   }
 

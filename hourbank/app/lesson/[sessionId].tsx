@@ -256,11 +256,11 @@ export default function LessonDetailScreen() {
   }
 
   function handleLogAsTaught() {
-    router.push(`/student/${session.student_id}/log-past?sessionId=${sessionId}`);
+    router.push(`/student/${session.student_id}/log-past?sessionId=${sessionId}&from=lesson`);
   }
 
   function handleReschedule() {
-    router.push(`/student/${session.student_id}/schedule?sessionId=${sessionId}`);
+    router.push(`/student/${session.student_id}/schedule?sessionId=${sessionId}&from=lesson`);
   }
 
   function handleCancel() {

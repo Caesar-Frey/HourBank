@@ -159,9 +159,9 @@ describe('overdue lesson = action hub', () => {
   test('Log as taught / Reschedule route per contract', () => {
     const s = renderScreen();
     fireEvent.press(s.getByText('Log as taught'));
-    expect(mockRouter.push).toHaveBeenCalledWith('/student/stu-1/log-past?sessionId=sess-1');
+    expect(mockRouter.push).toHaveBeenCalledWith('/student/stu-1/log-past?sessionId=sess-1&from=lesson');
     fireEvent.press(s.getByText('Reschedule'));
-    expect(mockRouter.push).toHaveBeenCalledWith('/student/stu-1/schedule?sessionId=sess-1');
+    expect(mockRouter.push).toHaveBeenCalledWith('/student/stu-1/schedule?sessionId=sess-1&from=lesson');
   });
 
   test('Cancel requires confirm then calls cancelScheduled', () => {

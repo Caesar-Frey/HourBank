@@ -35,7 +35,7 @@ function parseTopics(json: string | null | undefined): string[] {
 }
 
 export default function LogPastLessonScreen() {
-  const { id, sessionId, startedAt } = useLocalSearchParams<{ id: string; sessionId?: string; startedAt?: string }>();
+  const { id, sessionId, startedAt, from } = useLocalSearchParams<{ id: string; sessionId?: string; startedAt?: string; from?: string }>();
   const router = useRouter();
   const toast = useToast();
   const savingRef = useRef(false);
@@ -154,7 +154,10 @@ export default function LogPastLessonScreen() {
         mode,
       });
       toast.show({ kind: 'success', message: `Lesson logged · ${formatMinutes(billed)} · balance ${formatBalance(balanceAfter)}` });
-      router.replace(`/lesson/${session.id}`);
+      // Opened from that lesson's own detail screen: go back to it (it reloads on
+      // focus) instead of stacking a second copy of the same lesson.
+      if (from === 'lesson' && booked && router.canGoBack()) router.back();
+      else router.replace(`/lesson/${session.id}`);
     } catch (e) {
       savingRef.current = false;
       setSaving(false);
