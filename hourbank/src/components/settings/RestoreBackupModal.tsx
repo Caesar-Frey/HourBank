@@ -1,5 +1,16 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, ActivityIndicator, ScrollView } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  Modal,
+  ActivityIndicator,
+  ScrollView,
+  Keyboard,
+  Dimensions,
+  Platform,
+} from 'react-native';
 import { F, MIN_TOUCH } from '../../theme/fonts';
 import { COLORS } from '../../theme/colors';
 import type { BackupSummary } from '../../utils/backup';
@@ -30,11 +41,34 @@ export function RestoreBackupModal({
 
   const armed = typed.trim().toUpperCase() === RESTORE_CONFIRM_WORD && !busy;
 
+  // The modal window is not resized for the keyboard (edge-to-edge), so lift the
+  // card above it and keep the confirm field + Restore button in view.
+  // Measured from the keyboard's top edge to the screen bottom so the nav bar
+  // under the keyboard is included.
+  const [keyboardOverlap, setKeyboardOverlap] = useState(0);
+  const scrollRef = useRef<ScrollView | null>(null);
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvt, e => {
+      setKeyboardOverlap(Math.max(0, Dimensions.get('screen').height - e.endCoordinates.screenY));
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    });
+    const hide = Keyboard.addListener(hideEvt, () => setKeyboardOverlap(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
   return (
     <Modal visible={summary !== null} transparent animationType="fade" onRequestClose={busy ? () => {} : onCancel}>
-      <View style={{ flex: 1, backgroundColor: COLORS.scrim, justifyContent: 'center', padding: 24 }}>
+      <View
+        style={{ flex: 1, backgroundColor: COLORS.scrim, justifyContent: 'center', padding: 24, paddingBottom: 24 + keyboardOverlap }}
+      >
         <ScrollView
-          style={{ flexGrow: 0 }}
+          ref={scrollRef}
+          style={{ flexGrow: 0, flexShrink: 1 }}
           contentContainerStyle={{ backgroundColor: COLORS.paper, borderRadius: 16, padding: 24 }}
           keyboardShouldPersistTaps="handled"
         >
