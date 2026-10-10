@@ -69,7 +69,7 @@ export default function StudentLedgerScreen() {
   const name = data.student.full_name.trim();
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top', 'bottom']}>
       <ScreenHeader backLabel={name.split(/\s+/)[0].toUpperCase()} onBack={() => router.back()} title="Ledger" />
       <SectionList
         sections={sections}

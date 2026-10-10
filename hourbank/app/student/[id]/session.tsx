@@ -247,7 +247,7 @@ export default function SessionScreen() {
 
   if (!row) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.sessionBg }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.sessionBg }} edges={['top', 'bottom']}>
         {statusBar}
         <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
           <TouchableOpacity onPress={minimise} hitSlop={SLOP} style={{ minHeight: MIN_TOUCH, justifyContent: 'center' }}>
@@ -267,7 +267,7 @@ export default function SessionScreen() {
   // Pre-start view for scheduled lessons
   if (status === 'scheduled') {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.sessionBg }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.sessionBg }} edges={['top', 'bottom']}>
         {statusBar}
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 }}>
@@ -359,7 +359,8 @@ export default function SessionScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       {statusBar}
-      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+      {/* Bottom edge too: under edge-to-edge the scroll content otherwise ends behind the nav bar. */}
+      <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
         {/* Top bar: minimise · mode · menu */}
         <View
           style={{

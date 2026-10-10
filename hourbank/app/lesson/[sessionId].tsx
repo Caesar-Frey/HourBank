@@ -121,7 +121,7 @@ export default function LessonDetailScreen() {
 
   if (data.state === 'loading') {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top', 'bottom']}>
         {header}
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator color={COLORS.inkFaint} />
@@ -132,7 +132,7 @@ export default function LessonDetailScreen() {
 
   if (data.state === 'not_found') {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top', 'bottom']}>
         {header}
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
           <Text style={{ fontFamily: F.serif, fontSize: 22, color: COLORS.ink, marginBottom: 8 }}>Lesson not found</Text>

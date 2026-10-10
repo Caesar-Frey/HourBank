@@ -153,7 +153,7 @@ export default function StudentDetailScreen() {
   ];
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top', 'bottom']}>
       <ScreenHeader
         backLabel={from ?? 'BACK'}
         onBack={() => router.back()}

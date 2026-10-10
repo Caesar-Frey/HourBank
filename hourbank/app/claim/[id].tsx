@@ -100,7 +100,7 @@ export default function ClaimDetailScreen() {
 
   if (claim === null) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top', 'bottom']}>
         <ScreenHeader backLabel="MONEY" onBack={() => router.back()} />
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
           <Text style={{ fontFamily: F.serif, fontSize: 22, color: COLORS.ink, textAlign: 'center' }}>
@@ -117,7 +117,7 @@ export default function ClaimDetailScreen() {
   const isVoid = isClaimVoided(claim);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top', 'bottom']}>
       <ScreenHeader backLabel="MONEY" onBack={() => router.back()} title="Claim" />
       <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 40, flexGrow: 1 }}>
 

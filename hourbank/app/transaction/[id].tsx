@@ -135,7 +135,7 @@ export default function TransactionDetailScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top', 'bottom']}>
       <ScreenHeader backLabel="BACK" onBack={() => router.back()} title="Transaction" />
       <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 48 }}>
         <View style={{ alignSelf: 'flex-start', borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 16 }}>

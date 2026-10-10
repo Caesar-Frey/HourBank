@@ -69,7 +69,7 @@ export default function ArchivedStudentsScreen() {
   if (!rows) return <LoadingState />;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top', 'bottom']}>
       <ScreenHeader backLabel="BACK" onBack={() => router.back()} title="Archived students" />
       <FlatList
         data={rows}
