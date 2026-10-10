@@ -19,6 +19,17 @@ Approved features deferred from current build. Pick up in future sessions.
 - Multi-day events with proper rendering across day cells in month/week view.
 - Attendees and multiple students per event (study groups).
 
+## Recurring lessons
+
+- Recurring weekly lessons: "repeat every week" until a date or for N weeks, skip (and list) clashes with existing lessons/blocks, and edit "this lesson" vs "this and following".
+
+## Home / Settings
+
+- Home Today card: also show lessons already completed today (needs a "completed today" agenda bucket).
+- Restore preview: list student names in the backup summary, not just counts.
+- Automatic scheduled backups (e.g. weekly to a chosen cloud folder) instead of manual "Back up now".
+- Shared BalanceBadge still renders `toFixed(1)h`; switch it to `formatHours` so every balance reads `1h 30m` (Home now uses its own roster card).
+
 ## Data
 
 - `tutor_id` scoping across all queries for multi-tutor support.
@@ -31,4 +42,4 @@ Approved features deferred from current build. Pick up in future sessions.
 - Export session + financial data to CSV.
 
 ---
-*Updated by build: 2026-05-17*
+*Updated by build: 2026-10-10*
