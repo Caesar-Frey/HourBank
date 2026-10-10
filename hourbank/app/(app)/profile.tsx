@@ -36,6 +36,7 @@ import { seedDemoData, resetDb } from '../../src/db/seed';
 import { getOrCreateTutorProfile, upsertTutorProfile, PackageTier, TutorProfile } from '../../src/db/tutorProfile';
 import { ALL_MIGRATIONS } from '../../src/db/migrations';
 import { exportDatabase, getLastBackupAt, importBackup, BackupSummary } from '../../src/utils/backup';
+import { BACKUP_READY_TOAST } from '../../src/utils/shareCopy';
 import { formatHours, formatRand } from '../../src/utils/format';
 import { useSessionTimer } from '../../src/contexts/SessionTimerContext';
 import { SHOW_ALL_GRADES_KEY } from '../../src/config';
@@ -232,7 +233,7 @@ export default function SettingsScreen() {
     try {
       await exportDatabase();
       setLastBackupAt(await getLastBackupAt());
-      toast.show({ kind: 'success', message: 'Backup ready — keep the file somewhere safe (e.g. Google Drive).' });
+      toast.show({ kind: 'success', message: BACKUP_READY_TOAST });
     } catch {
       toast.show({ kind: 'error', message: "Couldn't create the backup. Please try again." });
     } finally {
@@ -585,7 +586,7 @@ export default function SettingsScreen() {
       {/* ── Backup & restore ──────────────────────────────────────────── */}
       <SectionLabel>Backup & restore</SectionLabel>
       <View style={[ROW_CONTAINER, { flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH }]}>
-        <Text style={{ flex: 1, fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>Last backup</Text>
+        <Text style={{ flex: 1, fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>Last backup created</Text>
         <Text
           testID="last-backup"
           style={{ fontFamily: F.mono, fontSize: 13, color: backupAge === 'Never' ? COLORS.crimson : COLORS.ink }}

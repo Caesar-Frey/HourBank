@@ -173,6 +173,6 @@ export function backupNudge(input: {
   const show = (!never || input.hasStudents) && shouldShowNudge(days, input.dismissedTier);
   const message = never
     ? "You haven't backed up yet. Settings → Back up now."
-    : `Last backup was ${Math.floor(days)} ${pluralize(Math.floor(days), 'day')} ago. Settings → Back up now.`;
+    : `Last backup created ${Math.floor(days)} ${pluralize(Math.floor(days), 'day')} ago. Settings → Back up now.`;
   return { show, tier, message };
 }

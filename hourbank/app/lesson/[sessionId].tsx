@@ -33,6 +33,13 @@ import { balanceColour, balanceStatus } from '../../src/utils/balance';
 import { Session, LedgerEntry, Student } from '../../src/db/schema';
 import { getLessonReceiptText, getSessionReceipt, shareSessionReceipt } from '../../src/utils/receipt';
 import { normaliseSaPhone, openWhatsApp } from '../../src/utils/whatsapp';
+import {
+  PDF_SHARE_SHEET_OPENED_TOAST,
+  SHARE_SHEET_OPENED_TOAST,
+  ShareStamp,
+  pdfShareLabel,
+  summaryShareLabel,
+} from '../../src/utils/shareCopy';
 import { balanceTileText, lessonStatusKind, LessonStatusKind } from '../../src/contexts/SessionTimerContext.helpers';
 
 type Loaded =
@@ -79,8 +86,8 @@ export default function LessonDetailScreen() {
   const startLesson = useStartLesson();
 
   const [data, setData] = useState<Loaded>({ state: 'loading' });
-  const [pdfShared, setPdfShared] = useState(false);
-  const [messageSent, setMessageSent] = useState<null | 'whatsapp' | 'shared'>(null);
+  const [pdfSharedAt, setPdfSharedAt] = useState<string | null>(null);
+  const [messageSent, setMessageSent] = useState<ShareStamp>(null);
   const [busy, setBusy] = useState<null | 'pdf' | 'whatsapp'>(null);
   const [noShowOpen, setNoShowOpen] = useState(false);
 
@@ -103,7 +110,8 @@ export default function LessonDetailScreen() {
         entry,
         balanceNow: currentBalance(session.student_id),
       });
-      setPdfShared(getSessionReceipt(sessionId) != null);
+      const receipt = getSessionReceipt(sessionId);
+      setPdfSharedAt(receipt ? (receipt.shared_at ?? receipt.created_at) : null);
     } catch (e) {
       console.error('LessonDetail load error', e);
       setData({ state: 'not_found' });
@@ -215,13 +223,13 @@ export default function LessonDetailScreen() {
       if (parentPhone) {
         const result = await openWhatsApp(parentPhone, text);
         if (result === 'dismissed') return;
-        setMessageSent(result === 'whatsapp' ? 'whatsapp' : 'shared');
-        toast.show({ kind: 'success', message: result === 'whatsapp' ? 'Opened in WhatsApp — tap send there' : 'Summary shared' });
+        setMessageSent({ via: result === 'whatsapp' ? 'whatsapp' : 'sheet', at: new Date().toISOString() });
+        toast.show({ kind: 'success', message: result === 'whatsapp' ? 'Opened in WhatsApp — tap send there' : SHARE_SHEET_OPENED_TOAST });
       } else {
         const result = await Share.share({ message: text });
         if (result.action === Share.dismissedAction) return;
-        setMessageSent('shared');
-        toast.show({ kind: 'success', message: 'Summary shared' });
+        setMessageSent({ via: 'sheet', at: new Date().toISOString() });
+        toast.show({ kind: 'success', message: SHARE_SHEET_OPENED_TOAST });
       }
     } catch (e) {
       console.error('WhatsApp share error', e);
@@ -237,8 +245,8 @@ export default function LessonDetailScreen() {
     try {
       const res = await shareSessionReceipt(sessionId);
       if (res.shared) {
-        setPdfShared(true);
-        toast.show({ kind: 'success', message: 'Receipt PDF shared' });
+        setPdfSharedAt(new Date().toISOString());
+        toast.show({ kind: 'success', message: PDF_SHARE_SHEET_OPENED_TOAST });
       }
     } catch (e) {
       console.error('shareSessionReceipt error', e);
@@ -403,20 +411,12 @@ export default function LessonDetailScreen() {
               <Text style={{ fontFamily: F.serifItalic, fontSize: 18, color: COLORS.ink, marginBottom: 2 }}>Let the parent know.</Text>
             ) : null}
             <PrimaryButton
-              label={
-                messageSent === 'whatsapp'
-                  ? 'Opened in WhatsApp ✓ · Send again'
-                  : messageSent === 'shared'
-                    ? 'Summary shared ✓ · Share again'
-                    : parentPhone
-                    ? `Send to ${student?.parent_name?.trim() || 'parent'} via WhatsApp`
-                    : 'Share lesson summary'
-              }
+              label={summaryShareLabel(messageSent, { parentPhone: !!parentPhone, parentName: student?.parent_name })}
               onPress={handleWhatsApp}
               busy={busy === 'whatsapp'}
               done={messageSent != null}
             />
-            <SecondaryButton label={pdfShared ? 'Receipt PDF shared ✓ · Share again' : 'Share PDF receipt'} onPress={handleSharePdf} busy={busy === 'pdf'} />
+            <SecondaryButton label={pdfShareLabel(pdfSharedAt)} onPress={handleSharePdf} busy={busy === 'pdf'} />
             {!parentPhone ? (
               <TouchableOpacity onPress={() => router.push(`/student/${session.student_id}/edit`)} style={{ minHeight: MIN_TOUCH, justifyContent: 'center' }}>
                 <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkSoft, textAlign: 'center' }}>

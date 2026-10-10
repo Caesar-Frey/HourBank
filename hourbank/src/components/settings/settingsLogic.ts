@@ -116,6 +116,6 @@ export function restoreSummaryLines(s: BackupSummary): [string, string][] {
     ['Ledger entries', String(s.ledgerRows)],
     ['Last entry', s.lastEntryAt ? formatDateLong(s.lastEntryAt) : 'None'],
   ];
-  if (s.exportedAt) lines.push(['Backed up', formatDateLong(s.exportedAt)]);
+  if (s.exportedAt) lines.push(['Backup created', formatDateLong(s.exportedAt)]);
   return lines;
 }

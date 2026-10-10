@@ -206,7 +206,7 @@ describe('backupNudge', () => {
   test('hidden when recent', () => expect(backupNudge({ daysSince: 3, hasStudents: true, dismissedTier: null }).show).toBe(false));
   test('stale copy points at Settings → Back up now', () => {
     const n = backupNudge({ daysSince: 20.4, hasStudents: true, dismissedTier: null });
-    expect(n).toEqual({ show: true, tier: 14, message: 'Last backup was 20 days ago. Settings → Back up now.' });
+    expect(n).toEqual({ show: true, tier: 14, message: 'Last backup created 20 days ago. Settings → Back up now.' });
   });
   test('never backed up variant (only once there is data)', () => {
     expect(backupNudge({ daysSince: null, hasStudents: false, dismissedTier: null }).show).toBe(false);

@@ -111,7 +111,7 @@ describe('restore summary', () => {
       ['Lessons', '40'],
       ['Ledger entries', '52'],
       ['Last entry', 'Sat 3 Oct 2026'],
-      ['Backed up', 'Sun 4 Oct 2026'],
+      ['Backup created', 'Sun 4 Oct 2026'],
     ]);
   });
   test('confirm word', () => expect(RESTORE_CONFIRM_WORD).toBe('RESTORE'));

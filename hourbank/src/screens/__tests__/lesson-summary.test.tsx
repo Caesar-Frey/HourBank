@@ -120,7 +120,7 @@ test('Send via WhatsApp uses the parent number and reflects the outcome', async 
   mockSession = base();
   const s = renderScreen();
   fireEvent.press(s.getByText('Send to Mrs Mokoena via WhatsApp'));
-  await waitFor(() => expect(s.getByText(/Opened in WhatsApp ✓/)).toBeTruthy());
+  await waitFor(() => expect(s.getByText(/Opened in WhatsApp \d\d:\d\d · Send again/)).toBeTruthy());
   expect(openWhatsApp).toHaveBeenCalledWith('27821234567', 'Lesson summary text');
 });
 
