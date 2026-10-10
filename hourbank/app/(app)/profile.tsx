@@ -19,6 +19,7 @@ import {
   HELP_TEXT,
 } from '../../src/components/settings/SettingsParts';
 import { RestoreBackupModal } from '../../src/components/settings/RestoreBackupModal';
+import { useKeyboardOverlap } from '../../src/components/FormScreen';
 import {
   BILLING_ROUND_OPTIONS,
   MAX_OWE_EXPLANATION,
@@ -89,6 +90,7 @@ export default function SettingsScreen() {
   // Dev tools
   const [resetConfirmVisible, setResetConfirmVisible] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
+  const keyboardOverlap = useKeyboardOverlap();
 
   const loadProfile = useCallback(() => {
     try {
@@ -660,7 +662,9 @@ export default function SettingsScreen() {
         animationType="fade"
         onRequestClose={() => setResetConfirmVisible(false)}
       >
-        <View style={{ flex: 1, backgroundColor: COLORS.scrim, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+        <View
+          style={{ flex: 1, backgroundColor: COLORS.scrim, justifyContent: 'center', alignItems: 'center', padding: 32, paddingBottom: 32 + keyboardOverlap }}
+        >
           <View style={{ backgroundColor: COLORS.paper, borderRadius: 16, padding: 24, width: '100%' }}>
             <Text style={{ fontFamily: F.serif, fontSize: 20, color: COLORS.ink, marginBottom: 8 }}>Reset all data?</Text>
             <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkSoft, marginBottom: 20 }}>

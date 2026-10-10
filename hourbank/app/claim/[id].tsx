@@ -12,6 +12,7 @@ import { Claim, ClaimLine } from '../../src/db/schema';
 import { formatRand, formatHours, formatLedgerDate, formatClaimPeriod } from '../../src/utils/format';
 import { ScreenHeader } from '../../src/components/ScreenHeader';
 import { useToast } from '../../src/components/Toast';
+import { useKeyboardOverlap } from '../../src/components/FormScreen';
 import { modeLabel } from '../../src/screens/schedule/labels';
 
 type DetailLine = ClaimLine & { studentName: string; endedAt: string | null };
@@ -35,6 +36,7 @@ export default function ClaimDetailScreen() {
   const [claim, setClaim] = useState<Claim | null | undefined>(undefined);
   const [lines, setLines] = useState<DetailLine[]>([]);
   const [voidModalVisible, setVoidModalVisible] = useState(false);
+  const keyboardOverlap = useKeyboardOverlap();
   const [voidReason, setVoidReason] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -229,7 +231,9 @@ export default function ClaimDetailScreen() {
 
       {/* Void confirmation modal */}
       <Modal visible={voidModalVisible} transparent animationType="fade" onRequestClose={() => setVoidModalVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: COLORS.scrim, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+        <View
+          style={{ flex: 1, backgroundColor: COLORS.scrim, justifyContent: 'center', alignItems: 'center', padding: 32, paddingBottom: 32 + keyboardOverlap }}
+        >
           <View style={{ backgroundColor: COLORS.paper, borderRadius: 16, padding: 24, width: '100%' }}>
             <Text style={{ fontFamily: F.serif, fontSize: 20, color: COLORS.ink, marginBottom: 8 }}>
               Void this claim?

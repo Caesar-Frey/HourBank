@@ -19,6 +19,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Dimensions,
   Keyboard,
   KeyboardAvoidingView,
   KeyboardEvent,
@@ -67,6 +68,32 @@ export function useKeyboardHeight(): number {
     };
   }, []);
   return height;
+}
+
+/**
+ * Distance from the keyboard's top edge to the bottom of the screen (0 when
+ * hidden). Use it to lift content in a transparent Modal, whose window is not
+ * resized for the keyboard under edge-to-edge. Measured from screenY so the nav
+ * bar below the keyboard is included.
+ */
+export function useKeyboardOverlap(onShow?: () => void): number {
+  const [overlap, setOverlap] = useState(0);
+  const onShowRef = useRef(onShow);
+  onShowRef.current = onShow;
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const s = Keyboard.addListener(showEvt, (e: KeyboardEvent) => {
+      setOverlap(Math.max(0, Dimensions.get('screen').height - e.endCoordinates.screenY));
+      onShowRef.current?.();
+    });
+    const h = Keyboard.addListener(hideEvt, () => setOverlap(0));
+    return () => {
+      s.remove();
+      h.remove();
+    };
+  }, []);
+  return overlap;
 }
 
 export function FormScreen({
