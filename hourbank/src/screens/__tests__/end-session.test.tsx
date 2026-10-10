@@ -189,3 +189,24 @@ test('negative balance asks to confirm (nudge, not block)', () => {
   expect(endSession).not.toHaveBeenCalled();
   expect(Alert.alert).toHaveBeenCalledWith('Balance will go negative', expect.stringContaining('OWES 1h'), expect.any(Array));
 });
+
+test('re-entering the review recomputes the auto billing default from the longer elapsed time', () => {
+  // First visit after 1 minute → auto default 15m (tutor did not touch it).
+  mockSession = session({ started_at: minsBefore(1) });
+  const first = renderScreen();
+  first.unmount();
+  // Back to the timer, keep teaching, End again after 53 minutes.
+  mockSession = session({ started_at: minsBefore(53) });
+  const second = renderScreen();
+  fireEvent.press(second.getByText(/Save lesson/));
+  expect(endSession).toHaveBeenCalledWith(expect.objectContaining({ billedMinutes: 60 }));
+});
+
+test('a billing amount the tutor changed survives re-entering the review', () => {
+  const first = renderScreen();
+  fireEvent.press(first.getByLabelText('Bill 15 minutes more'));
+  first.unmount();
+  const second = renderScreen();
+  fireEvent.press(second.getByText(/Save lesson/));
+  expect(endSession).toHaveBeenCalledWith(expect.objectContaining({ billedMinutes: 75 }));
+});

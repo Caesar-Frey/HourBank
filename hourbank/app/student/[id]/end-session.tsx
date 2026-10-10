@@ -88,7 +88,11 @@ export default function EndSessionScreen() {
   const [customTopic, setCustomTopic] = useState('');
   const [notes, setNotes] = useState(draft?.notes ?? '');
   const [topicError, setTopicError] = useState(false);
-  const [billedMinutes, setBilledMinutes] = useState(draft?.billedMinutes ?? defaultBilled);
+  // Only a tutor-edited amount survives a trip back to the timer; an untouched
+  // auto default must be recomputed from the (longer) elapsed time.
+  const [billedMinutes, setBilledMinutes] = useState(
+    draft?.billedChanged && draft.billedMinutes !== undefined ? draft.billedMinutes : defaultBilled,
+  );
   const [billedChanged, setBilledChanged] = useState(draft?.billedChanged ?? false);
   const [editingBilled, setEditingBilled] = useState(false);
   const [billedText, setBilledText] = useState('');
