@@ -31,12 +31,13 @@ jest.mock('../../utils/claimReport', () => ({ shareClaimReport: jest.fn(async ()
 
 import { createMigratedTestDb, resetDbSingleton } from '../../db/__tests__/testDb';
 import type { TestDb } from '../../db/__tests__/testDb';
-import { logPastSession, getActiveOrPausedSession } from '../../db/sessions';
-import { listClaims } from '../../db/claims';
+import { logPastSession, getActiveOrPausedSession, markNoShow } from '../../db/sessions';
+import { listClaims, finaliseClaim } from '../../db/claims';
 import ScheduleTab from '../../../app/(app)/schedule';
 import MoneyTab from '../../../app/(app)/money';
 import StartLessonScreen from '../../../app/start-lesson';
 import NewClaimScreen from '../../../app/claim/new';
+import ClaimDetailScreen from '../../../app/claim/[id]';
 
 let db: TestDb;
 
@@ -171,4 +172,17 @@ test('New claim: grouped by student, hold-back excluded, finalise asks to confir
   expect(claims).toHaveLength(1);
   expect(claims[0].line_count).toBe(1);
   expect(mockRouter.replace).toHaveBeenCalledWith(`/claim/${claims[0].id}`);
+});
+
+test('Claim detail dates a charged no-show by its booked time (it has no ended_at)', async () => {
+  const at = new Date(2026, 9, 7, 15, 0, 0); // Wed 7 Oct 2026, local
+  seedScheduled('ns1', 's1', at, 30);
+  markNoShow('ns1', { charge: true });
+  const { claim } = finaliseClaim({ sessionIds: ['ns1'] });
+  mockParams = { id: claim.id };
+
+  const screen = render(<ClaimDetailScreen />);
+  await flush();
+  expect(screen.getByText('07')).toBeTruthy();
+  expect(screen.queryByText('—')).toBeNull();
 });

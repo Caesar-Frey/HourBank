@@ -50,7 +50,8 @@ export default function ClaimDetailScreen() {
         return {
           ...line,
           studentName: session?.student_name ?? 'Unknown student',
-          endedAt: session?.ended_at ?? null,
+          // Same fallback as billableSessionDateSql: charged no-shows have no ended_at.
+          endedAt: session?.ended_at ?? session?.started_at ?? session?.scheduled_for ?? null,
         };
       });
       setLines(enriched);
