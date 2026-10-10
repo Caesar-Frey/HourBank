@@ -5,20 +5,16 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { F } from '../../src/theme/fonts';
 import { COLORS } from '../../src/theme/colors';
-import { getClaim, getClaimLines, voidClaim } from '../../src/db/claims';
+import { getClaim, getClaimLines, voidClaim, isClaimVoided } from '../../src/db/claims';
 import { getSessionWithStudent } from '../../src/db/sessions';
 import { shareClaimReport } from '../../src/utils/claimReport';
 import { Claim, ClaimLine } from '../../src/db/schema';
-import { formatRand, formatHours, formatLedgerDate } from '../../src/utils/format';
+import { formatRand, formatHours, formatLedgerDate, formatClaimPeriod } from '../../src/utils/format';
+import { ScreenHeader } from '../../src/components/ScreenHeader';
+import { useToast } from '../../src/components/Toast';
+import { modeLabel } from '../../src/screens/schedule/labels';
 
 type DetailLine = ClaimLine & { studentName: string; endedAt: string | null };
-
-function periodLabel(periodStart: string | null, periodEnd: string | null): string {
-  if (!periodStart || !periodEnd) return 'All';
-  const s = formatLedgerDate(periodStart);
-  const e = formatLedgerDate(periodEnd);
-  return `${s.day} ${s.month} – ${e.day} ${e.month}`;
-}
 
 function formatFullDate(isoStr: string): string {
   const d = new Date(isoStr);
@@ -27,10 +23,6 @@ function formatFullDate(isoStr: string): string {
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
   return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()} · ${hh}:${mm}`;
-}
-
-function modeLabel(mode: 'in_person' | 'online'): string {
-  return mode === 'online' ? 'ONLINE' : 'IN-PERSON';
 }
 
 const DIVIDER = (
@@ -45,6 +37,8 @@ export default function ClaimDetailScreen() {
   const [voidModalVisible, setVoidModalVisible] = useState(false);
   const [voidReason, setVoidReason] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const toast = useToast();
 
   const load = useCallback(() => {
     if (!id) return;
@@ -60,8 +54,9 @@ export default function ClaimDetailScreen() {
         };
       });
       setLines(enriched);
-    } catch (e) {
-      console.error('Claim detail query error', e);
+      setLoadError(false);
+    } catch {
+      setLoadError(true);
       setClaim(null);
     }
   }, [id]);
@@ -74,9 +69,8 @@ export default function ClaimDetailScreen() {
     try {
       await shareClaimReport(claim.id);
       load();
-    } catch (e) {
-      console.error('Claim report error', e);
-      Alert.alert('Could not generate report', 'Something went wrong while creating the PDF. Please try again.');
+    } catch {
+      Alert.alert('Couldn’t create the PDF', 'The claim is saved — only the report failed. Try again; if it keeps failing, restart the app.');
     } finally {
       setDownloading(false);
     }
@@ -89,9 +83,10 @@ export default function ClaimDetailScreen() {
       voidClaim({ claimId: id, reason: reason.length > 0 ? reason : null });
       setVoidModalVisible(false);
       setVoidReason('');
+      toast.show({ kind: 'success', message: 'Claim voided — its lessons are claimable again' });
       load();
-    } catch (e) {
-      Alert.alert('Could not void', 'This claim is already voided or no longer exists.');
+    } catch {
+      Alert.alert('Couldn’t void this claim', 'It was already voided, or it no longer exists. The screen has been refreshed.');
       setVoidModalVisible(false);
       load();
     }
@@ -103,35 +98,28 @@ export default function ClaimDetailScreen() {
   if (claim === null) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>
-            Claim not found.
+        <ScreenHeader backLabel="MONEY" onBack={() => router.back()} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
+          <Text style={{ fontFamily: F.serif, fontSize: 22, color: COLORS.ink, textAlign: 'center' }}>
+            {loadError ? 'Couldn’t load this claim' : 'Claim not found'}
+          </Text>
+          <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkSoft, textAlign: 'center', marginTop: 8 }}>
+            {loadError ? 'Go back and try again.' : 'It may have been removed by a backup restore.'}
           </Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  const isVoid = !!claim.voided_at;
+  const isVoid = isClaimVoided(claim);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
+      <ScreenHeader backLabel="MONEY" onBack={() => router.back()} title="Claim" />
       <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 40, flexGrow: 1 }}>
 
-        {/* Back */}
-        <TouchableOpacity
-          onPress={() => router.back()}
-          activeOpacity={0.7}
-          style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}
-        >
-          <Feather name="arrow-left" size={16} color={COLORS.inkSoft} />
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft, marginLeft: 6, textTransform: 'uppercase' }}>
-            Back
-          </Text>
-        </TouchableOpacity>
-
         <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6 }}>
-          Claim · {periodLabel(claim.period_start, claim.period_end)}
+          Claim · {formatClaimPeriod(claim.period_start, claim.period_end)}
         </Text>
 
         {/* Grand total hero */}
@@ -240,7 +228,7 @@ export default function ClaimDetailScreen() {
 
       {/* Void confirmation modal */}
       <Modal visible={voidModalVisible} transparent animationType="fade" onRequestClose={() => setVoidModalVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+        <View style={{ flex: 1, backgroundColor: COLORS.scrim, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
           <View style={{ backgroundColor: COLORS.paper, borderRadius: 16, padding: 24, width: '100%' }}>
             <Text style={{ fontFamily: F.serif, fontSize: 20, color: COLORS.ink, marginBottom: 8 }}>
               Void this claim?
