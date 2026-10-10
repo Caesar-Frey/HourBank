@@ -1,27 +1,33 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  Switch,
-  ActivityIndicator,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { F } from '../../src/theme/fonts';
+import { F, MIN_TOUCH } from '../../src/theme/fonts';
 import { COLORS } from '../../src/theme/colors';
+import { eventKindStyle } from '../../src/theme/eventColors';
 import { ScreenHeader } from '../../src/components/ScreenHeader';
-import { LazyDateTimePicker } from '../../src/components/LazyDateTimePicker';
+import { FormScreen } from '../../src/components/FormScreen';
+import { useToast } from '../../src/components/Toast';
+import { DateField } from '../../src/components/calendar/DateField';
 import { useStudents } from '../../src/hooks/useStudents';
 import {
   createCalendarEvent,
   updateCalendarEvent,
   getCalendarEventById,
 } from '../../src/db/calendar_events';
+import { formatDayShort, formatTime } from '../../src/utils/format';
+import {
+  DEFAULT_BLOCK_TITLE,
+  eventIsoRange,
+  initialRange,
+  resolveTitle,
+  shiftEndWithStart,
+  validateEventRange,
+  withDatePart,
+  withTimePart,
+} from '../../src/screens/schedule/eventFormModel';
 
 type Category = 'test' | 'exam' | 'homework' | 'other';
+type PickerTarget = 'startDate' | 'startTime' | 'endDate' | 'endTime' | null;
 
 const LABEL_STYLE = {
   fontFamily: F.mono,
@@ -31,16 +37,6 @@ const LABEL_STYLE = {
   marginBottom: 4,
 };
 
-const INPUT_STYLE = {
-  fontFamily: F.sans,
-  fontSize: 16,
-  color: COLORS.ink,
-  borderBottomWidth: 1,
-  borderBottomColor: COLORS.paperEdge,
-  paddingVertical: 12,
-  marginBottom: 24,
-};
-
 const CATEGORY_OPTS: { value: Category; label: string }[] = [
   { value: 'test',     label: 'Test' },
   { value: 'exam',     label: 'Exam' },
@@ -48,45 +44,48 @@ const CATEGORY_OPTS: { value: Category; label: string }[] = [
   { value: 'other',    label: 'Other' },
 ];
 
+function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.7}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      hitSlop={{ top: 4, bottom: 4, left: 0, right: 0 }}
+      style={{
+        borderWidth: 1,
+        borderColor: selected ? COLORS.ink : COLORS.paperEdge,
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        minHeight: 36,
+        justifyContent: 'center',
+        backgroundColor: selected ? COLORS.ink : COLORS.cardFill,
+      }}
+    >
+      <Text style={{ fontFamily: F.sans, fontSize: 13, color: selected ? COLORS.paper : COLORS.ink }}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
 export default function NewCalendarEventScreen() {
   const router = useRouter();
-  const { date, kind, id } = useLocalSearchParams<{
-    date?: string;
-    kind?: string;
-    id?: string;
-  }>();
+  const toast = useToast();
+  const { date, kind, id } = useLocalSearchParams<{ date?: string; kind?: string; id?: string }>();
 
   const isEdit = !!id;
-  const eventKind = ((kind === 'time_block' ? 'time_block' : 'event') as 'event' | 'time_block');
-
+  const [eventKind, setEventKind] = useState<'event' | 'time_block'>(kind === 'time_block' ? 'time_block' : 'event');
   const [title, setTitle] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [category, setCategory] = useState<Category | null>(null);
   const [allDay, setAllDay] = useState(false);
-  const [startDate, setStartDate] = useState<Date>(() =>
-    date ? new Date(date + 'T00:00:00') : new Date()
-  );
-  const [startTime, setStartTime] = useState<Date>(() => {
-    const d = new Date();
-    d.setHours(9, 0, 0, 0);
-    return d;
-  });
-  const [endDate, setEndDate] = useState<Date>(() =>
-    date ? new Date(date + 'T00:00:00') : new Date()
-  );
-  const [endTime, setEndTime] = useState<Date>(() => {
-    const d = new Date();
-    d.setHours(10, 0, 0, 0);
-    return d;
-  });
+  const [start, setStart] = useState<Date>(() => initialRange(date).start);
+  const [end, setEnd] = useState<Date>(() => initialRange(date).end);
   const [notes, setNotes] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
-
-  const [showStartDate, setShowStartDate] = useState(false);
-  const [showStartTime, setShowStartTime] = useState(false);
-  const [showEndDate, setShowEndDate] = useState(false);
-  const [showEndTime, setShowEndTime] = useState(false);
+  const [picker, setPicker] = useState<PickerTarget>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const savingRef = useRef(false);
 
   const { students } = useStudents();
 
@@ -95,393 +94,275 @@ export default function NewCalendarEventScreen() {
     if (!isEdit || !id) return;
     try {
       const existing = getCalendarEventById(id);
-      if (!existing) return;
-      setTitle(existing.title);
+      if (!existing) {
+        setLoadFailed(true);
+        return;
+      }
+      setEventKind(existing.kind);
+      setTitle(existing.kind === 'time_block' && existing.title === DEFAULT_BLOCK_TITLE ? '' : existing.title);
       setSelectedStudentId(existing.student_id ?? null);
       setCategory((existing.category as Category | null) ?? null);
       setAllDay(existing.all_day === 1);
-      const start = new Date(existing.starts_at);
-      setStartDate(start);
-      setStartTime(start);
-      if (existing.ends_at) {
-        const end = new Date(existing.ends_at);
-        setEndDate(end);
-        setEndTime(end);
-      }
+      const s = new Date(existing.starts_at);
+      setStart(s);
+      setEnd(existing.ends_at ? new Date(existing.ends_at) : new Date(s.getTime() + 60 * 60_000));
       setNotes(existing.notes ?? '');
     } catch {
-      // ignore
+      setLoadFailed(true);
     }
   }, [id, isEdit]);
 
-  const headerTitle = isEdit
-    ? (eventKind === 'event' ? 'EDIT EVENT' : 'EDIT BLOCK')
-    : (eventKind === 'event' ? 'NEW EVENT' : 'NEW BLOCK');
+  const rangeError = validateEventRange(start, end, allDay);
+  const style = eventKindStyle(eventKind);
+  const noun = eventKind === 'event' ? 'event' : 'time block';
+
+  /** Changing the start moves the end with it (duration preserved). */
+  function changeStart(next: Date) {
+    setEnd(prevEnd => shiftEndWithStart(start, prevEnd, next));
+    setStart(next);
+  }
 
   function handleSave() {
-    const trimmed = title.trim();
-    if (!trimmed) {
-      setTitleError('Title is required');
+    if (savingRef.current) return;
+    const t = resolveTitle(eventKind, title);
+    if ('error' in t) {
+      setTitleError(t.error);
       return;
     }
+    if (rangeError) return;
     setTitleError(null);
 
-    const startsAt = allDay
-      ? new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate(), 0, 0, 0).toISOString()
-      : new Date(
-          startDate.getFullYear(),
-          startDate.getMonth(),
-          startDate.getDate(),
-          startTime.getHours(),
-          startTime.getMinutes(),
-          0,
-        ).toISOString();
-
-    const endsAt = allDay
-      ? new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59).toISOString()
-      : new Date(
-          endDate.getFullYear(),
-          endDate.getMonth(),
-          endDate.getDate(),
-          endTime.getHours(),
-          endTime.getMinutes(),
-          0,
-        ).toISOString();
-
-    setLoading(true);
+    savingRef.current = true;
+    setSaving(true);
+    const { startsAt, endsAt } = eventIsoRange(start, end, allDay);
+    const studentId = eventKind === 'event' ? selectedStudentId : null;
+    const cat = eventKind === 'event' ? category : null;
     try {
       if (isEdit && id) {
         updateCalendarEvent(id, {
-          title: trimmed,
-          student_id: selectedStudentId,
-          category,
+          title: t.title,
+          student_id: studentId,
+          category: cat,
           all_day: allDay ? 1 : 0,
           starts_at: startsAt,
           ends_at: endsAt,
-          notes: notes || null,
+          notes: notes.trim() || null,
           kind: eventKind,
         });
       } else {
         createCalendarEvent({
           kind: eventKind,
-          student_id: selectedStudentId,
+          student_id: studentId,
           starts_at: startsAt,
           ends_at: endsAt,
           all_day: allDay ? 1 : 0,
-          title: trimmed,
-          category,
-          notes: notes || null,
+          title: t.title,
+          category: cat,
+          notes: notes.trim() || null,
           tutor_id: null,
         });
       }
+      toast.show({ kind: 'success', message: isEdit ? 'Changes saved' : `${noun.charAt(0).toUpperCase()}${noun.slice(1)} added` });
       router.back();
-    } finally {
-      setLoading(false);
+    } catch {
+      savingRef.current = false;
+      setSaving(false);
+      toast.show({ kind: 'error', message: `Couldn’t save the ${noun}. Nothing was changed — try again.` });
     }
   }
 
-  function formatDateDisplay(d: Date): string {
-    return d.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  if (loadFailed) {
+    return (
+      <FormScreen header={<ScreenHeader backLabel="BACK" onBack={() => router.back()} />}>
+        <Text style={{ fontFamily: F.serif, fontSize: 22, color: COLORS.ink, marginTop: 40, textAlign: 'center' }}>
+          This item no longer exists
+        </Text>
+      </FormScreen>
+    );
   }
 
-  function formatTimeDisplay(d: Date): string {
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  }
+  const footer = (
+    <TouchableOpacity
+      onPress={handleSave}
+      disabled={saving || !!rangeError}
+      activeOpacity={0.85}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: saving || !!rangeError }}
+      style={{
+        backgroundColor: rangeError ? COLORS.paperEdge : COLORS.ink,
+        borderRadius: 12,
+        minHeight: 52,
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: saving ? 0.6 : 1,
+      }}
+    >
+      {saving ? (
+        <ActivityIndicator color={COLORS.paper} />
+      ) : (
+        <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: rangeError ? COLORS.inkSoft : COLORS.paper }}>
+          {isEdit ? 'Save changes' : `Save ${noun}`}
+        </Text>
+      )}
+    </TouchableOpacity>
+  );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
-      <ScreenHeader backLabel="BACK" onBack={() => router.back()} title={headerTitle} />
-
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 48 }}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Display heading */}
-        <View style={{ marginBottom: 28 }}>
-          <Text style={{ fontFamily: F.serif, fontSize: 28, color: COLORS.ink, lineHeight: 32 }}>
-            {isEdit ? 'Edit' : 'New'}
-          </Text>
-          <Text style={{ fontFamily: F.serifItalic, fontSize: 28, color: COLORS.oxblood, lineHeight: 34 }}>
-            {eventKind === 'event' ? 'event.' : 'time block.'}
-          </Text>
-        </View>
-
-        {/* TITLE */}
-        <Text style={LABEL_STYLE}>Title *</Text>
-        <TextInput
-          value={title}
-          onChangeText={v => { setTitle(v); if (v.trim()) setTitleError(null); }}
-          placeholder="e.g. Maths test"
-          placeholderTextColor={COLORS.inkFaint}
-          style={INPUT_STYLE}
-          autoCapitalize="sentences"
-          returnKeyType="next"
+    <FormScreen
+      header={
+        <ScreenHeader
+          backLabel="BACK"
+          onBack={() => router.back()}
+          title={isEdit ? `Edit ${noun}` : `New ${noun}`}
         />
-        {titleError ? (
-          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.crimson, marginTop: -20, marginBottom: 16 }}>
-            {titleError}
-          </Text>
-        ) : null}
+      }
+      footer={footer}
+    >
+      <View style={{ marginBottom: 24, marginTop: 8 }}>
+        <Text style={{ fontFamily: F.serif, fontSize: 28, color: COLORS.ink, lineHeight: 32 }}>{isEdit ? 'Edit' : 'New'}</Text>
+        <Text style={{ fontFamily: F.serifItalic, fontSize: 28, color: style.fg, lineHeight: 34 }}>{`${noun}.`}</Text>
+      </View>
 
-        {/* STUDENT (events only) */}
-        {eventKind === 'event' && (
-          <>
-            <Text style={LABEL_STYLE}>Student</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={{ marginBottom: 24 }}
-              contentContainerStyle={{ gap: 8 }}
-            >
-              {/* None chip */}
-              <TouchableOpacity
-                onPress={() => setSelectedStudentId(null)}
-                activeOpacity={0.7}
-                style={{
-                  borderWidth: 1,
-                  borderColor: selectedStudentId === null ? COLORS.oxblood : COLORS.paperEdge,
-                  borderRadius: 8,
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  backgroundColor: selectedStudentId === null ? COLORS.oxblood : 'rgba(255,255,255,0.4)',
-                }}
-              >
-                <Text style={{
-                  fontFamily: F.mono,
-                  fontSize: 13,
-                  color: selectedStudentId === null ? COLORS.paper : COLORS.inkSoft,
-                }}>
-                  None
-                </Text>
-              </TouchableOpacity>
+      {/* TITLE */}
+      <Text style={LABEL_STYLE}>{eventKind === 'event' ? 'Title' : 'Title (optional)'}</Text>
+      <TextInput
+        value={title}
+        onChangeText={v => {
+          setTitle(v);
+          if (v.trim()) setTitleError(null);
+        }}
+        placeholder={eventKind === 'event' ? 'e.g. Maths test' : `e.g. Gym — shows as “${DEFAULT_BLOCK_TITLE}”`}
+        placeholderTextColor={COLORS.inkFaint}
+        style={{
+          fontFamily: F.sans,
+          fontSize: 16,
+          color: COLORS.ink,
+          borderBottomWidth: 1,
+          borderBottomColor: titleError ? COLORS.crimson : COLORS.paperEdge,
+          paddingVertical: 12,
+          marginBottom: titleError ? 4 : 24,
+        }}
+        autoCapitalize="sentences"
+        returnKeyType="done"
+      />
+      {titleError ? (
+        <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.crimson, marginBottom: 20 }}>{titleError}</Text>
+      ) : null}
 
-              {students.map(s => (
-                <TouchableOpacity
-                  key={s.id}
-                  onPress={() => setSelectedStudentId(s.id)}
-                  activeOpacity={0.7}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: selectedStudentId === s.id ? COLORS.oxblood : COLORS.paperEdge,
-                    borderRadius: 8,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    backgroundColor: selectedStudentId === s.id ? COLORS.oxblood : 'rgba(255,255,255,0.4)',
-                  }}
-                >
-                  <Text style={{
-                    fontFamily: F.sans,
-                    fontSize: 13,
-                    color: selectedStudentId === s.id ? COLORS.paper : COLORS.ink,
-                  }}>
-                    {s.full_name.trim().split(/\s+/)[0]}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </>
-        )}
-
-        {/* CATEGORY (events only) */}
-        {eventKind === 'event' && (
-          <>
-            <Text style={LABEL_STYLE}>Category (optional)</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
-              {CATEGORY_OPTS.map(opt => (
-                <TouchableOpacity
-                  key={opt.value}
-                  onPress={() => setCategory(prev => prev === opt.value ? null : opt.value)}
-                  activeOpacity={0.7}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: category === opt.value ? COLORS.ink : COLORS.paperEdge,
-                    borderRadius: 999,
-                    paddingHorizontal: 16,
-                    paddingVertical: 8,
-                    backgroundColor: category === opt.value ? COLORS.ink : 'transparent',
-                  }}
-                >
-                  <Text style={{
-                    fontFamily: F.sans,
-                    fontSize: 13,
-                    color: category === opt.value ? COLORS.paper : COLORS.ink,
-                  }}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </>
-        )}
-
-        {/* ALL DAY */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-          <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>ALL DAY</Text>
-          <Switch
-            value={allDay}
-            onValueChange={setAllDay}
-            trackColor={{ false: COLORS.paperEdge, true: COLORS.ink }}
-            thumbColor={COLORS.paper}
-          />
-        </View>
-
-        {/* START DATE */}
-        <Text style={LABEL_STYLE}>Start Date</Text>
-        <TouchableOpacity
-          onPress={() => setShowStartDate(true)}
-          activeOpacity={0.7}
-          style={{ borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 12, marginBottom: 8 }}
-        >
-          <Text style={{ fontFamily: F.mono, fontSize: 15, color: COLORS.ink }}>
-            {formatDateDisplay(startDate)}
-          </Text>
-        </TouchableOpacity>
-        {showStartDate && (
-          <LazyDateTimePicker
-            value={startDate}
-            mode="date"
-            onChange={(_e, d) => {
-              setShowStartDate(false);
-              if (d) setStartDate(prev => { const r = new Date(prev); r.setFullYear(d.getFullYear(), d.getMonth(), d.getDate()); return r; });
-            }}
-          />
-        )}
-        <View style={{ marginBottom: 16 }} />
-
-        {/* START TIME */}
-        {!allDay && (
-          <>
-            <Text style={LABEL_STYLE}>Start Time</Text>
-            <TouchableOpacity
-              onPress={() => setShowStartTime(true)}
-              activeOpacity={0.7}
-              style={{ borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 12, marginBottom: 8 }}
-            >
-              <Text style={{ fontFamily: F.mono, fontSize: 15, color: COLORS.ink }}>
-                {formatTimeDisplay(startTime)}
-              </Text>
-            </TouchableOpacity>
-            {showStartTime && (
-              <LazyDateTimePicker
-                value={startTime}
-                mode="time"
-                is24Hour
-                onChange={(_e, d) => {
-                  setShowStartTime(false);
-                  if (d) setStartTime(prev => { const r = new Date(prev); r.setHours(d.getHours(), d.getMinutes(), 0, 0); return r; });
-                }}
+      {eventKind === 'event' ? (
+        <>
+          <Text style={LABEL_STYLE}>Student (optional)</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 24 }} contentContainerStyle={{ gap: 8 }}>
+            <Chip label="None" selected={selectedStudentId === null} onPress={() => setSelectedStudentId(null)} />
+            {students.map(s => (
+              <Chip
+                key={s.id}
+                label={s.full_name.trim().split(/\s+/)[0]}
+                selected={selectedStudentId === s.id}
+                onPress={() => setSelectedStudentId(s.id)}
               />
-            )}
-            <View style={{ marginBottom: 16 }} />
-          </>
-        )}
+            ))}
+          </ScrollView>
 
-        {/* END DATE */}
-        <Text style={LABEL_STYLE}>End Date</Text>
-        <TouchableOpacity
-          onPress={() => setShowEndDate(true)}
-          activeOpacity={0.7}
-          style={{ borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 12, marginBottom: 8 }}
-        >
-          <Text style={{ fontFamily: F.mono, fontSize: 15, color: COLORS.ink }}>
-            {formatDateDisplay(endDate)}
-          </Text>
-        </TouchableOpacity>
-        {showEndDate && (
-          <LazyDateTimePicker
-            value={endDate}
-            mode="date"
-            onChange={(_e, d) => {
-              setShowEndDate(false);
-              if (d) setEndDate(prev => { const r = new Date(prev); r.setFullYear(d.getFullYear(), d.getMonth(), d.getDate()); return r; });
-            }}
-          />
-        )}
-        <View style={{ marginBottom: 16 }} />
-
-        {/* END TIME */}
-        {!allDay && (
-          <>
-            <Text style={LABEL_STYLE}>End Time</Text>
-            <TouchableOpacity
-              onPress={() => setShowEndTime(true)}
-              activeOpacity={0.7}
-              style={{ borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 12, marginBottom: 8 }}
-            >
-              <Text style={{ fontFamily: F.mono, fontSize: 15, color: COLORS.ink }}>
-                {formatTimeDisplay(endTime)}
-              </Text>
-            </TouchableOpacity>
-            {showEndTime && (
-              <LazyDateTimePicker
-                value={endTime}
-                mode="time"
-                is24Hour
-                onChange={(_e, d) => {
-                  setShowEndTime(false);
-                  if (d) setEndTime(prev => { const r = new Date(prev); r.setHours(d.getHours(), d.getMinutes(), 0, 0); return r; });
-                }}
+          <Text style={LABEL_STYLE}>Category (optional)</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+            {CATEGORY_OPTS.map(opt => (
+              <Chip
+                key={opt.value}
+                label={opt.label}
+                selected={category === opt.value}
+                onPress={() => setCategory(prev => (prev === opt.value ? null : opt.value))}
               />
-            )}
-            <View style={{ marginBottom: 16 }} />
-          </>
-        )}
+            ))}
+          </View>
+        </>
+      ) : null}
 
-        {/* NOTES */}
-        <Text style={LABEL_STYLE}>Notes (optional)</Text>
-        <View style={{ borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, marginBottom: 32 }}>
-          <TextInput
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-            numberOfLines={4}
-            placeholder="Add notes…"
-            placeholderTextColor={COLORS.inkFaint}
-            style={{
-              fontFamily: F.sans,
-              fontSize: 15,
-              color: COLORS.ink,
-              paddingVertical: 12,
-              minHeight: 88,
-              textAlignVertical: 'top',
-            }}
-          />
-        </View>
-
-        {/* Save button */}
-        <TouchableOpacity
-          onPress={handleSave}
-          disabled={loading}
-          activeOpacity={0.85}
-          style={{
-            backgroundColor: COLORS.ink,
-            borderRadius: 12,
-            paddingVertical: 16,
-            alignItems: 'center',
-            opacity: loading ? 0.6 : 1,
+      {/* ALL DAY */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: MIN_TOUCH, marginBottom: 8 }}>
+        <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>All day</Text>
+        <Switch
+          value={allDay}
+          onValueChange={v => {
+            setAllDay(v);
+            setPicker(null);
           }}
-        >
-          {loading ? (
-            <ActivityIndicator color={COLORS.paper} />
-          ) : (
-            <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.paper }}>
-              {isEdit ? 'Save changes ▸' : 'Save ▸'}
-            </Text>
-          )}
-        </TouchableOpacity>
+          trackColor={{ false: COLORS.paperEdge, true: COLORS.ink }}
+          thumbColor={COLORS.paper}
+          accessibilityLabel="All day"
+        />
+      </View>
 
-        {/* Cancel link */}
-        <TouchableOpacity
-          onPress={() => router.back()}
-          activeOpacity={0.7}
-          style={{ alignItems: 'center', paddingVertical: 16 }}
-        >
-          <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkFaint }}>
-            Cancel
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+      <DateField
+        label="Starts"
+        mode="date"
+        value={start}
+        display={formatDayShort(start)}
+        open={picker === 'startDate'}
+        onOpen={() => setPicker('startDate')}
+        onClose={() => setPicker(null)}
+        onChange={d => changeStart(withDatePart(start, d))}
+      />
+      {!allDay ? (
+        <DateField
+          label="Start time"
+          mode="time"
+          value={start}
+          display={formatTime(start)}
+          open={picker === 'startTime'}
+          onOpen={() => setPicker('startTime')}
+          onClose={() => setPicker(null)}
+          onChange={d => changeStart(withTimePart(start, d))}
+        />
+      ) : null}
+      <DateField
+        label="Ends"
+        mode="date"
+        value={end}
+        display={formatDayShort(end)}
+        open={picker === 'endDate'}
+        onOpen={() => setPicker('endDate')}
+        onClose={() => setPicker(null)}
+        onChange={d => setEnd(withDatePart(end, d))}
+        error={!!rangeError}
+        minimumDate={start}
+      />
+      {!allDay ? (
+        <DateField
+          label="End time"
+          mode="time"
+          value={end}
+          display={formatTime(end)}
+          open={picker === 'endTime'}
+          onOpen={() => setPicker('endTime')}
+          onClose={() => setPicker(null)}
+          onChange={d => setEnd(withTimePart(end, d))}
+          error={!!rangeError}
+        />
+      ) : null}
+      {rangeError ? (
+        <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.crimson, marginBottom: 12 }}>{rangeError}</Text>
+      ) : null}
+
+      {/* NOTES */}
+      <Text style={[LABEL_STYLE, { marginTop: 12 }]}>Notes (optional)</Text>
+      <TextInput
+        value={notes}
+        onChangeText={setNotes}
+        multiline
+        placeholder="Add notes…"
+        placeholderTextColor={COLORS.inkFaint}
+        style={{
+          fontFamily: F.sans,
+          fontSize: 15,
+          color: COLORS.ink,
+          paddingVertical: 12,
+          minHeight: 88,
+          textAlignVertical: 'top',
+          borderBottomWidth: 1,
+          borderBottomColor: COLORS.paperEdge,
+        }}
+      />
+    </FormScreen>
   );
 }

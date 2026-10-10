@@ -13,7 +13,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../theme/colors';
 import { F, MIN_TOUCH } from '../theme/fonts';
 import { EVENT_KIND_COLORS } from '../theme/eventColors';
-import { CalendarFilters, EventKind, SessionTypeFilter } from '../db/calendar';
+import type { EventKind, SessionTypeFilter } from '../db/calendar';
+import {
+  ScheduleFilters,
+  allStudentsExcluded,
+  defaultScheduleFilters,
+  isFilterActive,
+  toggleExcluded,
+} from '../screens/schedule/filterModel';
+import { SESSION_TYPE_OPTIONS } from '../screens/schedule/labels';
+import { useKeyboardHeight } from './FormScreen';
 
 interface Student {
   id: string;
@@ -23,57 +32,53 @@ interface Student {
 interface Props {
   visible: boolean;
   onClose: () => void;
-  filters: CalendarFilters;
-  onFiltersChange: (f: CalendarFilters) => void;
+  filters: ScheduleFilters;
+  /** Called with the edited draft when the tutor taps Done. */
+  onApply: (f: ScheduleFilters) => void;
   students: Student[];
 }
 
 // Colours come from the shared map so filter dots match calendar + legend.
 const EVENT_KIND_OPTS: { value: EventKind; label: string; color: string }[] = [
-  { value: 'scheduled',  label: 'Scheduled', color: EVENT_KIND_COLORS.scheduled.fg },
-  { value: 'completed',  label: 'Completed', color: EVENT_KIND_COLORS.completed.fg },
-  { value: 'cancelled',  label: 'Cancelled', color: EVENT_KIND_COLORS.cancelled.fg },
-  { value: 'top_up',     label: 'Top-up',    color: EVENT_KIND_COLORS.top_up.fg },
-  { value: 'event',      label: 'Events',    color: EVENT_KIND_COLORS.event.fg },
-  { value: 'time_block', label: 'Blocks',    color: EVENT_KIND_COLORS.time_block.fg },
+  { value: 'scheduled',  label: 'Booked lessons',    color: EVENT_KIND_COLORS.scheduled.fg },
+  { value: 'completed',  label: 'Taught lessons',    color: EVENT_KIND_COLORS.completed.fg },
+  { value: 'cancelled',  label: 'Cancelled/no-show', color: EVENT_KIND_COLORS.cancelled.fg },
+  { value: 'top_up',     label: 'Top-ups',           color: EVENT_KIND_COLORS.top_up.fg },
+  { value: 'event',      label: 'Events',            color: EVENT_KIND_COLORS.event.fg },
+  { value: 'time_block', label: 'Blocked time',      color: EVENT_KIND_COLORS.time_block.fg },
 ];
 
-const SESSION_TYPE_OPTS: { value: SessionTypeFilter; label: string }[] = [
-  { value: 'general',   label: 'General' },
-  { value: 'review',    label: 'Review' },
-  { value: 'test_prep', label: 'Test prep' },
-  { value: 'exam_prep', label: 'Exam prep' },
-];
-
-function SectionLabel({ children }: { children: string }) {
+function SectionLabel({ children, right }: { children: string; right?: string }) {
   return (
-    <Text
-      style={{
-        fontFamily: F.mono,
-        fontSize: 10,
-        color: COLORS.inkFaint,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        marginBottom: 10,
-        marginTop: 20,
-      }}
-    >
-      {children}
-    </Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 10 }}>
+      <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        {children}
+      </Text>
+      {right ? <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>{right}</Text> : null}
+    </View>
   );
 }
 
-function Chip({
-  label,
-  selected,
-  dotColor,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  dotColor?: string;
-  onPress: () => void;
-}) {
+function Checkbox({ checked }: { checked: boolean }) {
+  return (
+    <View
+      style={{
+        width: 20,
+        height: 20,
+        borderRadius: 6,
+        borderWidth: 1.5,
+        borderColor: checked ? COLORS.ink : COLORS.paperEdge,
+        backgroundColor: checked ? COLORS.ink : COLORS.transparent,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {checked ? <Feather name="check" size={13} color={COLORS.paper} /> : null}
+    </View>
+  );
+}
+
+function Chip({ label, selected, dotColor, onPress }: { label: string; selected: boolean; dotColor?: string; onPress: () => void }) {
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -85,7 +90,7 @@ function Chip({
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: selected ? COLORS.ink : 'transparent',
+        backgroundColor: selected ? COLORS.ink : COLORS.transparent,
         borderWidth: 1,
         borderColor: selected ? COLORS.ink : COLORS.paperEdge,
         borderRadius: 999,
@@ -96,279 +101,177 @@ function Chip({
         gap: 6,
       }}
     >
-      {dotColor ? (
-        <View
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: 4,
-            backgroundColor: dotColor,
-          }}
-        />
-      ) : null}
-      <Text
-        style={{
-          fontFamily: F.sans,
-          fontSize: 13,
-          color: selected ? COLORS.paper : COLORS.ink,
-        }}
-      >
-        {label}
-      </Text>
+      {dotColor ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dotColor }} /> : null}
+      <Text style={{ fontFamily: F.sans, fontSize: 13, color: selected ? COLORS.paper : COLORS.ink }}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
-export function CalendarFilterSheet({
-  visible,
-  onClose,
-  filters,
-  onFiltersChange,
-  students,
-}: Props) {
+function HeaderButton({ label, onPress, color, disabled }: { label: string; onPress: () => void; color: string; disabled?: boolean }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.7}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
+      style={{ minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, justifyContent: 'center', alignItems: 'center', opacity: disabled ? 0.4 : 1 }}
+    >
+      <Text style={{ fontFamily: F.sansMed, fontSize: 14, color }}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+export function CalendarFilterSheet({ visible, onClose, filters, onApply, students }: Props) {
   const insets = useSafeAreaInsets();
+  const keyboard = useKeyboardHeight();
 
   // Draft state — nothing applies until "Done". Re-sync whenever the sheet opens.
-  const [draft, setDraft] = useState<CalendarFilters>(filters);
+  const [draft, setDraft] = useState<ScheduleFilters>(filters);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
     if (visible) {
       setDraft({
-        studentIds: filters.studentIds,
-        eventKinds: new Set(filters.eventKinds),
-        sessionTypes: new Set(filters.sessionTypes),
+        excludedStudentIds: [...filters.excludedStudentIds],
+        excludedKinds: [...filters.excludedKinds],
+        excludedSessionTypes: [...filters.excludedSessionTypes],
       });
       setQuery('');
     }
-  }, [visible]);
+  }, [visible]); // only on open: edits stay in the draft until Done
 
-  // ── Handlers (mutate draft only) ────────────────────────────────────────────
+  const allIds = students.map(s => s.id);
+  const excluded = new Set(draft.excludedStudentIds);
+  const shownCount = students.filter(s => !excluded.has(s.id)).length;
+  const noneShown = allStudentsExcluded(draft, allIds);
+  const allShown = draft.excludedStudentIds.length === 0;
+  const noKinds = draft.excludedKinds.length === EVENT_KIND_OPTS.length;
+  const noTypes = draft.excludedSessionTypes.length === SESSION_TYPE_OPTIONS.length;
+
+  const q = query.trim().toLowerCase();
+  const visibleStudents = q ? students.filter(s => s.full_name.toLowerCase().includes(q)) : students;
 
   function toggleStudent(id: string) {
-    setDraft(prev => {
-      if (prev.studentIds === null) {
-        // Was "all" — deselecting one means "all others"
-        const others = students.map(s => s.id).filter(sid => sid !== id);
-        return { ...prev, studentIds: others };
-      }
-      const next = prev.studentIds.includes(id)
-        ? prev.studentIds.filter(s => s !== id)
-        : [...prev.studentIds, id];
-      // All or none selected → revert to null (null = all)
-      return {
-        ...prev,
-        studentIds: next.length === students.length || next.length === 0 ? null : next,
-      };
-    });
+    setDraft(prev => ({ ...prev, excludedStudentIds: toggleExcluded(prev.excludedStudentIds, id) }));
   }
-
-  function selectAllStudents() {
-    setDraft(prev => ({ ...prev, studentIds: null }));
+  function toggleAllStudents() {
+    setDraft(prev => ({ ...prev, excludedStudentIds: allShown ? [...allIds] : [] }));
   }
-
   function toggleKind(kind: EventKind) {
-    setDraft(prev => {
-      const next = new Set(prev.eventKinds);
-      if (next.has(kind)) next.delete(kind);
-      else next.add(kind);
-      return { ...prev, eventKinds: next };
-    });
+    setDraft(prev => ({ ...prev, excludedKinds: toggleExcluded(prev.excludedKinds, kind) }));
   }
-
-  function toggleSessionType(st: SessionTypeFilter) {
-    setDraft(prev => {
-      const next = new Set(prev.sessionTypes);
-      if (next.has(st)) next.delete(st);
-      else next.add(st);
-      return { ...prev, sessionTypes: next };
-    });
+  function toggleType(t: SessionTypeFilter) {
+    setDraft(prev => ({ ...prev, excludedSessionTypes: toggleExcluded(prev.excludedSessionTypes, t) }));
   }
-
-  function apply() {
-    onFiltersChange(draft);
-  }
-
-  const allStudentsSelected = draft.studentIds === null;
-  const q = query.trim().toLowerCase();
-  const visibleStudents = q
-    ? students.filter(s => s.full_name.toLowerCase().includes(q))
-    : students;
-
-  function isStudentSelected(id: string): boolean {
-    return allStudentsSelected || (draft.studentIds?.includes(id) ?? false);
-  }
-
-  const selectedCount = draft.studentIds === null ? students.length : draft.studentIds.length;
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      onRequestClose={onClose}
-    >
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
       {/* Backdrop — tap discards draft */}
-      <Pressable
-        style={{ flex: 1, backgroundColor: COLORS.scrimSoft }}
-        onPress={onClose}
-      />
+      <Pressable style={{ flex: 1, backgroundColor: COLORS.scrimSoft }} onPress={onClose} accessibilityLabel="Close filters" />
 
-      {/* Sheet */}
       <View
         style={{
           backgroundColor: COLORS.paper,
           borderTopLeftRadius: 20,
           borderTopRightRadius: 20,
           paddingHorizontal: 24,
-          paddingBottom: insets.bottom + 16,
-          maxHeight: '85%',
+          // Keyboard-safe: when the search field is focused the sheet rides above the IME.
+          paddingBottom: (keyboard > 0 ? keyboard : insets.bottom) + 16,
+          maxHeight: '88%',
         }}
       >
-        {/* Handle */}
-        <View
-          style={{
-            width: 40,
-            height: 4,
-            backgroundColor: COLORS.paperEdge,
-            borderRadius: 2,
-            alignSelf: 'center',
-            marginTop: 12,
-            marginBottom: 4,
-          }}
-        />
+        <View style={{ width: 40, height: 4, backgroundColor: COLORS.paperEdge, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 4 }} />
 
-        {/* Title row */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
-          <Text style={{ fontFamily: F.serif, fontSize: 20, color: COLORS.ink }}>
-            Filters
-          </Text>
-          <TouchableOpacity
-            onPress={apply}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            style={{ minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, alignItems: 'flex-end', justifyContent: 'center' }}
-          >
-            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood }}>Done</Text>
-          </TouchableOpacity>
+        {/* Title row: Reset · Filters · Done */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+          <HeaderButton
+            label="Reset"
+            color={COLORS.inkSoft}
+            disabled={!isFilterActive(draft)}
+            onPress={() => setDraft(defaultScheduleFilters())}
+          />
+          <Text accessibilityRole="header" style={{ fontFamily: F.serif, fontSize: 20, color: COLORS.ink }}>Filters</Text>
+          <HeaderButton label="Done" color={COLORS.oxblood} onPress={() => onApply(draft)} />
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 4 }} keyboardShouldPersistTaps="handled">
-          {/* STUDENTS — searchable multi-select list */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <SectionLabel>Students</SectionLabel>
-            <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, marginTop: 20 }}>
-              {allStudentsSelected ? 'ALL' : `${selectedCount}/${students.length}`}
-            </Text>
-          </View>
+          {/* STUDENTS */}
+          <SectionLabel right={allShown ? 'ALL' : `${shownCount}/${students.length}`}>Students</SectionLabel>
 
-          {/* Search field */}
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: COLORS.paperDeep,
-              borderRadius: 10,
-              paddingHorizontal: 12,
-              height: 40,
-              gap: 8,
-            }}
-          >
-            <Feather name="search" size={15} color={COLORS.inkFaint} />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search students"
-              placeholderTextColor={COLORS.inkFaint}
-              style={{ flex: 1, fontFamily: F.sans, fontSize: 14, color: COLORS.ink, padding: 0 }}
-              autoCorrect={false}
-            />
-            {query.length > 0 ? (
-              <TouchableOpacity
-                onPress={() => setQuery('')}
-                hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
-                accessibilityRole="button"
-                accessibilityLabel="Clear search"
-              >
-                <Feather name="x" size={15} color={COLORS.inkFaint} />
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          {/* "All students" quick toggle */}
-          <TouchableOpacity
-            onPress={selectAllStudents}
-            activeOpacity={0.7}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingVertical: 11,
-              minHeight: MIN_TOUCH,
-              marginTop: 6,
-              gap: 12,
-            }}
-          >
+          {students.length > 6 ? (
             <View
               style={{
-                width: 20,
-                height: 20,
-                borderRadius: 6,
-                borderWidth: 1.5,
-                borderColor: allStudentsSelected ? COLORS.ink : COLORS.paperEdge,
-                backgroundColor: allStudentsSelected ? COLORS.ink : 'transparent',
+                flexDirection: 'row',
                 alignItems: 'center',
-                justifyContent: 'center',
+                backgroundColor: COLORS.paperDeep,
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                height: 40,
+                gap: 8,
               }}
             >
-              {allStudentsSelected ? <Feather name="check" size={13} color={COLORS.paper} /> : null}
+              <Feather name="search" size={15} color={COLORS.inkFaint} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search students"
+                placeholderTextColor={COLORS.inkFaint}
+                style={{ flex: 1, fontFamily: F.sans, fontSize: 14, color: COLORS.ink, padding: 0 }}
+                autoCorrect={false}
+              />
+              {query.length > 0 ? (
+                <TouchableOpacity
+                  onPress={() => setQuery('')}
+                  hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear search"
+                >
+                  <Feather name="x" size={15} color={COLORS.inkFaint} />
+                </TouchableOpacity>
+              ) : null}
             </View>
-            <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>
-              All students
-            </Text>
+          ) : null}
+
+          <TouchableOpacity
+            onPress={toggleAllStudents}
+            activeOpacity={0.7}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: allShown }}
+            style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, marginTop: 6, gap: 12 }}
+          >
+            <Checkbox checked={allShown} />
+            <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>All students</Text>
           </TouchableOpacity>
 
-          {/* Scrollable student list */}
-          <View
-            style={{
-              maxHeight: 210,
-              borderTopWidth: 1,
-              borderTopColor: COLORS.paperEdge,
-            }}
-          >
+          {noneShown ? (
+            <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.oxblood, marginBottom: 6 }}>
+              No students ticked — only events and blocks without a student will show.
+            </Text>
+          ) : null}
+
+          <View style={{ maxHeight: 210, borderTopWidth: 1, borderTopColor: COLORS.paperEdge }}>
             <ScrollView showsVerticalScrollIndicator nestedScrollEnabled keyboardShouldPersistTaps="handled">
               {visibleStudents.map(s => {
-                const sel = isStudentSelected(s.id);
+                const sel = !excluded.has(s.id);
                 return (
                   <TouchableOpacity
                     key={s.id}
                     onPress={() => toggleStudent(s.id)}
                     activeOpacity={0.7}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: sel }}
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
-                      paddingVertical: 11,
                       minHeight: MIN_TOUCH,
                       borderBottomWidth: 1,
                       borderBottomColor: COLORS.paperEdge,
                       gap: 12,
                     }}
                   >
-                    <View
-                      style={{
-                        width: 20,
-                        height: 20,
-                        borderRadius: 6,
-                        borderWidth: 1.5,
-                        borderColor: sel ? COLORS.ink : COLORS.paperEdge,
-                        backgroundColor: sel ? COLORS.ink : 'transparent',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      {sel ? <Feather name="check" size={13} color={COLORS.paper} /> : null}
-                    </View>
+                    <Checkbox checked={sel} />
                     <Text style={{ flex: 1, fontFamily: F.sans, fontSize: 15, color: COLORS.ink }} numberOfLines={1}>
                       {s.full_name}
                     </Text>
@@ -376,46 +279,49 @@ export function CalendarFilterSheet({
                 );
               })}
               {visibleStudents.length === 0 ? (
-                <Text
-                  style={{
-                    fontFamily: F.sans,
-                    fontSize: 13,
-                    color: COLORS.inkFaint,
-                    paddingVertical: 16,
-                  }}
-                >
-                  No students match “{query}”
+                <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkFaint, paddingVertical: 16 }}>
+                  {students.length === 0 ? 'No students yet' : `No students match “${query}”`}
                 </Text>
               ) : null}
             </ScrollView>
           </View>
 
-          {/* EVENT TYPE */}
-          <SectionLabel>Event Type</SectionLabel>
+          {/* SHOW */}
+          <SectionLabel>Show</SectionLabel>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
             {EVENT_KIND_OPTS.map(opt => (
               <Chip
                 key={opt.value}
                 label={opt.label}
                 dotColor={opt.color}
-                selected={draft.eventKinds.has(opt.value)}
+                selected={!draft.excludedKinds.includes(opt.value)}
                 onPress={() => toggleKind(opt.value)}
               />
             ))}
           </View>
+          {noKinds ? (
+            <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.oxblood }}>
+              Everything is unticked — the calendar will be empty.
+            </Text>
+          ) : null}
 
-          {/* SESSION TYPE */}
-          <SectionLabel>Session Type</SectionLabel>
+          {/* LESSON TYPE */}
+          <SectionLabel>Lesson type</SectionLabel>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
-            {SESSION_TYPE_OPTS.map(opt => (
+            {SESSION_TYPE_OPTIONS.map(opt => (
               <Chip
                 key={opt.value}
                 label={opt.label}
-                selected={draft.sessionTypes.has(opt.value)}
-                onPress={() => toggleSessionType(opt.value)}
+                selected={!draft.excludedSessionTypes.includes(opt.value)}
+                onPress={() => toggleType(opt.value)}
               />
             ))}
           </View>
+          {noTypes ? (
+            <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.oxblood, marginBottom: 8 }}>
+              No lesson types ticked — lessons will be hidden.
+            </Text>
+          ) : null}
         </ScrollView>
       </View>
     </Modal>

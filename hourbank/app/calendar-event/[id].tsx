@@ -1,249 +1,177 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-  Alert,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import React, { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { F } from '../../src/theme/fonts';
+import { F, MIN_TOUCH } from '../../src/theme/fonts';
 import { COLORS } from '../../src/theme/colors';
+import { eventKindStyle } from '../../src/theme/eventColors';
 import { ScreenHeader } from '../../src/components/ScreenHeader';
+import { FormScreen } from '../../src/components/FormScreen';
+import { useToast } from '../../src/components/Toast';
 import { getCalendarEventById, deleteCalendarEvent } from '../../src/db/calendar_events';
 import type { CalendarEventRow } from '../../src/db/schema';
+import { formatEventWhen } from '../../src/screens/schedule/eventFormModel';
 
 type EventWithStudent = CalendarEventRow & { student_name?: string };
 
-const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function formatDateRange(event: EventWithStudent): string {
-  const start = new Date(event.starts_at);
-  const dayName = DAY_SHORT[start.getDay()];
-  const date = start.getDate();
-  const month = MONTH_SHORT[start.getMonth()];
-
-  if (event.all_day) {
-    return `All day · ${dayName} ${date} ${month}`;
-  }
-
-  const hh = String(start.getHours()).padStart(2, '0');
-  const mm = String(start.getMinutes()).padStart(2, '0');
-  let timeStr = `${hh}:${mm}`;
-
-  if (event.ends_at) {
-    const end = new Date(event.ends_at);
-    const ehh = String(end.getHours()).padStart(2, '0');
-    const emm = String(end.getMinutes()).padStart(2, '0');
-    timeStr += ` – ${ehh}:${emm}`;
-  }
-
-  return `${dayName} ${date} ${month}, ${timeStr}`;
-}
-
 function categoryLabel(cat: string): string {
-  switch (cat) {
-    case 'test':     return 'Test';
-    case 'exam':     return 'Exam';
-    case 'homework': return 'Homework';
-    case 'other':    return 'Other';
-    default:         return cat;
-  }
+  return cat.charAt(0).toUpperCase() + cat.slice(1);
 }
 
 export default function CalendarEventDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const toast = useToast();
   const [event, setEvent] = useState<EventWithStudent | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const busy = useRef(false);
 
-  useEffect(() => {
-    try {
-      const result = getCalendarEventById(id);
-      setEvent(result);
-    } catch {
-      setEvent(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
+  // Reload on focus so edits made on the form show when coming back.
+  useFocusEffect(
+    useCallback(() => {
+      busy.current = false;
+      try {
+        setEvent(getCalendarEventById(id));
+        setLoadError(false);
+      } catch {
+        setEvent(null);
+        setLoadError(true);
+      } finally {
+        setLoading(false);
+      }
+    }, [id]),
+  );
+
+  const header = <ScreenHeader backLabel="BACK" onBack={() => router.back()} />;
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: COLORS.paper, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={COLORS.ink} />
-      </View>
+      <FormScreen header={header}>
+        <ActivityIndicator color={COLORS.ink} style={{ marginTop: 60 }} />
+      </FormScreen>
     );
   }
 
   if (!event) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
-        <ScreenHeader backLabel="BACK" onBack={() => router.back()} />
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
-          <Text style={{ fontFamily: F.serif, fontSize: 22, color: COLORS.ink }}>
-            Event not found
-          </Text>
-        </View>
-      </SafeAreaView>
+      <FormScreen header={header}>
+        <Text style={{ fontFamily: F.serif, fontSize: 22, color: COLORS.ink, textAlign: 'center', marginTop: 60 }}>
+          {loadError ? 'Couldn’t load this item' : 'Event not found'}
+        </Text>
+        <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkSoft, textAlign: 'center', marginTop: 8 }}>
+          {loadError ? 'Go back and try again.' : 'It may have been deleted.'}
+        </Text>
+      </FormScreen>
     );
   }
 
-  const isEvent = event.kind === 'event';
-  const kindColor = isEvent ? COLORS.oxblood : COLORS.inkFaint;
-  const kindLabel = isEvent ? 'EVENT' : 'BLOCK';
+  const current = event;
+  const style = eventKindStyle(current.kind);
+  const noun = current.kind === 'event' ? 'event' : 'time block';
+
+  function edit() {
+    if (busy.current) return;
+    busy.current = true;
+    router.push(`/calendar-event/new?id=${current.id}&kind=${current.kind}` as Href);
+  }
 
   function handleDelete() {
-    Alert.alert(
-      `Delete ${kindLabel.toLowerCase()}?`,
-      `"${event!.title}" will be permanently removed.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            try {
-              deleteCalendarEvent(id);
-            } catch {
-              // ignore
-            }
+    if (busy.current) return;
+    Alert.alert(`Delete this ${noun}?`, `“${current.title}” will be removed from your calendar.`, [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          if (busy.current) return;
+          busy.current = true;
+          try {
+            deleteCalendarEvent(current.id);
+            toast.show({ kind: 'success', message: `${noun.charAt(0).toUpperCase()}${noun.slice(1)} deleted` });
             router.back();
-          },
+          } catch {
+            busy.current = false;
+            toast.show({ kind: 'error', message: `Couldn’t delete the ${noun}. Try again.` });
+          }
         },
-      ]
-    );
+      },
+    ]);
   }
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
-      <ScreenHeader backLabel="BACK" onBack={() => router.back()} />
-
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 48 }}
-        showsVerticalScrollIndicator={false}
+  const footer = (
+    <View style={{ flexDirection: 'row', gap: 12 }}>
+      <TouchableOpacity
+        onPress={edit}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        style={{ flex: 1, borderWidth: 1, borderColor: COLORS.ink, borderRadius: 12, minHeight: 50, alignItems: 'center', justifyContent: 'center' }}
       >
-        {/* Kind badge */}
-        <View style={{ alignSelf: 'flex-start', marginBottom: 12 }}>
-          <View style={{
-            borderWidth: 1,
-            borderColor: kindColor,
-            borderRadius: 999,
-            paddingHorizontal: 12,
-            paddingVertical: 4,
-          }}>
-            <Text style={{ fontFamily: F.sansMed, fontSize: 11, color: kindColor }}>
-              {kindLabel}
-            </Text>
-          </View>
-        </View>
+        <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>Edit</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={handleDelete}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        style={{ flex: 1, borderWidth: 1, borderColor: COLORS.crimson, borderRadius: 12, minHeight: 50, alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.crimson }}>Delete</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
-        {/* Title */}
-        <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.ink, marginBottom: 20 }}>
-          {event.title}
+  return (
+    <FormScreen header={header} footer={footer}>
+      <View
+        style={{
+          alignSelf: 'flex-start',
+          marginTop: 8,
+          marginBottom: 12,
+          backgroundColor: style.fill,
+          borderLeftWidth: 3,
+          borderLeftColor: style.fg,
+          borderRadius: 6,
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+        }}
+      >
+        <Text style={{ fontFamily: F.sansMed, fontSize: 11, color: style.fg, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          {style.label}
         </Text>
-
-        {/* Student name (if set) */}
-        {event.student_id && event.student_name && (
-          <TouchableOpacity
-            onPress={() => router.push(`/student/${event!.student_id}` as Href)}
-            activeOpacity={0.7}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 }}
-          >
-            <Feather name="user" size={14} color={COLORS.inkFaint} />
-            <Text style={{ fontFamily: F.sans, fontSize: 15, color: COLORS.oxblood }}>
-              {event.student_name}
-            </Text>
-            <Feather name="chevron-right" size={14} color={COLORS.inkFaint} />
-          </TouchableOpacity>
-        )}
-
-        {/* Category chip */}
-        {event.category && (
-          <View style={{ alignSelf: 'flex-start', marginBottom: 16 }}>
-            <View style={{
-              backgroundColor: COLORS.warnFill,
-              borderRadius: 999,
-              paddingHorizontal: 12,
-              paddingVertical: 4,
-            }}>
-              <Text style={{ fontFamily: F.sansMed, fontSize: 12, color: COLORS.amber }}>
-                {categoryLabel(event.category)}
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Date/time */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <Feather name="clock" size={14} color={COLORS.inkFaint} />
-          <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.inkSoft }}>
-            {formatDateRange(event)}
-          </Text>
-        </View>
-
-        {/* Notes */}
-        {event.notes ? (
-          <View style={{ marginBottom: 32 }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 6 }}>
-              Notes
-            </Text>
-            <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkFaint, lineHeight: 20 }}>
-              {event.notes}
-            </Text>
-          </View>
-        ) : null}
-      </ScrollView>
-
-      {/* Edit / Delete buttons */}
-      <View style={{
-        flexDirection: 'row',
-        gap: 12,
-        paddingHorizontal: 24,
-        paddingBottom: 32,
-        paddingTop: 12,
-        borderTopWidth: 1,
-        borderTopColor: COLORS.paperEdge,
-        backgroundColor: COLORS.paper,
-      }}>
-        <TouchableOpacity
-          onPress={() => router.push(`/calendar-event/new?id=${event.id}&kind=${event.kind}` as Href)}
-          activeOpacity={0.8}
-          style={{
-            flex: 1,
-            borderWidth: 1,
-            borderColor: COLORS.ink,
-            borderRadius: 12,
-            paddingVertical: 14,
-            alignItems: 'center',
-          }}
-        >
-          <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>
-            Edit
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={handleDelete}
-          activeOpacity={0.8}
-          style={{
-            flex: 1,
-            backgroundColor: COLORS.crimson,
-            borderRadius: 12,
-            paddingVertical: 14,
-            alignItems: 'center',
-          }}
-        >
-          <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.paper }}>
-            Delete
-          </Text>
-        </TouchableOpacity>
       </View>
-    </SafeAreaView>
+
+      <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.ink, marginBottom: 20 }}>{current.title}</Text>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <Feather name="clock" size={14} color={COLORS.inkFaint} />
+        <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.inkSoft, flexShrink: 1 }}>{formatEventWhen(current)}</Text>
+      </View>
+
+      {current.student_id && current.student_name ? (
+        <TouchableOpacity
+          onPress={() => router.push(`/student/${current.student_id}` as Href)}
+          activeOpacity={0.7}
+          accessibilityRole="link"
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: MIN_TOUCH, marginBottom: 8 }}
+        >
+          <Feather name="user" size={14} color={COLORS.inkFaint} />
+          <Text style={{ fontFamily: F.sans, fontSize: 15, color: COLORS.oxblood }}>{current.student_name}</Text>
+          <Feather name="chevron-right" size={14} color={COLORS.inkFaint} />
+        </TouchableOpacity>
+      ) : null}
+
+      {current.category ? (
+        <View style={{ alignSelf: 'flex-start', marginBottom: 16, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4, backgroundColor: COLORS.paperDeep }}>
+          <Text style={{ fontFamily: F.sansMed, fontSize: 12, color: COLORS.inkSoft }}>{categoryLabel(current.category)}</Text>
+        </View>
+      ) : null}
+
+      {current.notes ? (
+        <View style={{ marginBottom: 32 }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 6 }}>Notes</Text>
+          <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkSoft, lineHeight: 20 }}>{current.notes}</Text>
+        </View>
+      ) : null}
+    </FormScreen>
   );
 }
