@@ -355,7 +355,7 @@ export function sumHours(entries: Array<{ hours_delta: number }>): number {
   return entries.reduce((s, e) => s + e.hours_delta, 0);
 }
 
-/** Short human reference for an id: "#3F2A9C1B". */
+/** Short human reference for an id, e.g. hash + first 8 hex chars uppercased. */
 export function shortRef(id: string): string {
   return `#${id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 }
