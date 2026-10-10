@@ -10,6 +10,7 @@ module.exports = {
   testMatch: ['**/__tests__/**/*.[jt]s?(x)', '**/?(*.)+(spec|test).[jt]s?(x)'],
   testPathIgnorePatterns: [
     '/node_modules/',
+    '<rootDir>/\\.claude/',
     '/src/db/__tests__/testDb\\.ts$',
     '/src/db/__tests__/wrapBetterSqlite\\.ts$',
   ],
