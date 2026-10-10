@@ -127,6 +127,10 @@ export function FormScreen({
   return (
     <KeyboardAvoidingView
       behavior="padding"
+      // Android edge-to-edge reports keyboardDidHide with a stale screenY (above the
+      // nav bar), so RN's KAV keeps ~nav-bar-height of padding after the keyboard
+      // closes. Only let it pad while the keyboard is actually open.
+      enabled={keyboardOpen}
       style={{ flex: 1, backgroundColor: bg }}
       testID={testID}
     >
