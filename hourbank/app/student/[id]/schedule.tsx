@@ -1,40 +1,60 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-} from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { LazyDateTimePicker } from '../../../src/components/LazyDateTimePicker';
-import { F } from '../../../src/theme/fonts';
+import { F, hitSlopFor } from '../../../src/theme/fonts';
 import { COLORS } from '../../../src/theme/colors';
+import { FormScreen } from '../../../src/components/FormScreen';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
 import { TopicChip } from '../../../src/components/TopicChip';
 import { ErrorBoundary } from '../../../src/components/ErrorBoundary';
+import { DurationStepperSheet } from '../../../src/components/DurationStepperSheet';
+import { useToast } from '../../../src/components/Toast';
 import { getStudent } from '../../../src/db/students';
 import { currentBalance } from '../../../src/db/ledger';
-import { createScheduled, updateScheduled, getSession } from '../../../src/db/sessions';
-import { formatHours } from '../../../src/utils/format';
+import {
+  createScheduled, getSession, isSessionError, listUpcomingWithProjection, rescheduleSession, updateScheduled,
+} from '../../../src/db/sessions';
 import { findOverlappingCalendarItems } from '../../../src/db/calendar';
 import { listTopicsForStudentSubject, addCustomTopicForSubject } from '../../../src/db/catalog';
-import { Student, Session } from '../../../src/db/schema';
-import { DurationStepperSheet, formatCustomDuration } from '../../../src/components/DurationStepperSheet';
+import { Session, Student } from '../../../src/db/schema';
+import { formatDateLong, formatMinutes, formatScheduledTime, formatTime } from '../../../src/utils/format';
+import { DateTimeField } from '../../../src/components/student/DateTimeField';
+import {
+  Banner, Button, ChoicePills, FieldError, LoadingState, NotFoundState, PageHeading, SectionLabel,
+} from '../../../src/components/student/ui';
+import {
+  conflictSummary, formatBalance, projectedBalanceWithBookings, validateScheduleStart,
+} from '../../../src/components/student/flowLogic';
 
-const DURATIONS = [0.5, 1, 1.5, 2] as const;
-const PRESET_MINUTES = new Set([30, 60, 90, 120]);
-type Mode = 'in_person' | 'online';
+const PRESET_MINUTES = [30, 60, 90, 120];
+type Mode = Session['mode'];
 type SessionType = Session['session_type'];
 
-const SESSION_TYPES: { value: SessionType; label: string }[] = [
+const SESSION_TYPES: Array<{ value: SessionType; label: string }> = [
   { value: 'general', label: 'General' },
   { value: 'review', label: 'Review' },
   { value: 'test_prep', label: 'Test prep' },
   { value: 'exam_prep', label: 'Exam prep' },
 ];
+
+function startOfToday(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function defaultStart(dateParam?: string): Date {
+  if (dateParam) {
+    const prefilled = new Date(`${dateParam}T00:00:00`);
+    if (!Number.isNaN(prefilled.getTime())) {
+      prefilled.setHours(15, 0, 0, 0);
+      return prefilled;
+    }
+  }
+  const d = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  d.setHours(15, 0, 0, 0);
+  return d;
+}
 
 export default function ScheduleScreen() {
   return (
@@ -48,120 +68,96 @@ function ScheduleScreenInner() {
   const { id, sessionId, date: dateParam } = useLocalSearchParams<{ id: string; sessionId?: string; date?: string }>();
   const isReschedule = !!sessionId;
   const router = useRouter();
+  const toast = useToast();
+  const savingRef = useRef(false);
 
-  // Data
   const [student, setStudent] = useState<Student | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [balance, setBalance] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [booked, setBooked] = useState<Array<{ id: string; estimated_duration_minutes: number | null }>>([]);
 
-  // Form state — default date is tomorrow at 15:00 (or prefilled from ?date=)
-  const [date, setDate] = useState<Date>(() => {
-    if (!isReschedule && dateParam) {
-      const prefilled = new Date(dateParam + 'T00:00:00');
-      if (!isNaN(prefilled.getTime())) {
-        prefilled.setHours(15, 0, 0, 0);
-        return prefilled;
-      }
-    }
-    const d = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    d.setHours(15, 0, 0, 0);
-    return d;
-  });
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
-  const [duration, setDuration] = useState<number>(1);
+  const [date, setDate] = useState<Date>(() => defaultStart(isReschedule ? undefined : dateParam));
+  const [minutes, setMinutes] = useState(60);
   const [showDurationSheet, setShowDurationSheet] = useState(false);
   const [mode, setMode] = useState<Mode>('in_person');
   const [sessionType, setSessionType] = useState<SessionType>('general');
-  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
-  const [notes, setNotes] = useState('');
   const [topics, setTopics] = useState<string[]>([]);
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [addingTopic, setAddingTopic] = useState(false);
   const [customTopicInput, setCustomTopicInput] = useState('');
-  const [conflictWarning, setConflictWarning] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     try {
       const s = getStudent(id);
       setStudent(s);
-      if (s) {
-        setBalance(currentBalance(id));
-        setTopics(listTopicsForStudentSubject(s.subject).map(t => t.name));
-      }
-      if (isReschedule && sessionId) {
+      if (!s) return;
+      setBalance(currentBalance(id));
+      setBooked(listUpcomingWithProjection(id));
+      setTopics(listTopicsForStudentSubject(s.subject).map(t => t.name));
+      if (sessionId) {
         const existing = getSession(sessionId);
-        if (existing) {
+        if (!existing || existing.student_id !== id) {
+          setLoadError('That lesson could not be found.');
+        } else if (existing.status !== 'scheduled') {
+          setLoadError('That lesson has already started, been logged or been cancelled.');
+        } else {
           if (existing.scheduled_for) setDate(new Date(existing.scheduled_for));
-          if (existing.estimated_duration_minutes) {
-            setDuration(existing.estimated_duration_minutes / 60);
-          }
+          if (existing.estimated_duration_minutes) setMinutes(existing.estimated_duration_minutes);
           setMode(existing.mode);
           setSessionType(existing.session_type);
-          if (typeof existing.topics === 'string' && existing.topics !== 'null') {
-            try {
-              const parsed: string[] = JSON.parse(existing.topics);
-              if (Array.isArray(parsed)) setSelectedTopics(parsed);
-            } catch { /* ignore malformed */ }
-          }
+          try {
+            const parsed: unknown = JSON.parse(existing.topics);
+            if (Array.isArray(parsed)) {
+              const list = parsed.filter((t): t is string => typeof t === 'string');
+              setSelectedTopics(list);
+              setTopics(prev => [...prev, ...list.filter(t => !prev.includes(t))]);
+            }
+          } catch { /* malformed topics */ }
           setNotes(existing.session_notes ?? '');
         }
       }
-    } catch (e) {
-      console.error('Failed to load student', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [id, isReschedule, sessionId]);
-
-  // Conflict check: runs whenever date or duration changes
-  useEffect(() => {
-    try {
-      const start = date;
-      const end = new Date(start.getTime() + duration * 60 * 60 * 1000);
-      const result = findOverlappingCalendarItems(start.toISOString(), end.toISOString());
-      const parts: string[] = [];
-      result.sessions.forEach(s => {
-        // Exclude the session being rescheduled
-        if (!isReschedule || s.id !== sessionId) {
-          parts.push(s.studentName + ' (lesson)');
-        }
-      });
-      result.calendarItems.forEach(c => parts.push(c.title + (c.kind === 'time_block' ? ' (block)' : '')));
-      setConflictWarning(parts.length > 0 ? 'Overlaps: ' + parts.join(', ') : null);
     } catch {
-      setConflictWarning(null);
+      setLoadError("Couldn't load this student.");
+    } finally {
+      setLoaded(true);
     }
-  }, [date, duration, isReschedule, sessionId]);
+  }, [id, sessionId]);
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: COLORS.paper, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.inkFaint }}>Loading…</Text>
-      </View>
-    );
-  }
+  const conflict = useMemo(() => {
+    try {
+      const end = new Date(date.getTime() + minutes * 60_000);
+      return conflictSummary(
+        findOverlappingCalendarItems(date.toISOString(), end.toISOString(), { excludeSessionId: sessionId }),
+      );
+    } catch {
+      return null;
+    }
+  }, [date, minutes, sessionId]);
 
-  if (!student) {
-    return (
-      <View style={{ flex: 1, backgroundColor: COLORS.paper, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
-        <Text style={{ fontFamily: F.serif, fontSize: 24, color: COLORS.ink, marginBottom: 16 }}>
-          Student not found
-        </Text>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.inkSoft }}>← Go back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  if (!loaded) return <LoadingState />;
+  if (!student) return <NotFoundState title="Student not found" onBack={() => router.back()} />;
+  if (loadError) return <NotFoundState title={loadError} onBack={() => router.back()} />;
 
-  const projectedBalance = balance - duration;
   const firstName = student.full_name.trim().split(/\s+/)[0];
+  const validation = validateScheduleStart(date);
+  const showPastError = !validation.ok;
+  const { otherBookedHours, projected } = projectedBalanceWithBookings(balance, booked, minutes, sessionId);
+
+  function changeDate(next: Date) {
+    setDate(next);
+  }
+
+  function logAsPast() {
+    // Built by hand: RN's URLSearchParams polyfill lacks set().
+    const query = `startedAt=${encodeURIComponent(date.toISOString())}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''}`;
+    router.replace(`/student/${id}/log-past?${query}`);
+  }
 
   function toggleTopic(topic: string) {
-    setSelectedTopics(prev =>
-      prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
-    );
+    setSelectedTopics(prev => (prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]));
   }
 
   function submitCustomTopic() {
@@ -172,351 +168,219 @@ function ScheduleScreenInner() {
     try {
       addCustomTopicForSubject(student.subject, trimmed);
       const refreshed = listTopicsForStudentSubject(student.subject).map(t => t.name);
-      setTopics(refreshed);
-      setSelectedTopics(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-    } catch { /* silent fail for MVP */ }
+      setTopics([...refreshed, ...selectedTopics.filter(t => !refreshed.includes(t))]);
+    } catch {
+      setTopics(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+    }
+    setSelectedTopics(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+  }
+
+  function doConfirm() {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    const iso = date.toISOString();
+    try {
+      if (isReschedule && sessionId) {
+        rescheduleSession(sessionId, iso, { estimatedDurationMinutes: minutes });
+        updateScheduled(sessionId, {
+          scheduledFor: iso,
+          estimatedDurationMinutes: minutes,
+          mode,
+          session_type: sessionType,
+          topics: selectedTopics,
+          notes: notes.trim() || undefined,
+        });
+        toast.show({ kind: 'success', message: `Lesson moved to ${formatScheduledTime(iso)}` });
+      } else {
+        createScheduled({
+          studentId: id,
+          scheduledFor: iso,
+          estimatedDurationMinutes: minutes,
+          mode,
+          session_type: sessionType,
+          topics: selectedTopics,
+          notes: notes.trim() || undefined,
+        });
+        toast.show({ kind: 'success', message: `Lesson booked · ${formatScheduledTime(iso)}` });
+      }
+      router.back();
+    } catch (e) {
+      savingRef.current = false;
+      setSaving(false);
+      toast.show({
+        kind: 'error',
+        message: isSessionError(e, 'INVALID_STATE')
+          ? 'That lesson has already started or been cancelled'
+          : `Couldn't ${isReschedule ? 'move' : 'book'} the lesson — please try again`,
+      });
+    }
   }
 
   function handleConfirm() {
-    if (submitting) return;
-    // Warn-but-allow: scheduling past zero credit shows a confirm, never a block.
-    if (projectedBalance < 0) {
+    if (!validateScheduleStart(date).ok) return;
+    if (projected < 0) {
       Alert.alert(
-        '⚠ Negative balance',
-        `${firstName} has ${formatHours(balance)} left. This will put them at OWES ${formatHours(Math.abs(projectedBalance))}.`,
+        `${firstName} will owe ${formatBalance(-projected)}`,
+        `Balance ${formatBalance(balance)}, other booked lessons ${formatMinutes(otherBookedHours * 60)}, this lesson ${formatMinutes(minutes)}. Remind the parent to top up.`,
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: isReschedule ? 'Reschedule anyway' : 'Schedule anyway', onPress: doConfirm },
-        ]
+          { text: isReschedule ? 'Move anyway' : 'Book anyway', onPress: doConfirm },
+        ],
       );
       return;
     }
     doConfirm();
   }
 
-  function doConfirm() {
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      if (isReschedule && sessionId) {
-        updateScheduled(sessionId, {
-          scheduledFor: date.toISOString(),
-          estimatedDurationMinutes: duration * 60,
-          mode,
-          session_type: sessionType,
-          topics: selectedTopics,
-          notes: notes.trim() || undefined,
-        });
-      } else {
-        createScheduled({
-          studentId: id,
-          scheduledFor: date.toISOString(),
-          estimatedDurationMinutes: duration * 60,
-          mode,
-          session_type: sessionType,
-          topics: selectedTopics,
-          notes: notes.trim() || undefined,
-        });
-      }
-      router.back();
-    } catch (_e) {
-      Alert.alert('Error', 'Could not schedule lesson. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  // Credit banner
-  let banner: React.ReactNode = null;
-  if (projectedBalance < 0) {
-    banner = (
-      <View
-        style={{
-          backgroundColor: COLORS.badFill,
-          borderWidth: 1,
-          borderColor: COLORS.crimson,
-          borderRadius: 12,
-          padding: 16,
-          marginBottom: 24,
-        }}
-      >
-        <Text style={{ fontFamily: F.sansMed, fontSize: 13, color: COLORS.crimson }}>
-          {'Student will be in deficit after this session (' +
-            formatHours(Math.abs(projectedBalance)) +
-            ' over). Remind parent to top up before ' +
-            date.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' }) +
-            '.'}
-        </Text>
-      </View>
-    );
-  } else if (projectedBalance < 1) {
-    banner = (
-      <View
-        style={{
-          backgroundColor: COLORS.warnFill,
-          borderWidth: 1,
-          borderColor: COLORS.amber,
-          borderRadius: 12,
-          padding: 16,
-          marginBottom: 24,
-        }}
-      >
-        <Text style={{ fontFamily: F.sansMed, fontSize: 13, color: COLORS.amber }}>
-          {'Balance will be low after this session (' +
-            formatHours(projectedBalance) +
-            ' remaining). Consider topping up.'}
-        </Text>
-      </View>
-    );
-  }
-
-  const monoLabel = {
-    fontFamily: F.mono,
-    fontSize: 10,
-    color: COLORS.inkFaint as string,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  };
-
-  const fieldBorder = {
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.paperEdge,
-    paddingVertical: 12,
-    marginBottom: 24,
-  };
+  const isCustomDuration = !PRESET_MINUTES.includes(minutes);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
-      <ScreenHeader backLabel={firstName.toUpperCase()} onBack={() => router.back()} />
+    <FormScreen
+      header={<ScreenHeader backLabel={firstName.toUpperCase()} onBack={() => router.back()} />}
+      footer={
+        <Button
+          label={isReschedule ? 'Move lesson' : 'Book lesson'}
+          icon={isReschedule ? 'repeat' : 'calendar'}
+          onPress={handleConfirm}
+          disabled={!validation.ok}
+          busy={saving}
+        />
+      }
+    >
+      <PageHeading
+        eyebrow={isReschedule ? '★ RESCHEDULE LESSON' : '★ BOOK LESSON'}
+        line1={isReschedule ? 'New time,' : 'When are'}
+        line2={isReschedule ? 'same student.' : 'you meeting?'}
+      />
 
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 48 }}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Page heading */}
-        <View style={{ marginBottom: 28 }}>
-          <Text
-            style={{
-              fontFamily: F.mono,
-              fontSize: 10,
-              color: COLORS.oxblood,
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              marginBottom: 8,
-            }}
-          >
-            {isReschedule ? '↺ RESCHEDULE LESSON' : '★ SCHEDULE LESSON'}
-          </Text>
-          <Text style={{ fontFamily: F.serif, fontSize: 28, color: COLORS.ink, lineHeight: 32 }}>
-            {isReschedule ? 'New time,' : 'When are'}
-          </Text>
-          <Text style={{ fontFamily: F.serifItalic, fontSize: 28, color: COLORS.oxblood, lineHeight: 34 }}>
-            {isReschedule ? 'same student.' : 'you meeting?'}
-          </Text>
-        </View>
-
-        {/* DATE */}
-        <Text style={monoLabel}>DATE</Text>
-        <View style={fieldBorder}>
-          <TouchableOpacity onPress={() => setShowDatePicker(true)} activeOpacity={0.7}>
-            <Text style={{ fontFamily: F.serif, fontSize: 18, color: COLORS.ink }}>
-              {date.toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long' })}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {showDatePicker && (
-          <LazyDateTimePicker
-            value={date}
+      <View style={{ flexDirection: 'row', gap: 16 }}>
+        <View style={{ flex: 3 }}>
+          <SectionLabel>DATE</SectionLabel>
+          <DateTimeField
             mode="date"
-            minimumDate={new Date()}
-            onChange={(_event, selectedDate) => {
-              setShowDatePicker(false);
-              if (selectedDate) {
-                setDate(prev => {
-                  const d = new Date(prev);
-                  d.setFullYear(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
-                  return d;
-                });
-              }
-            }}
-          />
-        )}
-
-        {/* TIME */}
-        <Text style={monoLabel}>TIME</Text>
-        <View style={fieldBorder}>
-          <TouchableOpacity onPress={() => setShowTimePicker(true)} activeOpacity={0.7}>
-            <Text style={{ fontFamily: F.serif, fontSize: 18, color: COLORS.ink }}>
-              {date.toLocaleTimeString('en-ZA', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false,
-              })}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {showTimePicker && (
-          <LazyDateTimePicker
             value={date}
-            mode="time"
-            is24Hour
-            minimumDate={new Date()}
-            onChange={(_event, selectedDate) => {
-              setShowTimePicker(false);
-              if (selectedDate) {
-                setDate(prev => {
-                  const d = new Date(prev);
-                  d.setHours(selectedDate.getHours(), selectedDate.getMinutes(), 0, 0);
-                  return d;
-                });
-              }
-            }}
+            onChange={changeDate}
+            display={formatDateLong(date)}
+            accessibilityLabel="Lesson date"
+            minimumDate={startOfToday()}
+            invalid={showPastError}
           />
-        )}
+        </View>
+        <View style={{ flex: 2 }}>
+          <SectionLabel>TIME</SectionLabel>
+          <DateTimeField
+            mode="time"
+            value={date}
+            onChange={changeDate}
+            display={formatTime(date)}
+            accessibilityLabel="Start time"
+            invalid={showPastError}
+          />
+        </View>
+      </View>
 
-        {/* DURATION */}
-        <Text style={monoLabel}>DURATION</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
-          {DURATIONS.map(d => (
-            <TouchableOpacity
-              key={d}
-              onPress={() => setDuration(d)}
-              activeOpacity={0.75}
-              style={{
-                backgroundColor: duration === d ? COLORS.ink : 'transparent',
-                borderWidth: 1,
-                borderColor: duration === d ? COLORS.ink : COLORS.paperEdge,
-                borderRadius: 999,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-              }}
+      {showPastError && !validation.ok ? (
+        <View style={{ marginTop: 8 }}>
+          <FieldError message={validation.message} />
+          <View style={{ marginTop: 8 }}>
+            <Banner
+              tone="info"
+              icon="clock"
+              action={{ label: 'Log as past lesson →', onPress: logAsPast }}
             >
-              <Text
-                style={{
-                  fontFamily: F.sans,
-                  fontSize: 13,
-                  color: duration === d ? COLORS.paper : COLORS.ink,
-                }}
-              >
-                {formatHours(d)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-          {/* Custom pill */}
-          {(() => {
-            const isCustomActive = !PRESET_MINUTES.has(Math.round(duration * 60));
-            const customLabel = isCustomActive
-              ? `Custom (${formatCustomDuration(Math.round(duration * 60))})`
-              : 'Custom';
+              Already taught this one? Log it instead and the hours are deducted.
+            </Banner>
+          </View>
+        </View>
+      ) : null}
+
+      {conflict ? (
+        <View style={{ marginTop: 10 }}>
+          <Banner tone="warn" icon="alert-triangle">{conflict}</Banner>
+        </View>
+      ) : null}
+
+      <View style={{ marginTop: 24 }}>
+        <SectionLabel>DURATION</SectionLabel>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }} accessibilityRole="radiogroup">
+          {[...PRESET_MINUTES.map(m => ({ m, label: formatMinutes(m), custom: false })),
+            { m: -1, label: isCustomDuration ? `Custom · ${formatMinutes(minutes)}` : 'Custom', custom: true }].map(opt => {
+            const active = opt.custom ? isCustomDuration : minutes === opt.m;
             return (
               <TouchableOpacity
-                onPress={() => setShowDurationSheet(true)}
+                key={opt.label}
+                onPress={() => (opt.custom ? setShowDurationSheet(true) : setMinutes(opt.m))}
                 activeOpacity={0.75}
+                hitSlop={hitSlopFor(36)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={opt.custom ? 'Custom duration' : opt.label}
                 style={{
-                  backgroundColor: isCustomActive ? COLORS.ink : 'transparent',
+                  minHeight: 36,
+                  justifyContent: 'center',
+                  backgroundColor: active ? COLORS.ink : COLORS.transparent,
                   borderWidth: 1,
-                  borderColor: isCustomActive ? COLORS.ink : COLORS.paperEdge,
+                  borderColor: active ? COLORS.ink : COLORS.paperEdge,
                   borderRadius: 999,
                   paddingHorizontal: 16,
-                  paddingVertical: 8,
                 }}
               >
-                <Text
-                  style={{
-                    fontFamily: F.sans,
-                    fontSize: 13,
-                    color: isCustomActive ? COLORS.paper : COLORS.ink,
-                  }}
-                >
-                  {customLabel}
-                </Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 13, color: active ? COLORS.paper : COLORS.ink }}>{opt.label}</Text>
               </TouchableOpacity>
             );
-          })()}
+          })}
         </View>
+        <Text
+          style={{ fontFamily: F.mono, fontSize: 12, color: projected < 0 ? COLORS.crimson : COLORS.inkSoft, marginTop: 10 }}
+        >
+          {`Balance ${formatBalance(balance)}`}
+          {otherBookedHours > 0 ? ` · booked ${formatMinutes(otherBookedHours * 60)}` : ''}
+          {` · after this ${formatBalance(projected)}`}
+        </Text>
+      </View>
 
-        <DurationStepperSheet
-          visible={showDurationSheet}
-          initialMinutes={Math.round(duration * 60)}
-          onConfirm={(mins) => { setDuration(mins / 60); setShowDurationSheet(false); }}
-          onCancel={() => setShowDurationSheet(false)}
+      <DurationStepperSheet
+        visible={showDurationSheet}
+        initialMinutes={minutes}
+        onConfirm={mins => { setMinutes(mins); setShowDurationSheet(false); }}
+        onCancel={() => setShowDurationSheet(false)}
+      />
+
+      {projected < 0 ? (
+        <View style={{ marginTop: 12 }}>
+          <Banner tone="bad" icon="alert-circle">
+            {`${firstName} will owe ${formatBalance(-projected)} once this and the other booked lessons are taught. Remind the parent to top up before ${formatDateLong(date)}.`}
+          </Banner>
+        </View>
+      ) : projected < 1 ? (
+        <View style={{ marginTop: 12 }}>
+          <Banner tone="warn" icon="alert-triangle">
+            {`Only ${formatBalance(projected)} left after booked lessons. Consider a top-up.`}
+          </Banner>
+        </View>
+      ) : null}
+
+      <View style={{ marginTop: 24 }}>
+        <SectionLabel>MODE</SectionLabel>
+        <ChoicePills
+          options={[{ value: 'in_person', label: 'In-person' }, { value: 'online', label: 'Online' }]}
+          value={mode}
+          onChange={setMode}
+          icons={{ in_person: 'map-pin', online: 'monitor' }}
         />
+      </View>
 
-        {/* MODE */}
-        <Text style={monoLabel}>MODE</Text>
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 24 }}>
-          {(['in_person', 'online'] as Mode[]).map(m => (
-            <TouchableOpacity
-              key={m}
-              onPress={() => setMode(m)}
-              activeOpacity={0.75}
-              style={{
-                backgroundColor: mode === m ? COLORS.ink : 'transparent',
-                borderWidth: 1,
-                borderColor: mode === m ? COLORS.ink : COLORS.paperEdge,
-                borderRadius: 999,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-              }}
-            >
-              <Text
-                style={{
-                  fontFamily: F.sans,
-                  fontSize: 13,
-                  color: mode === m ? COLORS.paper : COLORS.ink,
-                }}
-              >
-                {m === 'in_person' ? '📍 In-Person' : '💻 Online'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+      <View style={{ marginTop: 24 }}>
+        <SectionLabel>TYPE</SectionLabel>
+        <ChoicePills options={SESSION_TYPES} value={sessionType} onChange={setSessionType} />
+      </View>
 
-        {/* TYPE */}
-        <Text style={monoLabel}>TYPE</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
-          {SESSION_TYPES.map(({ value, label }) => (
-            <TouchableOpacity
-              key={value}
-              onPress={() => setSessionType(value)}
-              activeOpacity={0.75}
-              style={{
-                backgroundColor: sessionType === value ? COLORS.ink : 'transparent',
-                borderWidth: 1,
-                borderColor: sessionType === value ? COLORS.ink : COLORS.paperEdge,
-                borderRadius: 999,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-              }}
-            >
-              <Text
-                style={{
-                  fontFamily: F.sans,
-                  fontSize: 13,
-                  color: sessionType === value ? COLORS.paper : COLORS.ink,
-                }}
-              >
-                {label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* TOPICS (optional) */}
-        <Text style={monoLabel}>TOPICS (OPTIONAL)</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+      <View style={{ marginTop: 24 }}>
+        <SectionLabel>TOPICS (OPTIONAL)</SectionLabel>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {topics.map(topic => (
-            <TopicChip
-              key={topic}
-              label={topic}
-              selected={selectedTopics.includes(topic)}
-              onPress={() => toggleTopic(topic)}
-            />
+            <TopicChip key={topic} label={topic} selected={selectedTopics.includes(topic)} onPress={() => toggleTopic(topic)} />
           ))}
           {addingTopic ? (
             <TextInput
@@ -536,85 +400,54 @@ function ScheduleScreenInner() {
                 borderColor: COLORS.ink,
                 borderRadius: 999,
                 paddingHorizontal: 12,
-                paddingVertical: 6,
+                minHeight: 36,
                 minWidth: 120,
               }}
             />
           ) : (
             <TouchableOpacity
               onPress={() => setAddingTopic(true)}
+              activeOpacity={0.75}
+              hitSlop={hitSlopFor(36)}
+              accessibilityRole="button"
+              accessibilityLabel="Add a topic"
               style={{
                 borderWidth: 1,
                 borderColor: COLORS.inkFaint,
                 borderStyle: 'dashed',
                 borderRadius: 999,
                 paddingHorizontal: 12,
-                paddingVertical: 6,
+                minHeight: 36,
+                justifyContent: 'center',
               }}
-              activeOpacity={0.75}
             >
-              <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkFaint }}>+ Add</Text>
+              <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>+ Add</Text>
             </TouchableOpacity>
           )}
         </View>
+      </View>
 
-        {/* NOTES (optional) */}
-        <Text style={monoLabel}>NOTES (OPTIONAL)</Text>
-        <View
+      <View style={{ marginTop: 24 }}>
+        <SectionLabel>NOTES (OPTIONAL)</SectionLabel>
+        <TextInput
+          value={notes}
+          onChangeText={setNotes}
+          multiline
+          placeholder="Anything to prepare…"
+          placeholderTextColor={COLORS.inkFaint}
+          accessibilityLabel="Lesson notes"
           style={{
+            fontFamily: F.sans,
+            fontSize: 15,
+            color: COLORS.ink,
             borderBottomWidth: 1,
             borderBottomColor: COLORS.paperEdge,
-            marginBottom: 24,
+            paddingVertical: 10,
+            minHeight: 72,
+            textAlignVertical: 'top',
           }}
-        >
-          <TextInput
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-            numberOfLines={3}
-            placeholder="Add session notes…"
-            placeholderTextColor={COLORS.inkFaint}
-            style={{
-              fontFamily: F.sans,
-              fontSize: 15,
-              color: COLORS.ink,
-              paddingVertical: 12,
-              minHeight: 72,
-              textAlignVertical: 'top',
-            }}
-          />
-        </View>
-
-        {/* Credit warning banner */}
-        {banner}
-
-        {/* Conflict warning banner */}
-        {conflictWarning && (
-          <View style={{ backgroundColor: COLORS.warnFill, borderRadius: 8, padding: 12, marginBottom: 12 }}>
-            <Text style={{ fontFamily: F.sansMed, color: COLORS.ink, fontSize: 13 }}>
-              {'⚠'} {conflictWarning}
-            </Text>
-          </View>
-        )}
-
-        {/* Confirm button */}
-        <TouchableOpacity
-          onPress={handleConfirm}
-          disabled={submitting}
-          activeOpacity={0.85}
-          style={{
-            backgroundColor: COLORS.oxblood,
-            borderRadius: 16,
-            paddingVertical: 16,
-            alignItems: 'center',
-            opacity: submitting ? 0.5 : 1,
-          }}
-        >
-          <Text style={{ fontFamily: F.sansMed, fontSize: 16, color: COLORS.paper }}>
-            {isReschedule ? 'Reschedule ▸' : 'Confirm lesson ▸'}
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+        />
+      </View>
+    </FormScreen>
   );
 }

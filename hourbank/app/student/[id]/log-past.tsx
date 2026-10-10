@@ -88,7 +88,9 @@ export default function LogPastLessonScreen() {
           if (sess.session_notes) setNotes(sess.session_notes);
         }
       }
-      if (!initialStart && startedAt) {
+      // An explicit start (e.g. "Log as past lesson" from the schedule screen)
+      // wins over the booked time.
+      if (startedAt) {
         const d = new Date(startedAt);
         if (!Number.isNaN(d.getTime())) initialStart = d;
       }
