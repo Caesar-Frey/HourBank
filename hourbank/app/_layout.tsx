@@ -1,6 +1,6 @@
 import '../src/global.css';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, AppState, StatusBar, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, usePathname } from 'expo-router';
 import { SessionTimerProvider, useSessionTimer } from '../src/contexts/SessionTimerContext';
@@ -80,6 +80,9 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      {/* App-wide default: dark icons on paper. The Live Session screen pushes
+          light-content on top of this while it is mounted. */}
+      <StatusBar barStyle="dark-content" />
       <ToastProvider>
         {db.status === 'ready' ? (
           <SessionTimerProvider>
