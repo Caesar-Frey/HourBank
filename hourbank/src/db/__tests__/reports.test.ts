@@ -253,7 +253,7 @@ describe('getWeekLessonStats', () => {
   });
 });
 
-describe('charged no-shows count as delivered in reports', () => {
+describe('charged no-shows: billed in reports but not counted as taught', () => {
   let db: TestDb;
   beforeEach(() => {
     db = createTestDb();
@@ -272,9 +272,25 @@ describe('charged no-shows count as delivered in reports', () => {
     expect(rows[0]).toMatchObject({ id: 'ns', cancel_reason: 'no_show', billed_minutes: 60, ended_at: '2026-05-10T09:00:00.000Z' });
   });
 
-  it('includes it in month totals', () => {
+  it('keeps it out of taught totals and reports it separately', () => {
     const sum = getMonthSummary(2026, 4);
-    expect(sum.totalHours).toBe(1);
+    expect(sum.totalHours).toBe(0);
+    expect(sum.totalLessons).toBe(0);
+    expect(sum.noShowHours).toBe(1);
+    expect(sum.noShowLessons).toBe(1);
+    // Billed per-student totals still include the charged no-show.
+    expect(sum.perStudent.find(r => r.studentId === 's1')).toMatchObject({ hours: 1, sessions: 1 });
+  });
+
+  it('splits a month with both taught lessons and a charged no-show', () => {
+    db.runSync(
+      `INSERT INTO sessions (id, student_id, mode, status, started_at, ended_at, billed_minutes, created_at)
+       VALUES ('c1', 's1', 'online', 'completed', '2026-05-11T09:00:00.000Z', '2026-05-11T10:30:00.000Z', 90, '2026-05-11T09:00:00.000Z')`
+    );
+    const sum = getMonthSummary(2026, 4);
+    expect(sum.totalHours).toBe(1.5);
     expect(sum.totalLessons).toBe(1);
+    expect(sum.noShowHours).toBe(1);
+    expect(sum.noShowLessons).toBe(1);
   });
 });

@@ -26,8 +26,10 @@ import {
   isChargedNoShow,
   isFutureMonth,
   lessonBilledLabel,
+  noShowChargedLabel,
   outstandingFromBalances,
   shiftMonth,
+  taughtLessonsLabel,
 } from './moneyModel';
 
 type List = 'cash' | 'lessons' | 'students';
@@ -43,7 +45,7 @@ const EYEBROW = {
   marginBottom: 6,
 };
 
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Tile({ label, value, sub, note }: { label: string; value: string; sub?: string; note?: string | null }) {
   return (
     <View style={{ flex: 1, borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 14, backgroundColor: COLORS.cardFill, padding: 14 }}>
       <Text style={EYEBROW}>{label}</Text>
@@ -51,6 +53,7 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
         {value}
       </Text>
       {sub ? <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, marginTop: 2 }}>{sub}</Text> : null}
+      {note ? <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.oxblood, marginTop: 2 }}>{note}</Text> : null}
     </View>
   );
 }
@@ -160,7 +163,8 @@ export function MoneyInView() {
           <Tile
             label="Hours taught"
             value={formatHours(summary.totalHours)}
-            sub={`${summary.totalLessons} ${pluralize(summary.totalLessons, 'lesson')}`}
+            sub={taughtLessonsLabel(summary.totalLessons)}
+            note={noShowChargedLabel(summary.noShowLessons, summary.noShowHours)}
           />
         </View>
       ) : null}

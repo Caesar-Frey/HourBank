@@ -14,9 +14,14 @@ export type StudentMonthRow = {
 export type MonthSummary = {
   monthLabel: string;
   totalCashRand: number;
-  /** Billed hours of completed lessons in the month. */
+  /** Billed hours of lessons actually TAUGHT in the month (charged no-shows excluded). */
   totalHours: number;
+  /** Lessons actually taught (charged no-shows excluded). */
   totalLessons: number;
+  /** Billed hours of charged no-shows (billed, claimable — but not taught). */
+  noShowHours: number;
+  noShowLessons: number;
+  /** Per-student BILLED totals (taught lessons + charged no-shows). */
   perStudent: StudentMonthRow[];
 };
 
@@ -165,11 +170,17 @@ export function getMonthSummary(year: number, monthZeroIdx: number): MonthSummar
   const { start, end } = localMonthBounds(year, monthZeroIdx);
   const monthLabel = `${MONTH_NAMES[monthZeroIdx]} ${year}`;
 
-  type SessionRow = { student_id: string; name: string; grade: number; subject: string; hours: number; sessions: number };
+  type SessionRow = {
+    student_id: string; name: string; grade: number; subject: string;
+    hours: number; sessions: number; noShowHours: number; noShowSessions: number;
+  };
+  const NO_SHOW = `(s.status = 'cancelled' AND s.cancel_reason = 'no_show')`;
   const sessionRows = db.getAllSync<SessionRow>(
     `SELECT s.student_id, st.full_name AS name, st.grade, st.subject,
             COALESCE(SUM(${BILLED_MINUTES_SQL}) / 60.0, 0) AS hours,
-            COUNT(*) AS sessions
+            COUNT(*) AS sessions,
+            COALESCE(SUM(CASE WHEN ${NO_SHOW} THEN ${BILLED_MINUTES_SQL} ELSE 0 END) / 60.0, 0) AS noShowHours,
+            COALESCE(SUM(CASE WHEN ${NO_SHOW} THEN 1 ELSE 0 END), 0) AS noShowSessions
      FROM sessions s
      JOIN students st ON s.student_id = st.id
      WHERE ${billableSessionSql('s')}
@@ -224,8 +235,10 @@ export function getMonthSummary(year: number, monthZeroIdx: number): MonthSummar
   perStudent.sort((a, b) => b.hours - a.hours);
 
   const totalCashRand = pkgRows.reduce((sum, r) => sum + r.cashRand, 0);
-  const totalHours = sessionRows.reduce((sum, r) => sum + r.hours, 0);
-  const totalLessons = sessionRows.reduce((sum, r) => sum + r.sessions, 0);
+  const noShowHours = sessionRows.reduce((sum, r) => sum + r.noShowHours, 0);
+  const noShowLessons = sessionRows.reduce((sum, r) => sum + r.noShowSessions, 0);
+  const totalHours = sessionRows.reduce((sum, r) => sum + r.hours, 0) - noShowHours;
+  const totalLessons = sessionRows.reduce((sum, r) => sum + r.sessions, 0) - noShowLessons;
 
-  return { monthLabel, totalCashRand, totalHours, totalLessons, perStudent };
+  return { monthLabel, totalCashRand, totalHours, totalLessons, noShowHours, noShowLessons, perStudent };
 }

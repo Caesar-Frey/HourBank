@@ -3,7 +3,7 @@
  */
 import type { SessionListRow } from '../../db/reports';
 import type { ClaimablePoolLine } from '../../db/claims';
-import { formatMinutes } from '../../utils/format';
+import { formatHours, formatMinutes, pluralize } from '../../utils/format';
 
 const EPS = 1e-9;
 
@@ -52,6 +52,19 @@ export function isChargedNoShow(row: Pick<SessionListRow, 'status' | 'cancel_rea
 /** Right-hand amount for a lesson row: billed length, e.g. "1h 30m". */
 export function lessonBilledLabel(row: Pick<SessionListRow, 'billed_minutes'>): string {
   return formatMinutes(Math.max(0, row.billed_minutes ?? 0));
+}
+
+// ─── Hours taught tile ───────────────────────────────────────────────────────
+
+/** "2 lessons taught" — count of lessons actually taught (charged no-shows excluded). */
+export function taughtLessonsLabel(lessons: number): string {
+  return `${lessons} ${pluralize(lessons, 'lesson')} taught`;
+}
+
+/** "+ 1 no-show charged · 1h", or null when there were none. */
+export function noShowChargedLabel(count: number, hours: number): string | null {
+  if (!(count > 0)) return null;
+  return `+ ${count} ${pluralize(count, 'no-show')} charged · ${formatHours(hours)}`;
 }
 
 // ─── Payout hints ────────────────────────────────────────────────────────────

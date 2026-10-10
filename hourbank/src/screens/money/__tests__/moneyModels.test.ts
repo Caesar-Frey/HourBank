@@ -12,8 +12,10 @@ import {
   isChargedNoShow,
   isFutureMonth,
   lessonBilledLabel,
+  noShowChargedLabel,
   outstandingFromBalances,
   payoutHints,
+  taughtLessonsLabel,
   shiftMonth,
 } from '../moneyModel';
 
@@ -78,6 +80,20 @@ describe('money in', () => {
     expect(isChargedNoShow({ status: 'cancelled', cancel_reason: 'no_show' })).toBe(true);
     expect(isChargedNoShow({ status: 'completed', cancel_reason: null })).toBe(false);
     expect(lessonBilledLabel({ billed_minutes: 90 })).toBe('1h 30m');
+  });
+});
+
+describe('Hours taught tile', () => {
+  test('lesson count excludes no-shows (summary already split)', () => {
+    expect(taughtLessonsLabel(2)).toBe('2 lessons taught');
+    expect(taughtLessonsLabel(1)).toBe('1 lesson taught');
+    expect(taughtLessonsLabel(0)).toBe('0 lessons taught');
+  });
+
+  test('charged no-shows shown separately, hidden when none', () => {
+    expect(noShowChargedLabel(1, 1)).toBe('+ 1 no-show charged · 1h');
+    expect(noShowChargedLabel(2, 1.5)).toBe('+ 2 no-shows charged · 1h 30m');
+    expect(noShowChargedLabel(0, 0)).toBeNull();
   });
 });
 
