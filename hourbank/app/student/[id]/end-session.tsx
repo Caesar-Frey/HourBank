@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Alert, StatusBar } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigationContainerRef, useRouter } from 'expo-router';
+import { CommonActions } from '@react-navigation/native';
+import { applyLessonSavedNav, lessonSavedNav } from '../../../src/utils/lessonNav';
 import { getStudent } from '../../../src/db/students';
 import { currentBalance as fetchBalance } from '../../../src/db/ledger';
 import {
@@ -66,6 +68,7 @@ export default function EndSessionScreen() {
   const router = useRouter();
   const toast = useToast();
   const { endTimer, refreshFromDb } = useSessionTimer();
+  const navRef = useNavigationContainerRef();
 
   // Snapshot once: the lesson as it stood when "End lesson" was tapped.
   const [session] = useState<Session | null>(() => {
@@ -235,8 +238,14 @@ export default function EndSessionScreen() {
     lessonDraftStore.clear(sessionId);
     endTimer();
     toast.show({ kind: 'success', message: `Lesson saved · ${formatMinutes(billed)} deducted` });
-    // Replace the whole live-lesson stack so Back never shows a stale timer.
-    router.replace(`/lesson/${sessionId}?justSaved=1`);
+    // Timer + review are popped either way, so Back never shows a stale timer.
+    // Started from the student page → [..., student, summary]; else replace.
+    applyLessonSavedNav(
+      router,
+      navRef,
+      lessonSavedNav({ rootState: navRef.getRootState(), studentId: id, lessonHref: `/lesson/${sessionId}?justSaved=1` }),
+      state => CommonActions.reset(state as never),
+    );
   };
 
   const proceedZeroOrSave = (billed: number) => {

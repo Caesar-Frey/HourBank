@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigationContainerRef, useRouter } from 'expo-router';
+import { CommonActions } from '@react-navigation/native';
+import { applyLessonSavedNav, lessonSavedNav } from '../../../src/utils/lessonNav';
 import { F } from '../../../src/theme/fonts';
 import { COLORS } from '../../../src/theme/colors';
 import { FormScreen } from '../../../src/components/FormScreen';
@@ -37,6 +39,7 @@ function parseTopics(json: string | null | undefined): string[] {
 export default function LogPastLessonScreen() {
   const { id, sessionId, startedAt, from } = useLocalSearchParams<{ id: string; sessionId?: string; startedAt?: string; from?: string }>();
   const router = useRouter();
+  const navRef = useNavigationContainerRef();
   const toast = useToast();
   const savingRef = useRef(false);
 
@@ -157,7 +160,15 @@ export default function LogPastLessonScreen() {
       // Opened from that lesson's own detail screen: go back to it (it reloads on
       // focus) instead of stacking a second copy of the same lesson.
       if (from === 'lesson' && booked && router.canGoBack()) router.back();
-      else router.replace(`/lesson/${session.id}`);
+      // From the student page → [..., student, summary] so Back returns there.
+      else {
+        applyLessonSavedNav(
+          router,
+          navRef,
+          lessonSavedNav({ rootState: navRef.getRootState(), studentId: id, lessonHref: `/lesson/${session.id}` }),
+          state => CommonActions.reset(state as never),
+        );
+      }
     } catch (e) {
       savingRef.current = false;
       setSaving(false);

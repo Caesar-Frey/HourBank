@@ -8,6 +8,9 @@ const minsBefore = (m: number) => new Date(new Date(ENDED_AT).getTime() - m * 60
 
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
+const mockDispatch = jest.fn();
+const mockPush = jest.fn();
+let mockRootState: unknown = null;
 const mockEndTimer = jest.fn();
 const mockRefresh = jest.fn();
 const mockToast = jest.fn();
@@ -23,7 +26,8 @@ jest.mock('expo-router', () => ({
     mode: 'online',
     topics: mockTopicsParam,
   }),
-  useRouter: () => ({ replace: mockReplace, back: mockBack }),
+  useRouter: () => ({ replace: mockReplace, back: mockBack, push: mockPush }),
+  useNavigationContainerRef: () => ({ getRootState: () => mockRootState, dispatch: mockDispatch }),
 }));
 jest.mock('../../db/students', () => ({
   getStudent: () => ({ id: 'student-1', full_name: 'Sam Student', subject: 'Maths', grade: 10, curriculum: 'CAPS' }),
@@ -78,6 +82,7 @@ beforeEach(() => {
   lessonDraftStore.clear('session-1');
   mockSession = session();
   mockTopicsParam = encodeURIComponent('["Algebra"]');
+  mockRootState = null;
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
 
@@ -224,4 +229,35 @@ test('topics: persisted to the in-flight row; restored from it when the param is
   const screen = renderScreen();
   fireEvent.press(screen.getByText(/Save lesson/));
   expect(endSession).toHaveBeenCalledWith(expect.objectContaining({ topics: ['Geometry'] }));
+});
+
+test('save from a lesson started on the student page: back to that page, then push the summary', () => {
+  mockRootState = {
+    index: 2,
+    routes: [
+      { name: '(app)' },
+      { name: 'student', state: { index: 0, routes: [{ name: '[id]/index', params: { id: 'student-1' } }] } },
+      {
+        name: 'student',
+        state: {
+          index: 1,
+          routes: [
+            { name: '[id]/session', params: { id: 'student-1', sessionId: 'session-1' } },
+            { name: '[id]/end-session', params: { id: 'student-1', sessionId: 'session-1' } },
+          ],
+        },
+      },
+    ],
+  };
+  (endSession as jest.Mock).mockImplementation(() => {});
+  const screen = renderScreen();
+  fireEvent.press(screen.getByText(/Save lesson/));
+  expect(mockDispatch).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'RESET',
+      payload: expect.objectContaining({ index: 1, routes: [expect.anything(), expect.anything()] }),
+    }),
+  );
+  expect(mockPush).toHaveBeenCalledWith('/lesson/session-1?justSaved=1');
+  expect(mockReplace).not.toHaveBeenCalled();
 });
