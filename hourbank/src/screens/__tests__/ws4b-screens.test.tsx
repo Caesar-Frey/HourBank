@@ -165,7 +165,7 @@ test('New claim: grouped by student, hold-back excluded, finalise asks to confir
 
   fireEvent.press(screen.getByText(/^Finalise · /));
   const [title, , buttons] = (Alert.alert as jest.Mock).mock.calls[0];
-  expect(title).toMatch(/^Finalise claim for R /);
+  expect(title).toMatch(/^Finalise claim for R\u00A0/);
   expect(listClaims()).toHaveLength(0); // nothing written before confirming
   act(() => (buttons as { text: string; onPress?: () => void }[]).find(b => b.text === 'Finalise')!.onPress!());
   const claims = listClaims();

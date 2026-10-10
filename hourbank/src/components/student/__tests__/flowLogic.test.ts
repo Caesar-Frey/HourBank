@@ -98,18 +98,18 @@ describe('top-up helpers', () => {
 
   it('labels the CTA', () => {
     expect(topUpCtaLabel(null, null, false)).toBe('Choose a package');
-    expect(topUpCtaLabel(10, 5500, true)).toBe('Add 10h · R 5 500.00');
+    expect(topUpCtaLabel(10, 5500, true)).toBe('Add 10h · R\u00A05\u00A0500.00');
     expect(topUpCtaLabel(null, null, true)).toBe('Enter hours');
     expect(topUpCtaLabel(2.5, null, true)).toBe('Add 2h 30m · enter amount');
   });
 
   it('previews decimal inputs', () => {
     expect(decimalPreview('8,5', 'hours')).toEqual({ value: 8.5, text: '= 8h 30m', error: false });
-    expect(decimalPreview('4 500', 'rand')).toEqual({ value: 4500, text: '= R 4 500.00', error: false });
+    expect(decimalPreview('4 500', 'rand')).toEqual({ value: 4500, text: '= R\u00A04\u00A0500.00', error: false });
     expect(decimalPreview('', 'rand')).toEqual({ value: null, text: '', error: false });
     expect(decimalPreview('x', 'hours').error).toBe(true);
     expect(decimalPreview('0', 'hours').error).toBe(true);
-    expect(decimalPreview('0', 'rand')).toEqual({ value: 0, text: '= R 0.00', error: false });
+    expect(decimalPreview('0', 'rand')).toEqual({ value: 0, text: '= R\u00A00.00', error: false });
   });
 
   it('suggests the smallest package that clears the debt', () => {

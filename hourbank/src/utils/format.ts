@@ -9,13 +9,19 @@
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MINUS = '−';
+/**
+ * U+00A0 NO-BREAK SPACE — used between "R" and the digits and as the thousands
+ * separator so a money value never wraps mid-number ("R 1 / 750.00").
+ * U+202F (narrow nbsp) would look tighter but isn't guaranteed in GeistMono.
+ */
+const NBSP = '\u00A0';
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
 function groupThousands(whole: number): string {
-  return String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
 }
 
 // ─── Hours ────────────────────────────────────────────────────────────────────
@@ -46,14 +52,14 @@ export function formatMinutes(minutes: number): string {
 
 // ─── Money ────────────────────────────────────────────────────────────────────
 
-/** 5500 → "R 5 500.00" (space thousands, dot decimal); −250 → "−R 250.00". */
+/** 5500 → "R 5 500.00" (NBSP thousands + after R, dot decimal); −250 → "−R 250.00". */
 export function formatRand(amount: number): string {
   const n = Number.isFinite(amount) ? amount : 0;
   const cents = Math.round((Math.abs(n) + Number.EPSILON) * 100);
   const whole = Math.floor(cents / 100);
   const frac = cents % 100;
   const sign = n < 0 && cents > 0 ? MINUS : '';
-  return `${sign}R ${groupThousands(whole)}.${pad2(frac)}`;
+  return `${sign}R${NBSP}${groupThousands(whole)}.${pad2(frac)}`;
 }
 
 /** Compact whole-rand variant for badges: 5500 → "R 5 500". */
@@ -61,7 +67,7 @@ export function formatRandCompact(amount: number): string {
   const n = Number.isFinite(amount) ? amount : 0;
   const whole = Math.round(Math.abs(n));
   const sign = n < 0 && whole > 0 ? MINUS : '';
-  return `${sign}R ${groupThousands(whole)}`;
+  return `${sign}R${NBSP}${groupThousands(whole)}`;
 }
 
 /**

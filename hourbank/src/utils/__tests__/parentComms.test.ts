@@ -126,7 +126,7 @@ describe('parent message builders', () => {
       paidAt: '2026-10-09T07:30:00.000Z',
     });
     expect(text).toContain('Hours added: 10h');
-    expect(text).toContain('Amount: R 5 500.00');
+    expect(text).toContain('Amount: R\u00A05\u00A0500.00');
     expect(text).toContain('New balance: 12h 30m');
     expect(text).toContain('Fri 9 Oct 2026');
   });
@@ -141,7 +141,7 @@ describe('parent message builders', () => {
       paymentDetails: 'FNB 123456789\nBranch 250655',
     });
     expect(text).toContain('45m remaining');
-    expect(text).toContain('10h for R 5 500.00');
+    expect(text).toContain('10h for R\u00A05\u00A0500.00');
     expect(text).toContain('FNB 123456789\nBranch 250655');
     expect(text).toContain('Reference: Amara');
   });
@@ -160,7 +160,7 @@ describe('notifications (no side effects, return text)', () => {
     const t2 = await sendTopUpConfirmation({ studentName: 'A', hoursAdded: 5, amountPaid: 3000, newBalance: 5 });
     const t3 = await sendLowBalanceAlert({ studentName: 'A', currentBalance: 0.5 });
     expect(t1).toContain('Billed: 1h');
-    expect(t2).toContain('R 3 000.00');
+    expect(t2).toContain('R\u00A03\u00A0000.00');
     expect(t3).toContain('30m remaining');
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();

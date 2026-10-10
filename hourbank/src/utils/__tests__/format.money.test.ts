@@ -17,6 +17,10 @@ import {
   formatMinutes,
 } from '../format';
 
+const NB = '\u00A0';
+/** Test literals are written with plain spaces for readability; the formatter emits U+00A0. */
+const nb = (s: string) => s.replace(/ /g, NB);
+
 describe('formatRand (deterministic, no toLocaleString)', () => {
   it.each([
     [5500, 'R 5 500.00'],
@@ -27,10 +31,22 @@ describe('formatRand (deterministic, no toLocaleString)', () => {
     [0.1 + 0.2, 'R 0.30'],
     [1.005, 'R 1.01'],
     [-250, '−R 250.00'],
-  ])('%p → %p', (n, out) => expect(formatRand(n)).toBe(out));
+  ])('%p → %p', (n, out) => expect(formatRand(n)).toBe(nb(out)));
 
   it('handles non-finite input safely', () => {
-    expect(formatRand(NaN)).toBe('R 0.00');
+    expect(formatRand(NaN)).toBe(nb('R 0.00'));
+  });
+
+  it('never contains a breakable space (no "R 1 / 750.00" line wraps)', () => {
+    for (const n of [1750, 1234567.89, -250, 0]) {
+      expect(formatRand(n)).not.toMatch(/ /);
+      expect(formatRand(n)).toContain(`R${NB}`);
+    }
+    expect(formatRand(1750)).toBe(`R${NB}1${NB}750.00`);
+  });
+
+  it('round-trips through parseDecimal', () => {
+    expect(parseDecimal(formatRand(1234567.5))).toBe(1234567.5);
   });
 });
 
@@ -41,7 +57,12 @@ describe('formatRandCompact', () => {
     [600, 'R 600'],
     [0, 'R 0'],
     [-1200, '−R 1 200'],
-  ])('%p → %p', (n, out) => expect(formatRandCompact(n)).toBe(out));
+  ])('%p → %p', (n, out) => expect(formatRandCompact(n)).toBe(nb(out)));
+
+  it('never contains a breakable space', () => {
+    expect(formatRandCompact(1750)).toBe(`R${NB}1${NB}750`);
+    expect(formatRandCompact(-1200)).not.toMatch(/ /);
+  });
 });
 
 describe('formatHours / formatHoursSigned', () => {

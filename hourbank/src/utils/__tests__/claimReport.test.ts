@@ -61,8 +61,8 @@ describe('buildClaimReportHtml', () => {
     });
     expect(html).toContain('1 Sep – 30 Sep 2026');
     expect(html).not.toContain('1 Oct');
-    expect(html).toContain('R 650.00');
-    expect(html).toContain('R 600.00/h');
+    expect(html).toContain('R\u00A0650.00');
+    expect(html).toContain('R\u00A0600.00/h');
     expect(html).not.toContain('VOID');
   });
 
