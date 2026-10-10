@@ -3,12 +3,15 @@ import { useRouter } from 'expo-router';
 import { FormScreen } from '../../src/components/FormScreen';
 import { ScreenHeader } from '../../src/components/ScreenHeader';
 import { useToast } from '../../src/components/Toast';
+import { useUnsavedChangesGuard } from '../../src/hooks/useUnsavedChangesGuard';
 import { createStudent } from '../../src/db/students';
 import { Button, PageHeading } from '../../src/components/student/ui';
 import {
   EMPTY_STUDENT_FORM, formValuesToPayload, StudentFormFields, useStudentFormOptions,
 } from '../../src/components/student/StudentForm';
-import { hasErrors, StudentFormValues, validateStudentForm } from '../../src/components/student/flowLogic';
+import {
+  hasErrors, isStudentFormDirty, StudentFormValues, validateStudentForm,
+} from '../../src/components/student/flowLogic';
 
 export default function NewStudentScreen() {
   const router = useRouter();
@@ -21,6 +24,11 @@ export default function NewStudentScreen() {
 
   const errors = submitted ? validateStudentForm(values, options.travelMode) : {};
 
+  // Unsaved-changes guard (header back, Android back, swipe) — same as Edit.
+  const { allowLeave } = useUnsavedChangesGuard(isStudentFormDirty(EMPTY_STUDENT_FORM, values), {
+    message: "This student hasn't been added yet. Leave and lose what you've typed?",
+  });
+
   function handleSubmit() {
     if (savingRef.current) return;
     setSubmitted(true);
@@ -29,6 +37,7 @@ export default function NewStudentScreen() {
     setSaving(true);
     try {
       const s = createStudent(formValuesToPayload(values));
+      allowLeave();
       toast.show({
         kind: 'success',
         message: 'Student added — add their first top-up?',

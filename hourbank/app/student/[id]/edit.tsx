@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Text, TouchableOpacity } from 'react-native';
-import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { Text, TouchableOpacity } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { F, MIN_TOUCH } from '../../../src/theme/fonts';
 import { COLORS } from '../../../src/theme/colors';
 import { FormScreen } from '../../../src/components/FormScreen';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
 import { useToast } from '../../../src/components/Toast';
+import { useUnsavedChangesGuard } from '../../../src/hooks/useUnsavedChangesGuard';
 import { getStudent, updateStudent } from '../../../src/db/students';
 import { currentBalance } from '../../../src/db/ledger';
 import { Button, LoadingState, NotFoundState, PageHeading } from '../../../src/components/student/ui';
@@ -20,12 +21,9 @@ import {
 export default function EditStudentScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const navigation = useNavigation();
   const toast = useToast();
   const options = useStudentFormOptions();
   const savingRef = useRef(false);
-  /** Set once saved/archived so the unsaved-changes guard lets navigation through. */
-  const leavingRef = useRef(false);
 
   const [initial, setInitial] = useState<StudentFormValues | null>(null);
   const [values, setValues] = useState<StudentFormValues | null>(null);
@@ -49,28 +47,11 @@ export default function EditStudentScreen() {
   }, [id]);
 
   const dirty = !!initial && !!values && isStudentFormDirty(initial, values);
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
 
   // Unsaved-changes guard (header back, Android back, programmatic back).
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', e => {
-      if (leavingRef.current || !dirtyRef.current) return;
-      e.preventDefault();
-      Alert.alert('Discard changes?', 'Your edits to this student have not been saved.', [
-        { text: 'Keep editing', style: 'cancel' },
-        {
-          text: 'Discard',
-          style: 'destructive',
-          onPress: () => {
-            leavingRef.current = true;
-            navigation.dispatch(e.data.action);
-          },
-        },
-      ]);
-    });
-    return unsubscribe;
-  }, [navigation]);
+  const { allowLeave } = useUnsavedChangesGuard(dirty, {
+    message: 'Your edits to this student have not been saved.',
+  });
 
   if (!loaded) return <LoadingState />;
   if (!values) return <NotFoundState title="Student not found" onBack={() => router.back()} />;
@@ -83,7 +64,7 @@ export default function EditStudentScreen() {
     setSubmitted(true);
     if (hasErrors(validateStudentForm(formValues, options.travelMode))) return;
     if (!dirty) {
-      leavingRef.current = true;
+      allowLeave();
       router.back();
       return;
     }
@@ -91,7 +72,7 @@ export default function EditStudentScreen() {
     setSaving(true);
     try {
       updateStudent(id, formValuesToPayload(formValues));
-      leavingRef.current = true;
+      allowLeave();
       toast.show({ kind: 'success', message: 'Changes saved' });
       router.back();
     } catch {
@@ -109,7 +90,7 @@ export default function EditStudentScreen() {
       name: formValues.fullName.trim() || 'this student',
       balance,
       onArchived: cancelled => {
-        leavingRef.current = true;
+        allowLeave();
         toast.show({
           kind: 'success',
           message: archivedToastMessage(cancelled),
