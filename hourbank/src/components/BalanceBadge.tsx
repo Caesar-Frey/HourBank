@@ -3,6 +3,7 @@ import { View, Text } from 'react-native';
 import { F } from '../theme/fonts';
 import { COLORS } from '../theme/colors';
 import { balanceStatus, balanceColour } from '../utils/balance';
+import { formatHours } from '../utils/format';
 
 interface BalanceBadgeProps {
   hours: number;
@@ -36,7 +37,7 @@ export function BalanceBadge({ hours, size = 'sm' }: BalanceBadgeProps) {
           color: colour,
         }}
       >
-        {displayHours.toFixed(1)}h
+        {formatHours(displayHours)}
       </Text>
     </View>
   );

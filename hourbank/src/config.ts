@@ -1,5 +1,8 @@
 export const VERIFICATION_WINDOW_HOURS = 24;
 
+/** AsyncStorage key for the Settings "show all grades" toggle (read by StudentForm). */
+export const SHOW_ALL_GRADES_KEY = '@hourbank/show_all_grades';
+
 // `hours` is the authoritative package size. `badge` is OPTIONAL promo copy only
 // (e.g. "Best Value") and must never restate the hour count.
 export const DEFAULT_PACKAGES = [

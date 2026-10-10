@@ -28,7 +28,6 @@ Approved features deferred from current build. Pick up in future sessions.
 - Home Today card: also show lessons already completed today (needs a "completed today" agenda bucket).
 - Restore preview: list student names in the backup summary, not just counts.
 - Automatic scheduled backups (e.g. weekly to a chosen cloud folder) instead of manual "Back up now".
-- Shared BalanceBadge still renders `toFixed(1)h`; switch it to `formatHours` so every balance reads `1h 30m` (Home now uses its own roster card).
 
 ## Data
 

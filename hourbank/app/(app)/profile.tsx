@@ -37,8 +37,7 @@ import { ALL_MIGRATIONS } from '../../src/db/migrations';
 import { exportDatabase, getLastBackupAt, importBackup, BackupSummary } from '../../src/utils/backup';
 import { formatHours, formatRand } from '../../src/utils/format';
 import { useSessionTimer } from '../../src/contexts/SessionTimerContext';
-
-export const SHOW_ALL_GRADES_KEY = '@hourbank/show_all_grades';
+import { SHOW_ALL_GRADES_KEY } from '../../src/config';
 
 type AmountField = 'parentPrice' | 'payoutRate' | 'maxOwe' | 'perKm';
 type PendingRestore = Awaited<ReturnType<typeof importBackup>>;

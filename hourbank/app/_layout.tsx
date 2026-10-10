@@ -87,8 +87,10 @@ export default function RootLayout() {
               <Stack.Screen name="(app)" options={{ headerShown: false }} />
               <Stack.Screen name="student" options={{ headerShown: false }} />
               <Stack.Screen name="calendar-event" options={{ headerShown: false }} />
-              <Stack.Screen name="transaction" options={{ headerShown: false }} />
-              <Stack.Screen name="lesson" options={{ headerShown: false }} />
+              <Stack.Screen name="claim" options={{ headerShown: false }} />
+              <Stack.Screen name="start-lesson" options={{ headerShown: false }} />
+              <Stack.Screen name="transaction/[id]" options={{ headerShown: false }} />
+              <Stack.Screen name="lesson/[sessionId]" options={{ headerShown: false }} />
             </Stack>
             <OrphanRecovery />
           </SessionTimerProvider>

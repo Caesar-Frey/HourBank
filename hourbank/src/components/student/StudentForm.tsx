@@ -9,18 +9,12 @@ import { F, hitSlopFor } from '../../theme/fonts';
 import { COLORS } from '../../theme/colors';
 import { getTutorProfile } from '../../db/tutorProfile';
 import { listCurricula, listSubjects } from '../../db/catalog';
-import { SUBJECT_SUGGESTIONS } from '../../config';
+import { SHOW_ALL_GRADES_KEY, SUBJECT_SUGGESTIONS } from '../../config';
 import { Student } from '../../db/schema';
 import { parseDecimal } from '../../utils/format';
 import { FieldError, FieldHint, SectionLabel } from './ui';
 import { phoneFieldState, StudentFormErrors, StudentFormValues } from './flowLogic';
 
-/**
- * AsyncStorage key written by the Settings screen ("show all grades").
- * Same value as SHOW_ALL_GRADES_KEY in app/(app)/profile.tsx — duplicated so
- * src/ never imports a route module.
- */
-const SHOW_ALL_GRADES_KEY = '@hourbank/show_all_grades';
 
 const ALL_GRADES =Array.from({ length: 12 }, (_, i) => i + 1);
 const HS_GRADES = [8, 9, 10, 11, 12];
