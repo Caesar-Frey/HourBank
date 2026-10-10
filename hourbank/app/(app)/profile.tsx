@@ -1,642 +1,669 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  Alert,
-  ScrollView,
-  Switch,
-  TextInput,
-  Modal,
-} from 'react-native';
-import { Feather } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, TouchableOpacity, Alert, Switch, TextInput, Modal, ActivityIndicator } from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { F } from '../../src/theme/fonts';
+import * as DocumentPicker from 'expo-document-picker';
+import { F, MIN_TOUCH, hitSlopFor } from '../../src/theme/fonts';
 import { COLORS } from '../../src/theme/colors';
+import { FormScreen } from '../../src/components/FormScreen';
+import { TabHeader } from '../../src/components/ScreenHeader';
+import { useToast } from '../../src/components/Toast';
+import {
+  SectionLabel,
+  SettingsField,
+  SettingsLinkRow,
+  ChipRow,
+  FieldError,
+  ROW_CONTAINER,
+  FIELD_LABEL,
+  HELP_TEXT,
+} from '../../src/components/settings/SettingsParts';
+import { RestoreBackupModal } from '../../src/components/settings/RestoreBackupModal';
+import {
+  BILLING_ROUND_OPTIONS,
+  MAX_OWE_EXPLANATION,
+  TierDraft,
+  TierErrors,
+  backupErrorMessage,
+  billingRoundingExplanation,
+  lastBackupLabel,
+  tierDraftsFromTiers,
+  validateAmount,
+  validateTierDrafts,
+} from '../../src/components/settings/settingsLogic';
 import { seedDemoData, resetDb } from '../../src/db/seed';
-import { getOrCreateTutorProfile, upsertTutorProfile, PackageTier } from '../../src/db/tutorProfile';
-import { exportDatabase } from '../../src/utils/backup';
+import { getOrCreateTutorProfile, upsertTutorProfile, PackageTier, TutorProfile } from '../../src/db/tutorProfile';
+import { ALL_MIGRATIONS } from '../../src/db/migrations';
+import { exportDatabase, getLastBackupAt, importBackup, BackupSummary } from '../../src/utils/backup';
+import { formatHours, formatRand } from '../../src/utils/format';
+import { useSessionTimer } from '../../src/contexts/SessionTimerContext';
 
 export const SHOW_ALL_GRADES_KEY = '@hourbank/show_all_grades';
 
-const SECTION_LABEL = {
-  fontFamily: F.mono,
-  fontSize: 10,
-  color: COLORS.inkFaint,
-  textTransform: 'uppercase' as const,
-  letterSpacing: 0.5,
-  marginBottom: 12,
-  marginTop: 24,
-};
+type AmountField = 'parentPrice' | 'payoutRate' | 'maxOwe' | 'perKm';
+type PendingRestore = Awaited<ReturnType<typeof importBackup>>;
 
-const ROW_CONTAINER = {
-  borderWidth: 1,
-  borderColor: COLORS.paperEdge,
-  borderRadius: 14,
-  backgroundColor: 'rgba(255,255,255,0.4)',
-  paddingHorizontal: 16,
-  paddingVertical: 14,
-  marginBottom: 8,
-};
+let tierKeySeq = 0;
+const nextTierKey = () => `tier-${++tierKeySeq}`;
 
-const FIELD_LABEL = {
-  fontFamily: F.mono,
-  fontSize: 10,
-  color: COLORS.inkFaint,
-  textTransform: 'uppercase' as const,
-  letterSpacing: 0.3,
-  marginBottom: 4,
-};
+function parseTiers(json: string | null | undefined): PackageTier[] {
+  try {
+    const parsed = JSON.parse(json ?? '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
-const TEXT_INPUT_STYLE = {
-  fontFamily: F.sans,
-  fontSize: 15,
-  color: COLORS.ink,
-  borderBottomWidth: 1,
-  borderBottomColor: COLORS.paperEdge,
-  paddingVertical: 8,
-};
+export default function SettingsScreen() {
+  const router = useRouter();
+  const toast = useToast();
+  const { status: timerStatus, endTimer } = useSessionTimer();
 
-const MONO_INPUT_STYLE = {
-  fontFamily: F.mono,
-  fontSize: 15,
-  color: COLORS.ink,
-  borderBottomWidth: 1,
-  borderBottomColor: COLORS.paperEdge,
-  paddingVertical: 8,
-};
-
-export default function ProfileScreen() {
+  const profileRef = useRef<TutorProfile | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [showAllGrades, setShowAllGrades] = useState(false);
+
+  // Drafts (strings keep half-typed input like "1," intact).
+  const [fullName, setFullName] = useState('');
+  const [amounts, setAmounts] = useState<Record<AmountField, string>>({
+    parentPrice: '',
+    payoutRate: '',
+    maxOwe: '0',
+    perKm: '0',
+  });
+  const [errors, setErrors] = useState<Partial<Record<AmountField, string | null>>>({});
+  const [paymentDetails, setPaymentDetails] = useState('');
+  const [roundMinutes, setRoundMinutes] = useState(15);
+  const [travelMode, setTravelMode] = useState<'flat' | 'distance'>('flat');
+  const [tierEnabled, setTierEnabled] = useState(true);
+  const [tierDrafts, setTierDrafts] = useState<TierDraft[]>([]);
+  const [tierErrors, setTierErrors] = useState<TierErrors>({});
+
+  // Backup & restore
+  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
+  const [backupBusy, setBackupBusy] = useState<'export' | 'inspect' | 'restore' | null>(null);
+  const busyRef = useRef(false);
+  const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null);
+  const [restoreSummary, setRestoreSummary] = useState<BackupSummary | null>(null);
+
+  // Dev tools
   const [resetConfirmVisible, setResetConfirmVisible] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
 
-  // Tutor profile fields
-  const [fullName, setFullName] = useState('');
-  const [hourlyRate, setHourlyRate] = useState('600');
-  const [currency, setCurrency] = useState('ZAR');
-  const [maxOweHours, setMaxOweHours] = useState('0');
-  const [tierEnabled, setTierEnabled] = useState(true);
-  const [tiers, setTiers] = useState<PackageTier[]>([]);
-  const [travelMode, setTravelMode] = useState<'flat' | 'distance'>('flat');
-  const [perKmRate, setPerKmRate] = useState('0');
-  const [profileLoaded, setProfileLoaded] = useState(false);
+  const loadProfile = useCallback(() => {
+    try {
+      const p = getOrCreateTutorProfile();
+      profileRef.current = p;
+      setFullName(p.full_name ?? '');
+      setAmounts({
+        parentPrice: String(p.parent_hourly_price ?? p.hourly_rate),
+        payoutRate: String(p.hourly_rate),
+        maxOwe: String(p.max_owe_hours ?? 0),
+        perKm: String(p.per_km_rate ?? 0),
+      });
+      setErrors({});
+      setPaymentDetails(p.payment_details ?? '');
+      setRoundMinutes(p.billing_round_minutes || 15);
+      setTravelMode(p.travel_mode === 'distance' ? 'distance' : 'flat');
+      setTierEnabled(p.tier_system_enabled === 1);
+      setTierDrafts(tierDraftsFromTiers(parseTiers(p.package_tiers), nextTierKey));
+      setTierErrors({});
+      setLastBackupAt(p.last_backup_at ?? null);
+      setProfileLoaded(true);
+    } catch {
+      toast.show({ kind: 'error', message: "Couldn't load your settings." });
+    }
+  }, [toast]);
 
   useEffect(() => {
-    AsyncStorage.getItem(SHOW_ALL_GRADES_KEY).then(v => {
-      if (v === 'true') setShowAllGrades(true);
-    });
-
-    try {
-      const profile = getOrCreateTutorProfile();
-      setFullName(profile.full_name);
-      setHourlyRate(String(profile.hourly_rate));
-      setCurrency(profile.currency);
-      setMaxOweHours(String(profile.max_owe_hours));
-      setTierEnabled(profile.tier_system_enabled === 1);
-      setTravelMode(profile.travel_mode === 'distance' ? 'distance' : 'flat');
-      setPerKmRate(String(profile.per_km_rate));
-      try {
-        const parsed: PackageTier[] = JSON.parse(profile.package_tiers);
-        setTiers(Array.isArray(parsed) ? parsed : []);
-      } catch {
-        setTiers([]);
-      }
-      setProfileLoaded(true);
-    } catch (e) {
-      console.error('Failed to load tutor profile', e);
-    }
+    loadProfile();
+    AsyncStorage.getItem(SHOW_ALL_GRADES_KEY)
+      .then(v => setShowAllGrades(v === 'true'))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleGradesToggle(val: boolean) {
-    setShowAllGrades(val);
-    AsyncStorage.setItem(SHOW_ALL_GRADES_KEY, val ? 'true' : 'false');
-  }
+  // The tab stays mounted — refresh the backup age whenever it regains focus.
+  useFocusEffect(
+    useCallback(() => {
+      getLastBackupAt().then(setLastBackupAt).catch(() => {});
+    }, [])
+  );
 
-  const saveProfile = useCallback(() => {
-    try {
-      upsertTutorProfile({
-        full_name: fullName.trim(),
-        hourly_rate: parseFloat(hourlyRate) || 0,
-        currency: currency.trim().toUpperCase().slice(0, 3) || 'ZAR',
-        max_owe_hours: parseFloat(maxOweHours) || 0,
-        tier_system_enabled: tierEnabled ? 1 : 0,
-        package_tiers: JSON.stringify(tiers),
-        travel_mode: travelMode,
-        per_km_rate: parseFloat(perKmRate) || 0,
-      });
-      return true;
-    } catch (e) {
-      Alert.alert('Error', 'Could not save settings. Please try again.');
-      return false;
-    }
-  }, [fullName, hourlyRate, currency, maxOweHours, tierEnabled, tiers, travelMode, perKmRate]);
-
-  function handleAddTier() {
-    // Derive sort_order from max(existing)+1 so it can't collide after a delete.
-    const nextSortOrder =
-      tiers.length > 0 ? Math.max(...tiers.map(t => t.sort_order)) + 1 : 0;
-    const newTier: PackageTier = {
-      hours: 0,
-      price: 0,
-      label: '',
-      sort_order: nextSortOrder,
-    };
-    const updated = [...tiers, newTier];
-    setTiers(updated);
-  }
-
-  // Integrity guard: a tier's displayed size derives from `hours`, which is also
-  // what gets credited. Block save of nonsensical tiers (hours must be > 0,
-  // price >= 0) so an unusable tier can never be persisted.
-  function tiersValid(list: PackageTier[]): boolean {
-    return list.every(t => t.hours > 0 && t.price >= 0);
-  }
-
-  function handleDeleteTier(index: number) {
-    const updated = tiers.filter((_, i) => i !== index);
-    setTiers(updated);
-  }
-
-  function handleTierChange(index: number, field: keyof PackageTier, value: string) {
-    setTiers(prev => {
-      const updated = [...prev];
-      if (field === 'hours' || field === 'price' || field === 'sort_order') {
-        updated[index] = { ...updated[index], [field]: parseFloat(value) || 0 };
-      } else {
-        updated[index] = { ...updated[index], [field]: value };
+  /** Autosave: write only what changed, confirm with a toast; failures are error toasts. */
+  const save = useCallback(
+    (patch: Partial<TutorProfile>): boolean => {
+      const current = profileRef.current;
+      if (current) {
+        const changed = (Object.keys(patch) as (keyof TutorProfile)[]).some(k => patch[k] !== current[k]);
+        if (!changed) return true;
       }
-      return updated;
-    });
+      try {
+        profileRef.current = upsertTutorProfile(patch);
+        toast.show({ kind: 'success', message: 'Saved' });
+        return true;
+      } catch {
+        toast.show({ kind: 'error', message: "Couldn't save — please try again." });
+        return false;
+      }
+    },
+    [toast]
+  );
+
+  // ── Amount fields ──────────────────────────────────────────────────────
+  const AMOUNT_COLUMN: Record<AmountField, keyof TutorProfile> = {
+    parentPrice: 'parent_hourly_price',
+    payoutRate: 'hourly_rate',
+    maxOwe: 'max_owe_hours',
+    perKm: 'per_km_rate',
+  };
+
+  function changeAmount(field: AmountField, text: string) {
+    setAmounts(a => ({ ...a, [field]: text }));
+    if (errors[field]) setErrors(e => ({ ...e, [field]: null }));
   }
 
-  async function handleExport() {
+  function blurAmount(field: AmountField) {
+    const { value, error } = validateAmount(amounts[field]);
+    setErrors(e => ({ ...e, [field]: error }));
+    if (error || value === null) return;
+    save({ [AMOUNT_COLUMN[field]]: value } as Partial<TutorProfile>);
+  }
+
+  function amountPreview(field: AmountField, kind: 'rand' | 'hours'): string | null {
+    const { value, error } = validateAmount(amounts[field]);
+    if (error || value === null) return null;
+    return `= ${kind === 'rand' ? formatRand(value) : formatHours(value)}`;
+  }
+
+  // ── Package tiers ──────────────────────────────────────────────────────
+  function persistTiers(drafts: TierDraft[]) {
+    const { tiers, errors: errs } = validateTierDrafts(drafts);
+    setTierErrors(errs);
+    if (!tiers) return;
+    save({ package_tiers: JSON.stringify(tiers) });
+  }
+
+  function changeTier(key: string, field: 'hours' | 'price' | 'label', value: string) {
+    setTierDrafts(ds => ds.map(d => (d.key === key ? { ...d, [field]: value } : d)));
+    if (field !== 'label' && tierErrors[key]?.[field]) {
+      setTierErrors(e => ({ ...e, [key]: { ...e[key], [field]: undefined } }));
+    }
+  }
+
+  function addTier() {
+    const nextSort = tierDrafts.length > 0 ? Math.max(...tierDrafts.map(t => t.sort_order)) + 1 : 0;
+    setTierDrafts(ds => [...ds, { key: nextTierKey(), hours: '', price: '', label: '', sort_order: nextSort }]);
+  }
+
+  function deleteTier(draft: TierDraft) {
+    const hours = validateAmount(draft.hours, { positive: true }).value;
+    const name = hours ? `the ${formatHours(hours)} package` : 'this package';
+    Alert.alert('Delete package?', `Remove ${name} from the top-up screen? Past top-ups are not affected.`, [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          const remaining = tierDrafts.filter(d => d.key !== draft.key);
+          setTierDrafts(remaining);
+          persistTiers(remaining);
+        },
+      },
+    ]);
+  }
+
+  // ── Backup & restore ───────────────────────────────────────────────────
+  function claimBusy(kind: 'export' | 'inspect' | 'restore'): boolean {
+    if (busyRef.current) return false;
+    busyRef.current = true;
+    setBackupBusy(kind);
+    return true;
+  }
+  function releaseBusy() {
+    busyRef.current = false;
+    setBackupBusy(null);
+  }
+
+  async function handleBackup() {
+    if (!claimBusy('export')) return;
     try {
       await exportDatabase();
-      Alert.alert('Export', 'Database export complete.');
-    } catch (e) {
-      Alert.alert('Error', 'Could not export database. ' + String(e));
+      setLastBackupAt(await getLastBackupAt());
+      toast.show({ kind: 'success', message: 'Backup ready — keep the file somewhere safe (e.g. Google Drive).' });
+    } catch {
+      toast.show({ kind: 'error', message: "Couldn't create the backup. Please try again." });
+    } finally {
+      releaseBusy();
     }
   }
 
+  async function handlePickRestore() {
+    if (!claimBusy('inspect')) return;
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false });
+      if (picked.canceled || !picked.assets?.[0]) return;
+      const pending = await importBackup(picked.assets[0].uri, ALL_MIGRATIONS);
+      setPendingRestore(pending);
+      setRestoreSummary(pending.summary);
+    } catch (e) {
+      toast.show({ kind: 'error', message: backupErrorMessage(e) });
+    } finally {
+      releaseBusy();
+    }
+  }
+
+  async function cancelRestore() {
+    const pending = pendingRestore;
+    setRestoreSummary(null);
+    setPendingRestore(null);
+    await pending?.cancel().catch(() => {});
+  }
+
+  async function confirmRestore() {
+    const pending = pendingRestore;
+    if (!pending || !claimBusy('restore')) return;
+    try {
+      await pending.restore();
+      // The DB file was swapped: drop in-memory lesson state and reload everything.
+      endTimer();
+      setRestoreSummary(null);
+      setPendingRestore(null);
+      loadProfile();
+      toast.show({
+        kind: 'success',
+        message: `Backup restored — ${pending.summary.students} ${pending.summary.students === 1 ? 'student' : 'students'}.`,
+      });
+      router.replace('/');
+    } catch (e) {
+      setRestoreSummary(null);
+      setPendingRestore(null);
+      toast.show({ kind: 'error', message: backupErrorMessage(e) });
+    } finally {
+      releaseBusy();
+    }
+  }
+
+  // ── Dev tools ──────────────────────────────────────────────────────────
   function handleSeed() {
     try {
       seedDemoData();
-      Alert.alert('Done', '6 demo students loaded. Tap Home to see them.');
-    } catch (e) {
-      Alert.alert('Error', String(e));
+      toast.show({ kind: 'success', message: 'Demo students loaded.' });
+    } catch {
+      toast.show({ kind: 'error', message: "Couldn't load demo data." });
     }
-  }
-
-  function handleReset() {
-    setResetConfirmText('');
-    setResetConfirmVisible(true);
   }
 
   function confirmReset() {
     try {
       resetDb();
       setResetConfirmVisible(false);
-      Alert.alert('Done', 'Database cleared.');
-    } catch (e) {
-      Alert.alert('Error', String(e));
+      endTimer();
+      loadProfile();
+      toast.show({ kind: 'success', message: 'Database cleared.' });
+    } catch {
+      toast.show({ kind: 'error', message: "Couldn't clear the database." });
     }
   }
 
+  const backupAge = lastBackupLabel(lastBackupAt);
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
-      <ScrollView
-        contentContainerStyle={{ padding: 24, paddingBottom: 48 }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={{ fontFamily: F.serif, fontSize: 28, color: COLORS.ink, marginBottom: 4 }}>
-          Settings
-        </Text>
-        <Text style={{ fontFamily: F.serifItalic, fontSize: 15, color: COLORS.inkFaint, marginBottom: 8 }}>
-          Tutor profile and preferences.
-        </Text>
+    <FormScreen header={<TabHeader title="Settings" />} edges={['top']} contentContainerStyle={{ paddingBottom: 48 }}>
+      {/* ── Profile ───────────────────────────────────────────────────── */}
+      <SectionLabel>Profile</SectionLabel>
+      <SettingsField
+        label="Your name"
+        value={fullName}
+        onChangeText={setFullName}
+        onBlur={() => save({ full_name: fullName.trim() })}
+        placeholder="Your full name"
+        help="Shown on receipts and claims."
+      />
+      <View style={[ROW_CONTAINER, { flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH }]}>
+        <Text style={[FIELD_LABEL, { flex: 1, marginBottom: 0 }]}>Currency</Text>
+        <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.inkSoft }}>ZAR (R)</Text>
+      </View>
 
-        {/* ── TUTOR section ─────────────────────────────────────────────── */}
-        <Text style={SECTION_LABEL}>Tutor</Text>
+      {/* ── Rates ─────────────────────────────────────────────────────── */}
+      <SectionLabel>Rates</SectionLabel>
+      <SettingsField
+        testID="parent-price"
+        label="Parent price per hour"
+        value={amounts.parentPrice}
+        onChangeText={t => changeAmount('parentPrice', t)}
+        onBlur={() => blurAmount('parentPrice')}
+        keyboardType="decimal-pad"
+        mono
+        placeholder="450"
+        error={errors.parentPrice}
+        preview={amountPreview('parentPrice', 'rand')}
+        help="What parents pay for one hour. Used to show savings on top-up packages."
+      />
+      <SettingsField
+        testID="payout-rate"
+        label="Your payout rate per hour"
+        value={amounts.payoutRate}
+        onChangeText={t => changeAmount('payoutRate', t)}
+        onBlur={() => blurAmount('payoutRate')}
+        keyboardType="decimal-pad"
+        mono
+        placeholder="300"
+        error={errors.payoutRate}
+        preview={amountPreview('payoutRate', 'rand')}
+        help="What you're paid per hour taught. Used for payout claims."
+      />
 
-        <View style={ROW_CONTAINER}>
-          <Text style={FIELD_LABEL}>Name</Text>
-          <TextInput
-            value={fullName}
-            onChangeText={setFullName}
-            onBlur={saveProfile}
-            placeholder="Your full name"
-            placeholderTextColor={COLORS.inkFaint}
-            style={TEXT_INPUT_STYLE}
-            autoCorrect={false}
-          />
-        </View>
-
-        <View style={ROW_CONTAINER}>
-          <Text style={FIELD_LABEL}>Currency</Text>
-          <TextInput
-            value={currency}
-            onChangeText={v => setCurrency(v.toUpperCase().slice(0, 3))}
-            onBlur={saveProfile}
-            placeholder="ZAR"
-            placeholderTextColor={COLORS.inkFaint}
-            autoCapitalize="characters"
-            maxLength={3}
-            style={MONO_INPUT_STYLE}
-          />
-        </View>
-
-        {/* ── PAYOUT section ────────────────────────────────────────────── */}
-        <Text style={SECTION_LABEL}>Payout</Text>
-
-        <View style={ROW_CONTAINER}>
-          <Text style={FIELD_LABEL}>Payout rate (per hour)</Text>
-          <TextInput
-            value={hourlyRate}
-            onChangeText={setHourlyRate}
-            onBlur={saveProfile}
-            keyboardType="numeric"
-            placeholder="600"
-            placeholderTextColor={COLORS.inkFaint}
-            style={MONO_INPUT_STYLE}
-          />
-          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 6 }}>
-            What you pay yourself per delivered hour
-          </Text>
-        </View>
-
-        <View style={ROW_CONTAINER}>
-          <Text style={FIELD_LABEL}>Travel mode</Text>
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-            {(['flat', 'distance'] as const).map(m => (
-              <TouchableOpacity
-                key={m}
-                onPress={() => {
-                  setTravelMode(m);
-                  // Save immediately — pass new value directly to avoid stale closure.
-                  // upsert merges with existing, so other fields are preserved.
-                  try {
-                    upsertTutorProfile({ travel_mode: m, per_km_rate: parseFloat(perKmRate) || 0 });
-                  } catch (e) {
-                    console.error('Failed to save tutor profile', e);
-                  }
-                }}
-                activeOpacity={0.7}
-                style={{
-                  flex: 1,
-                  borderWidth: 1,
-                  borderColor: travelMode === m ? COLORS.oxblood : COLORS.paperEdge,
-                  borderRadius: 8,
-                  paddingVertical: 10,
-                  alignItems: 'center',
-                  backgroundColor: travelMode === m ? COLORS.oxblood : 'rgba(255,255,255,0.4)',
-                }}
-              >
-                <Text
-                  style={{
-                    fontFamily: F.sansMed,
-                    fontSize: 13,
-                    color: travelMode === m ? COLORS.paper : COLORS.inkSoft,
-                  }}
-                >
-                  {m === 'flat' ? 'Flat' : 'Distance'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 8 }}>
-            Flat: a set travel fee per student. Distance: charged per km travelled.
-          </Text>
-        </View>
-
-        {travelMode === 'distance' && (
-          <View style={ROW_CONTAINER}>
-            <Text style={FIELD_LABEL}>Per-km rate</Text>
-            <TextInput
-              value={perKmRate}
-              onChangeText={setPerKmRate}
-              onBlur={saveProfile}
-              keyboardType="numeric"
-              placeholder="0"
-              placeholderTextColor={COLORS.inkFaint}
-              style={MONO_INPUT_STYLE}
-            />
-          </View>
-        )}
-
-        {/* ── CREDIT LIMITS section ─────────────────────────────────────── */}
-        <Text style={SECTION_LABEL}>Credit Limits</Text>
-
-        <View style={ROW_CONTAINER}>
-          <Text style={FIELD_LABEL}>Max hours owed</Text>
-          <TextInput
-            value={maxOweHours}
-            onChangeText={setMaxOweHours}
-            onBlur={saveProfile}
-            keyboardType="numeric"
-            placeholder="0"
-            placeholderTextColor={COLORS.inkFaint}
-            style={MONO_INPUT_STYLE}
-          />
-          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 6 }}>
-            Max hours owed before blocking new sessions (0 = no grace)
-          </Text>
-        </View>
-
-        {/* ── PACKAGE TIERS section ─────────────────────────────────────── */}
-        <Text style={SECTION_LABEL}>Package Tiers</Text>
-
-        <View
-          style={{
-            ...ROW_CONTAINER,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
+      <View style={ROW_CONTAINER}>
+        <Text style={FIELD_LABEL}>Travel fee</Text>
+        <ChipRow
+          options={['flat', 'distance'] as const}
+          value={travelMode}
+          format={m => (m === 'flat' ? 'Flat' : 'Per km')}
+          onChange={m => {
+            setTravelMode(m);
+            save({ travel_mode: m });
           }}
-        >
-          <View style={{ flex: 1, marginRight: 12 }}>
-            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>
-              Enable tier system
-            </Text>
-            <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>
-              Show predefined packages on the top-up screen
-            </Text>
-          </View>
-          <Switch
-            value={tierEnabled}
-            onValueChange={v => {
-              setTierEnabled(v);
-              // save immediately on toggle — pass new value directly to avoid stale closure
-              try {
-                upsertTutorProfile({
-                  full_name: fullName.trim(),
-                  hourly_rate: parseFloat(hourlyRate) || 0,
-                  currency: currency.trim().toUpperCase().slice(0, 3) || 'ZAR',
-                  max_owe_hours: parseFloat(maxOweHours) || 0,
-                  tier_system_enabled: v ? 1 : 0,
-                  package_tiers: JSON.stringify(tiers),
-                });
-              } catch (e) {
-                console.error('Failed to save tutor profile', e);
-              }
-            }}
-            trackColor={{ false: COLORS.paperEdge, true: COLORS.oxblood }}
-            thumbColor={COLORS.paper}
-          />
-        </View>
+        />
+        <Text style={HELP_TEXT}>Flat: a set fee per student. Per km: charged by distance travelled.</Text>
+      </View>
+      {travelMode === 'distance' && (
+        <SettingsField
+          label="Rate per km"
+          value={amounts.perKm}
+          onChangeText={t => changeAmount('perKm', t)}
+          onBlur={() => blurAmount('perKm')}
+          keyboardType="decimal-pad"
+          mono
+          placeholder="4.50"
+          error={errors.perKm}
+          preview={amountPreview('perKm', 'rand')}
+        />
+      )}
 
-        {tierEnabled && profileLoaded && (
-          <View style={{ marginTop: 4 }}>
-            {tiers
-              .slice()
-              .sort((a, b) => a.sort_order - b.sort_order)
-              .map((tier, i) => {
-                const realIndex = tiers.indexOf(tier);
-                return (
-                  <View
-                    key={i}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: COLORS.paperEdge,
-                      borderRadius: 12,
-                      backgroundColor: 'rgba(255,255,255,0.4)',
-                      paddingHorizontal: 14,
-                      paddingVertical: 12,
-                      marginBottom: 8,
-                    }}
+      {/* ── Billing ───────────────────────────────────────────────────── */}
+      <SectionLabel>Billing</SectionLabel>
+      <View style={ROW_CONTAINER}>
+        <Text style={FIELD_LABEL}>Round lessons to</Text>
+        <ChipRow
+          options={BILLING_ROUND_OPTIONS}
+          value={roundMinutes as (typeof BILLING_ROUND_OPTIONS)[number]}
+          format={m => `${m} min`}
+          onChange={m => {
+            setRoundMinutes(m);
+            save({ billing_round_minutes: m });
+          }}
+        />
+        <Text style={HELP_TEXT}>{billingRoundingExplanation(roundMinutes)}</Text>
+      </View>
+      <SettingsField
+        testID="max-owe"
+        label="Max hours a student may owe"
+        value={amounts.maxOwe}
+        onChangeText={t => changeAmount('maxOwe', t)}
+        onBlur={() => blurAmount('maxOwe')}
+        keyboardType="decimal-pad"
+        mono
+        placeholder="0"
+        error={errors.maxOwe}
+        preview={amountPreview('maxOwe', 'hours')}
+        help={MAX_OWE_EXPLANATION}
+      />
+      <SettingsField
+        label="Payment details"
+        value={paymentDetails}
+        onChangeText={setPaymentDetails}
+        onBlur={() => save({ payment_details: paymentDetails.trim() || null })}
+        multiline
+        placeholder={'e.g. FNB · Acc 62000000000 · Branch 250655\nRef: student name'}
+        help="Added to WhatsApp top-up reminders so parents know where to pay."
+      />
+
+      {/* ── Packages ──────────────────────────────────────────────────── */}
+      <SectionLabel>Top-up packages</SectionLabel>
+      <View style={[ROW_CONTAINER, { flexDirection: 'row', alignItems: 'center' }]}>
+        <View style={{ flex: 1, marginRight: 12 }}>
+          <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>Offer packages</Text>
+          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>
+            Show these hour bundles on the top-up screen
+          </Text>
+        </View>
+        <Switch
+          value={tierEnabled}
+          onValueChange={v => {
+            setTierEnabled(v);
+            save({ tier_system_enabled: v ? 1 : 0 });
+          }}
+          trackColor={{ false: COLORS.paperEdge, true: COLORS.oxblood }}
+          thumbColor={COLORS.paper}
+        />
+      </View>
+
+      {tierEnabled && profileLoaded && (
+        <View style={{ marginTop: 4 }}>
+          {tierDrafts.map(draft => {
+            const err = tierErrors[draft.key];
+            const hours = validateAmount(draft.hours, { positive: true }).value;
+            return (
+              <View key={draft.key} style={[ROW_CONTAINER, { borderColor: err ? COLORS.crimson : COLORS.paperEdge }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  {/* Heading derives from numeric hours — the amount actually credited. */}
+                  <Text style={[FIELD_LABEL, { flex: 1, marginBottom: 0 }]}>
+                    {hours ? `${formatHours(hours)} package` : 'New package'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => deleteTier(draft)}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={hours ? `Delete ${formatHours(hours)} package` : 'Delete package'}
+                    hitSlop={hitSlopFor(24)}
+                    style={{ minHeight: MIN_TOUCH, justifyContent: 'center', paddingLeft: 12 }}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                      {/* Heading auto-derives from the numeric hours field — the
-                          single source of truth — so it can never disagree with
-                          what actually gets credited. */}
-                      <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, flex: 1, textTransform: 'uppercase' }}>
-                        {tier.hours > 0 ? `${tier.hours} HOURS` : 'NEW TIER'}
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          const updated = tiers.filter((_, i) => i !== realIndex);
-                          setTiers(updated);
-                          // save immediately with new tiers — avoid stale closure
-                          try {
-                            upsertTutorProfile({
-                              full_name: fullName.trim(),
-                              hourly_rate: parseFloat(hourlyRate) || 0,
-                              currency: currency.trim().toUpperCase().slice(0, 3) || 'ZAR',
-                              max_owe_hours: parseFloat(maxOweHours) || 0,
-                              tier_system_enabled: tierEnabled ? 1 : 0,
-                              package_tiers: JSON.stringify(updated),
-                            });
-                          } catch (e) {
-                            console.error('Failed to save tutor profile', e);
-                          }
-                        }}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.crimson }}>
-                          Delete
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    <View style={{ flexDirection: 'row', gap: 12 }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={FIELD_LABEL}>Hours</Text>
-                        <TextInput
-                          value={String(tier.hours || '')}
-                          onChangeText={v => handleTierChange(realIndex, 'hours', v)}
-                          onBlur={saveProfile}
-                          keyboardType="numeric"
-                          placeholder="10"
-                          placeholderTextColor={COLORS.inkFaint}
-                          style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.ink, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 6 }}
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={FIELD_LABEL}>Price</Text>
-                        <TextInput
-                          value={String(tier.price || '')}
-                          onChangeText={v => handleTierChange(realIndex, 'price', v)}
-                          onBlur={saveProfile}
-                          keyboardType="numeric"
-                          placeholder="5500"
-                          placeholderTextColor={COLORS.inkFaint}
-                          style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.ink, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 6 }}
-                        />
-                      </View>
-                    </View>
-
-                    <View style={{ marginTop: 10 }}>
-                      <Text style={FIELD_LABEL}>Promo label (optional)</Text>
-                      <TextInput
-                        value={tier.label}
-                        onChangeText={v => handleTierChange(realIndex, 'label', v)}
-                        onBlur={saveProfile}
-                        placeholder="e.g. Best Value"
-                        placeholderTextColor={COLORS.inkFaint}
-                        style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 6 }}
-                      />
-                      <Text style={{ fontFamily: F.sans, fontSize: 11, color: COLORS.inkFaint, marginTop: 6 }}>
-                        Promo copy only (e.g. "Best Value"). The package size comes from Hours above — don't restate it here.
-                      </Text>
-                    </View>
+                    <Text style={{ fontFamily: F.sansMed, fontSize: 13, color: COLORS.crimson }}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={FIELD_LABEL}>Hours</Text>
+                    <TextInput
+                      accessibilityLabel="Package hours"
+                      value={draft.hours}
+                      onChangeText={v => changeTier(draft.key, 'hours', v)}
+                      onBlur={() => persistTiers(tierDrafts)}
+                      keyboardType="decimal-pad"
+                      placeholder="10"
+                      placeholderTextColor={COLORS.inkFaint}
+                      style={{
+                        minHeight: MIN_TOUCH,
+                        fontFamily: F.mono,
+                        fontSize: 15,
+                        color: COLORS.ink,
+                        borderBottomWidth: 1,
+                        borderBottomColor: err?.hours ? COLORS.crimson : COLORS.paperEdge,
+                      }}
+                    />
+                    <FieldError message={err?.hours} />
                   </View>
-                );
-              })}
-
-            <TouchableOpacity
-              onPress={handleAddTier}
-              activeOpacity={0.8}
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.paperEdge,
-                borderRadius: 12,
-                paddingVertical: 12,
-                alignItems: 'center',
-                marginBottom: 8,
-              }}
-            >
-              <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft }}>
-                + Add Tier
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ── APP SETTINGS section ──────────────────────────────────────── */}
-        <Text style={SECTION_LABEL}>App Settings</Text>
-
-        <View
-          style={{
-            ...ROW_CONTAINER,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <View style={{ flex: 1, marginRight: 12 }}>
-            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>
-              Show all grades (1–12)
-            </Text>
-            <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>
-              Off: only grades 8–12 (high school)
-            </Text>
-          </View>
-          <Switch
-            value={showAllGrades}
-            onValueChange={handleGradesToggle}
-            trackColor={{ false: COLORS.paperEdge, true: COLORS.oxblood }}
-            thumbColor={COLORS.paper}
-          />
+                  <View style={{ flex: 1 }}>
+                    <Text style={FIELD_LABEL}>Price (R)</Text>
+                    <TextInput
+                      accessibilityLabel="Package price"
+                      value={draft.price}
+                      onChangeText={v => changeTier(draft.key, 'price', v)}
+                      onBlur={() => persistTiers(tierDrafts)}
+                      keyboardType="decimal-pad"
+                      placeholder="5500"
+                      placeholderTextColor={COLORS.inkFaint}
+                      style={{
+                        minHeight: MIN_TOUCH,
+                        fontFamily: F.mono,
+                        fontSize: 15,
+                        color: COLORS.ink,
+                        borderBottomWidth: 1,
+                        borderBottomColor: err?.price ? COLORS.crimson : COLORS.paperEdge,
+                      }}
+                    />
+                    <FieldError message={err?.price} />
+                  </View>
+                </View>
+                <View style={{ marginTop: 10 }}>
+                  <Text style={FIELD_LABEL}>Promo label (optional)</Text>
+                  <TextInput
+                    accessibilityLabel="Promo label"
+                    value={draft.label}
+                    onChangeText={v => changeTier(draft.key, 'label', v)}
+                    onBlur={() => persistTiers(tierDrafts)}
+                    placeholder="e.g. Best Value"
+                    placeholderTextColor={COLORS.inkFaint}
+                    style={{
+                      minHeight: MIN_TOUCH,
+                      fontFamily: F.sans,
+                      fontSize: 14,
+                      color: COLORS.ink,
+                      borderBottomWidth: 1,
+                      borderBottomColor: COLORS.paperEdge,
+                    }}
+                  />
+                  <Text style={HELP_TEXT}>Promo text only — the package size always comes from Hours.</Text>
+                </View>
+                {err && (
+                  <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.crimson, marginTop: 8 }}>
+                    Package changes aren't saved until every package has hours and a price.
+                  </Text>
+                )}
+              </View>
+            );
+          })}
+          <TouchableOpacity
+            onPress={addTier}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            style={{
+              minHeight: MIN_TOUCH,
+              borderWidth: 1,
+              borderColor: COLORS.paperEdge,
+              borderStyle: 'dashed',
+              borderRadius: 12,
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 8,
+            }}
+          >
+            <Text style={{ fontFamily: F.sansMed, fontSize: 13, color: COLORS.inkSoft }}>+ Add package</Text>
+          </TouchableOpacity>
         </View>
+      )}
 
-        {/* Save button */}
-        <TouchableOpacity
-          onPress={() => {
-            if (tierEnabled && !tiersValid(tiers)) {
-              Alert.alert('Check package tiers', 'Every tier needs hours greater than 0 and a price of 0 or more.');
-              return;
-            }
-            if (saveProfile()) {
-              Alert.alert('Saved', 'Settings saved.');
-            }
-          }}
-          activeOpacity={0.85}
-          style={{
-            backgroundColor: COLORS.ink,
-            borderRadius: 14,
-            paddingVertical: 14,
-            alignItems: 'center',
-            marginTop: 16,
-            marginBottom: 8,
-          }}
-        >
-          <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.paper }}>
-            Save settings
+      {/* ── Students ──────────────────────────────────────────────────── */}
+      <SectionLabel>Students</SectionLabel>
+      <SettingsLinkRow
+        icon="archive"
+        title="Archived students"
+        subtitle="View or restore students you've archived"
+        onPress={() => router.push('/student/archived')}
+      />
+      <View style={[ROW_CONTAINER, { flexDirection: 'row', alignItems: 'center' }]}>
+        <View style={{ flex: 1, marginRight: 12 }}>
+          <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>Show all grades (1–12)</Text>
+          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>
+            Off: only grades 8–12 (high school)
           </Text>
-        </TouchableOpacity>
-
-        {/* ── BACKUP section ───────────────────────────────────────────── */}
-        <Text style={SECTION_LABEL}>Backup</Text>
-
-        <TouchableOpacity
-          onPress={handleExport}
-          activeOpacity={0.8}
-          style={{
-            borderWidth: 1,
-            borderColor: COLORS.paperEdge,
-            borderRadius: 14,
-            paddingVertical: 14,
-            paddingHorizontal: 16,
-            marginBottom: 8,
-            backgroundColor: 'rgba(255,255,255,0.4)',
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
+        </View>
+        <Switch
+          value={showAllGrades}
+          onValueChange={v => {
+            setShowAllGrades(v);
+            AsyncStorage.setItem(SHOW_ALL_GRADES_KEY, v ? 'true' : 'false').catch(() => {});
           }}
+          trackColor={{ false: COLORS.paperEdge, true: COLORS.oxblood }}
+          thumbColor={COLORS.paper}
+        />
+      </View>
+
+      {/* ── Backup & restore ──────────────────────────────────────────── */}
+      <SectionLabel>Backup & restore</SectionLabel>
+      <View style={[ROW_CONTAINER, { flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH }]}>
+        <Text style={{ flex: 1, fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>Last backup</Text>
+        <Text
+          testID="last-backup"
+          style={{ fontFamily: F.mono, fontSize: 13, color: backupAge === 'Never' ? COLORS.crimson : COLORS.ink }}
         >
-          <View>
-            <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>
-              Export database
-            </Text>
-            <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>
-              Share a copy of your database file
-            </Text>
-          </View>
-          <Feather name="download" size={18} color={COLORS.inkSoft} />
-        </TouchableOpacity>
+          {backupAge}
+        </Text>
+      </View>
+      <SettingsLinkRow
+        icon="upload-cloud"
+        title={backupBusy === 'export' ? 'Preparing backup…' : 'Back up now'}
+        subtitle="Save a copy of all your data (incl. proof photos) to Drive, email or WhatsApp"
+        onPress={handleBackup}
+        busy={backupBusy !== null}
+        trailing={backupBusy === 'export' ? <ActivityIndicator color={COLORS.inkSoft} /> : undefined}
+      />
+      <SettingsLinkRow
+        icon="download-cloud"
+        title={backupBusy === 'inspect' ? 'Checking backup…' : 'Restore from backup'}
+        subtitle="Replace the data on this phone with a backup file"
+        onPress={handlePickRestore}
+        busy={backupBusy !== null}
+        trailing={backupBusy === 'inspect' ? <ActivityIndicator color={COLORS.inkSoft} /> : undefined}
+      />
 
-        <View style={{ height: 16 }} />
+      {/* ── Dev tools ─────────────────────────────────────────────────── */}
+      {__DEV__ && (
+        <View>
+          <SectionLabel>Dev tools</SectionLabel>
+          <TouchableOpacity
+            onPress={handleSeed}
+            activeOpacity={0.8}
+            style={{
+              minHeight: MIN_TOUCH,
+              backgroundColor: COLORS.oxblood,
+              borderRadius: 14,
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginBottom: 12,
+            }}
+          >
+            <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.paper }}>Load demo data</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => {
+              setResetConfirmText('');
+              setResetConfirmVisible(true);
+            }}
+            activeOpacity={0.8}
+            style={{
+              minHeight: MIN_TOUCH,
+              borderWidth: 1,
+              borderColor: COLORS.crimson,
+              borderRadius: 14,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.crimson }}>Reset database</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-        {/* ── DEV TOOLS section ─────────────────────────────────────────── */}
-        {__DEV__ && (
-          <View>
-            <Text style={SECTION_LABEL}>Dev tools</Text>
+      <RestoreBackupModal
+        summary={restoreSummary}
+        busy={backupBusy === 'restore'}
+        lessonInProgress={timerStatus !== 'idle'}
+        onCancel={cancelRestore}
+        onConfirm={confirmRestore}
+      />
 
-            <TouchableOpacity
-              onPress={handleSeed}
-              activeOpacity={0.8}
-              style={{
-                backgroundColor: COLORS.oxblood,
-                borderRadius: 14,
-                paddingVertical: 14,
-                alignItems: 'center',
-                marginBottom: 12,
-              }}
-            >
-              <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.paper }}>
-                Load demo data
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={handleReset}
-              activeOpacity={0.8}
-              style={{
-                borderWidth: 1,
-                borderColor: COLORS.crimson,
-                borderRadius: 14,
-                paddingVertical: 14,
-                alignItems: 'center',
-              }}
-            >
-              <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.crimson }}>
-                Reset database
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Reset confirmation modal */}
-      <Modal visible={resetConfirmVisible} transparent animationType="fade" onRequestClose={() => setResetConfirmVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+      <Modal
+        visible={resetConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setResetConfirmVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: COLORS.scrim, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
           <View style={{ backgroundColor: COLORS.paper, borderRadius: 16, padding: 24, width: '100%' }}>
-            <Text style={{ fontFamily: F.serif, fontSize: 20, color: COLORS.ink, marginBottom: 8 }}>
-              Reset all data?
-            </Text>
+            <Text style={{ fontFamily: F.serif, fontSize: 20, color: COLORS.ink, marginBottom: 8 }}>Reset all data?</Text>
             <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkSoft, marginBottom: 20 }}>
               This permanently deletes every student, session, and ledger entry. Type RESET to confirm.
             </Text>
@@ -648,6 +675,7 @@ export default function ProfileScreen() {
               autoCapitalize="characters"
               autoCorrect={false}
               style={{
+                minHeight: MIN_TOUCH,
                 fontFamily: F.mono,
                 fontSize: 16,
                 color: COLORS.crimson,
@@ -655,7 +683,6 @@ export default function ProfileScreen() {
                 borderColor: COLORS.crimson,
                 borderRadius: 8,
                 paddingHorizontal: 12,
-                paddingVertical: 10,
                 marginBottom: 20,
               }}
             />
@@ -663,7 +690,15 @@ export default function ProfileScreen() {
               <TouchableOpacity
                 onPress={() => setResetConfirmVisible(false)}
                 activeOpacity={0.8}
-                style={{ flex: 1, borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
+                style={{
+                  flex: 1,
+                  minHeight: MIN_TOUCH,
+                  borderWidth: 1,
+                  borderColor: COLORS.paperEdge,
+                  borderRadius: 10,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
               >
                 <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.inkSoft }}>Cancel</Text>
               </TouchableOpacity>
@@ -671,14 +706,29 @@ export default function ProfileScreen() {
                 onPress={confirmReset}
                 disabled={resetConfirmText !== 'RESET'}
                 activeOpacity={0.8}
-                style={{ flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center', backgroundColor: resetConfirmText === 'RESET' ? COLORS.crimson : COLORS.paperEdge }}
+                style={{
+                  flex: 1,
+                  minHeight: MIN_TOUCH,
+                  borderRadius: 10,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: resetConfirmText === 'RESET' ? COLORS.crimson : COLORS.paperEdge,
+                }}
               >
-                <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: resetConfirmText === 'RESET' ? COLORS.paper : COLORS.inkFaint }}>Reset</Text>
+                <Text
+                  style={{
+                    fontFamily: F.sansMed,
+                    fontSize: 14,
+                    color: resetConfirmText === 'RESET' ? COLORS.paper : COLORS.inkFaint,
+                  }}
+                >
+                  Reset
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </FormScreen>
   );
 }
