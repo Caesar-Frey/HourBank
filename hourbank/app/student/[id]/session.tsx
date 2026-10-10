@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   StatusBar,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -71,6 +72,11 @@ export default function SessionScreen() {
   } = useSessionTimer();
 
   useDarkTabBar();
+  // Short phones (≈640dp): tighter spacing + smaller dial so Pause/End sit on screen.
+  const { height: windowHeight } = useWindowDimensions();
+  const compact = windowHeight < 720;
+  const dial = compact ? 212 : 232;
+  const digits = compact ? 34 : 40;
 
   // One-time load: student, topics, prefilled lesson details.
   useEffect(() => {
@@ -443,11 +449,11 @@ export default function SessionScreen() {
 
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={{ paddingBottom: 16 }}
           keyboardShouldPersistTaps="handled"
         >
           {/* Student name + lesson label */}
-          <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 28 }}>
+          <View style={{ alignItems: 'center', paddingTop: compact ? 4 : 12, paddingBottom: compact ? 14 : 28 }}>
             <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.paper }}>
               {student?.full_name ?? ''}
             </Text>
@@ -457,12 +463,12 @@ export default function SessionScreen() {
           </View>
 
           {/* Timer circle */}
-          <View style={{ alignItems: 'center', marginBottom: 36 }}>
+          <View style={{ alignItems: 'center', marginBottom: compact ? 18 : 36 }}>
             <View
               style={{
-                width: 232,
-                height: 232,
-                borderRadius: 116,
+                width: dial,
+                height: dial,
+                borderRadius: dial / 2,
                 borderWidth: 1,
                 borderColor: remaining.tone === 'normal' ? COLORS.paper20 : remainingColour,
                 alignItems: 'center',
@@ -477,7 +483,7 @@ export default function SessionScreen() {
                   left: 12,
                   right: 12,
                   bottom: 12,
-                  borderRadius: 104,
+                  borderRadius: dial / 2 - 12,
                   borderWidth: 0.5,
                   borderColor: COLORS.paper12,
                 }}
@@ -486,10 +492,10 @@ export default function SessionScreen() {
                 {isPaused ? 'PAUSED' : 'ELAPSED'}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', opacity: isPaused ? 0.6 : 1 }}>
-                <Text style={{ fontFamily: F.mono, fontSize: 40, color: COLORS.paper, includeFontPadding: false }}>
+                <Text style={{ fontFamily: F.mono, fontSize: digits, color: COLORS.paper, includeFontPadding: false }}>
                   {parts[0]}:{parts[1]}:
                 </Text>
-                <Text style={{ fontFamily: F.mono, fontSize: 40, color: COLORS.oxblood, includeFontPadding: false }}>
+                <Text style={{ fontFamily: F.mono, fontSize: digits, color: COLORS.oxblood, includeFontPadding: false }}>
                   {parts[2]}
                 </Text>
               </View>
@@ -507,8 +513,8 @@ export default function SessionScreen() {
           </View>
 
           {/* Topics section */}
-          <View style={{ paddingHorizontal: 24, marginBottom: 32 }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: 12 }}>
+          <View style={{ paddingHorizontal: 24 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: compact ? 8 : 12 }}>
               TOPICS COVERED
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -563,8 +569,10 @@ export default function SessionScreen() {
               )}
             </View>
           </View>
+        </ScrollView>
 
-          {/* Action buttons */}
+        {/* Controls pinned below the scroll area: always visible, even at 640dp. */}
+        <View style={{ paddingTop: compact ? 8 : 12, paddingBottom: compact ? 4 : 8, borderTopWidth: 1, borderTopColor: COLORS.paper12 }}>
           <View style={{ flexDirection: 'row', paddingHorizontal: 24, gap: 12 }}>
             <TouchableOpacity
               onPress={togglePause}
@@ -600,10 +608,10 @@ export default function SessionScreen() {
               <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.paper }}>End lesson ▸</Text>
             </TouchableOpacity>
           </View>
-          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.paper40, textAlign: 'center', marginTop: 16, paddingHorizontal: 24 }}>
+          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.paper40, textAlign: 'center', marginTop: compact ? 6 : 10, paddingHorizontal: 24 }}>
             Minimise keeps the lesson running in the background.
           </Text>
-        </ScrollView>
+        </View>
       </SafeAreaView>
 
       <ActionSheet
