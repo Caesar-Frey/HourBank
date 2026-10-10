@@ -56,17 +56,4 @@ jest.mock('../../db/catalog', () => ({ listTopicsForStudentSubject: () => [{ nam
 jest.mock('../../db/sessions', () => ({ getSession: () => ({ scheduled_for: null }), endSession: jest.fn() }));
 jest.mock('../../utils/notifications', () => ({ sendReceipt: jest.fn(async () => {}) }));
 
-import EndSessionScreen from '../../../app/student/[id]/end-session';
-import { endSession } from '../../db/sessions';
-import { sendReceipt } from '../../utils/notifications';
-
-test('session action promises saving and preserves completion without claiming receipt delivery', () => {
-  const screen = render(<EndSessionScreen />);
-  fireEvent.press(screen.getByText(/Save session/));
-  expect(endSession).toHaveBeenCalledWith(expect.objectContaining({
-    sessionId: 'session-1', durationMinutes: 60, billedMinutes: 60,
-    pausedSeconds: 0, topics: ['Algebra'], sessionNotes: '',
-  }));
-  expect(sendReceipt).not.toHaveBeenCalled();
-  expect(Alert.alert).toHaveBeenCalledWith('Session saved.', '', expect.any(Array));
-});
+// End-of-lesson save behaviour lives in end-session.test.tsx (WS-3).

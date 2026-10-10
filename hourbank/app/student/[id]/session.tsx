@@ -9,34 +9,38 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
 import { COLORS } from '../../../src/theme/colors';
+import { F, MIN_TOUCH } from '../../../src/theme/fonts';
 import { useDarkTabBar } from '../../../src/hooks/useDarkTabBar';
+import { useStartLesson } from '../../../src/hooks/useStartLesson';
 import { getDb } from '../../../src/db/client';
 import { getStudent } from '../../../src/db/students';
 import { currentBalance } from '../../../src/db/ledger';
-import { startSession, cancelSession } from '../../../src/db/sessions';
+import { cancelScheduled, computeElapsedSeconds, discardSession, getSession } from '../../../src/db/sessions';
 import { listTopicsForStudentSubject } from '../../../src/db/catalog';
 import { TopicChip } from '../../../src/components/TopicChip';
-import { F } from '../../../src/theme/fonts';
+import { ActionSheet } from '../../../src/components/ActionSheet';
+import { useToast } from '../../../src/components/Toast';
 import { formatDuration, formatHours, formatScheduledTime } from '../../../src/utils/format';
 import { Session, Student } from '../../../src/db/schema';
 import { useSessionTimer } from '../../../src/contexts/SessionTimerContext';
+import { lessonDraftStore, remainingInfo } from '../../../src/contexts/SessionTimerContext.helpers';
 
-const PAPER_40 = 'rgba(244,239,230,0.4)';
-const PAPER_20 = 'rgba(244,239,230,0.2)';
-const PAPER_12 = 'rgba(244,239,230,0.12)';
-const PAPER_60 = 'rgba(244,239,230,0.6)';
+const SLOP = { top: 10, bottom: 10, left: 10, right: 10 };
 
 export default function SessionScreen() {
   const { id, sessionId } = useLocalSearchParams<{ id: string; sessionId: string }>();
   const router = useRouter();
+  const toast = useToast();
+  const startLesson = useStartLesson();
 
-  const [sessionStatus, setSessionStatus] = useState<Session['status'] | null>(null);
-  const [scheduledFor, setScheduledFor] = useState<string | null>(null);
-  const [estimatedMinutes, setEstimatedMinutes] = useState<number | null>(null);
+  const [row, setRow] = useState<Session | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [mode, setMode] = useState<'in_person' | 'online'>('in_person');
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [addingTopic, setAddingTopic] = useState(false);
@@ -45,177 +49,180 @@ export default function SessionScreen() {
   const [balance, setBalance] = useState(0);
   const [sessionCount, setSessionCount] = useState(1);
   const [availableTopics, setAvailableTopics] = useState<string[]>([]);
+  const [menuOpen, setMenuOpen] = useState(false);
 
+  const {
+    status: timerStatus,
+    sessionId: timerSessionId,
+    elapsedSeconds: timerElapsed,
+    pauseTimer,
+    resumeTimer,
+    refreshFromDb,
+    endTimer,
+  } = useSessionTimer();
+
+  useDarkTabBar();
+
+  // One-time load: student, topics, prefilled lesson details.
   useEffect(() => {
     try {
       const s = getStudent(id);
-      if (!s) return;
-      setStudent(s);
-      setBalance(currentBalance(id));
-
-      const db = getDb();
-      const row = db.getFirstSync<{ count: number }>(
-        `SELECT COUNT(*) AS count FROM sessions WHERE student_id = ? AND status = 'completed'`,
-        [id]
-      );
-      setSessionCount((row?.count ?? 0) + 1);
-
-      const allTopics = listTopicsForStudentSubject(s.subject).map(t => t.name);
-      setAvailableTopics(allTopics);
-
-      const sessionRow = db.getFirstSync<{
-        topics: string;
-        mode: string;
-        status: Session['status'];
-        scheduled_for: string | null;
-        estimated_duration_minutes: number | null;
-      }>(
-        'SELECT topics, mode, status, scheduled_for, estimated_duration_minutes FROM sessions WHERE id = ?',
-        [sessionId]
-      );
-      if (sessionRow) {
-        setSessionStatus(sessionRow.status);
-        setScheduledFor(sessionRow.scheduled_for);
-        setEstimatedMinutes(sessionRow.estimated_duration_minutes);
-        if (sessionRow.mode === 'online' || sessionRow.mode === 'in_person') {
-          setMode(sessionRow.mode as 'in_person' | 'online');
-        }
+      if (s) {
+        setStudent(s);
+        const db = getDb();
+        const c = db.getFirstSync<{ count: number }>(
+          `SELECT COUNT(*) AS count FROM sessions WHERE student_id = ? AND status = 'completed'`,
+          [id],
+        );
+        setSessionCount((c?.count ?? 0) + 1);
+        setAvailableTopics(listTopicsForStudentSubject(s.subject).map(t => t.name));
+      }
+      const sess = getSession(sessionId);
+      if (sess) {
+        if (sess.mode === 'online' || sess.mode === 'in_person') setMode(sess.mode);
         try {
-          const prePicked: string[] = JSON.parse(sessionRow.topics);
+          const prePicked: unknown = JSON.parse(sess.topics);
           if (Array.isArray(prePicked) && prePicked.length > 0) {
-            setSelectedTopics(prePicked);
+            const picked = prePicked.filter((t): t is string => typeof t === 'string');
+            setSelectedTopics(picked);
             setAvailableTopics(prev => {
-              const extras = prePicked.filter(t => !prev.includes(t));
+              const extras = picked.filter(t => !prev.includes(t));
               return extras.length > 0 ? [...prev, ...extras] : prev;
             });
           }
-        } catch { /* ignore */ }
+        } catch { /* ignore malformed topics */ }
       }
     } catch (e) {
       console.error('SessionScreen mount error', e);
     }
   }, [id, sessionId]);
 
-  const {
-    status: timerStatus,
-    sessionId: timerSessionId,
-    elapsedSeconds,
-    startTimer,
-    pauseTimer,
-    resumeTimer,
-    endTimer,
-  } = useSessionTimer();
+  // Every focus (incl. Back from end-session): status + balance + elapsed from the DB.
+  const reload = useCallback(() => {
+    try {
+      setRow(getSession(sessionId));
+      setBalance(currentBalance(id));
+      refreshFromDb();
+    } catch (e) {
+      console.error('SessionScreen reload error', e);
+    } finally {
+      setLoaded(true);
+    }
+  }, [id, sessionId, refreshFromDb]);
 
-  useDarkTabBar();
+  useFocusEffect(reload);
+
+  const status = row?.status ?? null;
+
+  // A finished/discarded lesson has nothing to time — show its summary instead.
+  useEffect(() => {
+    if (status === 'completed' || status === 'cancelled') {
+      router.replace(`/lesson/${sessionId}`);
+    }
+  }, [status, sessionId, router]);
+
+  const isTracked = timerSessionId === sessionId && timerStatus !== 'idle';
+  const isPaused = isTracked ? timerStatus === 'paused' : status === 'paused';
+  const elapsedSeconds = isTracked ? timerElapsed : row ? computeElapsedSeconds(row) : 0;
 
   useEffect(() => {
-    if (sessionStatus === 'active') {
+    if (status === 'active' && !isPaused) {
       activateKeepAwakeAsync();
     } else {
       deactivateKeepAwake();
     }
     return () => { deactivateKeepAwake(); };
-  }, [sessionStatus]);
+  }, [status, isPaused]);
 
-  const isPaused = timerStatus === 'paused' && timerSessionId === sessionId;
-  const elapsedHours = elapsedSeconds / 3600;
-  const remainingHours = Math.max(0, balance - elapsedHours);
+  // ── Actions ──────────────────────────────────────────────────────────────
 
-  function pause() {
-    pauseTimer();
+  function minimise() {
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
   }
 
-  function resume() {
-    resumeTimer();
+  function togglePause() {
+    const ok = isPaused ? resumeTimer() : pauseTimer();
+    if (!ok) toast.show({ kind: 'error', message: isPaused ? "Couldn't resume the lesson" : "Couldn't pause the lesson" });
+    reload();
   }
 
-  function handleStartSession() {
-    try {
-      const session = startSession(sessionId);
-      setSessionStatus('active');
-      startTimer(sessionId, id, session.started_at!, 0);
-    } catch (e) {
-      Alert.alert('Error', 'Could not start session. Please try again.');
-    }
+  function handleStart() {
+    startLesson(sessionId, {
+      studentName: student?.full_name,
+      onStarted: () => reload(),
+    });
   }
 
   function handleCancelScheduled() {
-    Alert.alert(
-      'Cancel session?',
-      'The scheduled session will be removed.',
-      [
-        { text: 'Keep it', style: 'cancel' },
-        {
-          text: 'Cancel session',
-          style: 'destructive',
-          onPress: () => {
-            try {
-              cancelSession(sessionId);
-            } catch (e) {
-              console.error(e);
-            }
-            router.back();
-          },
+    Alert.alert('Cancel this lesson?', 'It will be marked as cancelled. No hours are deducted.', [
+      { text: 'Keep it', style: 'cancel' },
+      {
+        text: 'Cancel lesson',
+        style: 'destructive',
+        onPress: () => {
+          try {
+            cancelScheduled(sessionId);
+            toast.show({ kind: 'success', message: 'Lesson cancelled' });
+            minimise();
+          } catch (e) {
+            console.error('cancelScheduled error', e);
+            toast.show({ kind: 'error', message: "Couldn't cancel — the lesson may have changed" });
+            reload();
+          }
         },
-      ]
-    );
+      },
+    ]);
   }
 
   function handleReschedule() {
     router.replace(`/student/${id}/schedule?sessionId=${sessionId}`);
   }
 
-  function handleCancelActive() {
-    Alert.alert('Cancel session?', 'This session will be discarded.', [
-      { text: 'Keep going', style: 'cancel' },
-      {
-        text: 'Discard',
-        style: 'destructive',
-        onPress: () => {
-          try {
-            const db = getDb();
-            db.runSync(
-              `UPDATE sessions SET status = 'cancelled' WHERE id = ? AND status IN ('active', 'paused')`,
-              [sessionId]
-            );
-          } catch (e) {
-            console.error(e);
-          }
-          const wasUnscheduled = !scheduledFor;
-          endTimer();
-          router.replace(wasUnscheduled ? '/sessions' : `/student/${id}`);
+  function confirmDiscard() {
+    Alert.alert(
+      'Discard this lesson?',
+      `Nothing will be saved and no hours deducted for ${student?.full_name ?? 'this student'}. This can't be undone.`,
+      [
+        { text: 'Keep teaching', style: 'cancel' },
+        {
+          text: 'Discard lesson',
+          style: 'destructive',
+          onPress: () => {
+            try {
+              discardSession(sessionId);
+              lessonDraftStore.clear(sessionId);
+              endTimer();
+              toast.show({ kind: 'info', message: 'Lesson discarded — no hours deducted' });
+              minimise();
+            } catch (e) {
+              console.error('discardSession error', e);
+              toast.show({ kind: 'error', message: "Couldn't discard the lesson" });
+              reload();
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   }
 
   function handleEndSession() {
     if (selectedTopics.length < 1) {
-      Alert.alert('Select a topic', 'Select at least one topic before ending the session.');
+      Alert.alert('Select a topic', 'Select at least one topic before ending the lesson.');
       return;
     }
-    // Read paused_seconds from DB (the authoritative source)
-    let pausedSeconds = 0;
-    try {
-      const db = getDb();
-      const row = db.getFirstSync<{ paused_seconds: number }>(
-        'SELECT paused_seconds FROM sessions WHERE id = ?',
-        [sessionId],
-      );
-      pausedSeconds = row?.paused_seconds ?? 0;
-    } catch (e) {
-      console.error('handleEndSession paused_seconds read error', e);
-    }
+    // Timer keeps running: Back from the review returns to a live timer.
+    // The end time is frozen here so the review time isn't billed.
     const topicsParam = encodeURIComponent(JSON.stringify(selectedTopics));
-    endTimer();
+    const endedAt = encodeURIComponent(new Date().toISOString());
     router.push(
-      `/student/${id}/end-session?sessionId=${sessionId}&elapsedSeconds=${elapsedSeconds}&pausedSeconds=${pausedSeconds}&mode=${mode}&topics=${topicsParam}`
+      `/student/${id}/end-session?sessionId=${sessionId}&endedAt=${endedAt}&mode=${mode}&topics=${topicsParam}`,
     );
   }
 
   function toggleTopic(topic: string) {
     setSelectedTopics(prev =>
-      prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
+      prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic],
     );
   }
 
@@ -230,79 +237,105 @@ export default function SessionScreen() {
     setAddingTopic(false);
   }
 
-  // Loading state
-  if (sessionStatus === null) {
-    return <View style={{ flex: 1, backgroundColor: COLORS.sessionBg }} />;
+  // ── Render ───────────────────────────────────────────────────────────────
+
+  const statusBar = <StatusBar barStyle="light-content" backgroundColor={COLORS.sessionBg} />;
+
+  if (!loaded || status === 'completed' || status === 'cancelled') {
+    return <View style={{ flex: 1, backgroundColor: COLORS.sessionBg }}>{statusBar}</View>;
   }
 
-  // Pre-start view for scheduled sessions
-  if (sessionStatus === 'scheduled') {
+  if (!row) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.sessionBg }} edges={['top']}>
+        {statusBar}
+        <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+          <TouchableOpacity onPress={minimise} hitSlop={SLOP} style={{ minHeight: MIN_TOUCH, justifyContent: 'center' }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.paper }}>← BACK</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+          <Text style={{ fontFamily: F.serif, fontSize: 22, color: COLORS.paper, marginBottom: 8 }}>Lesson not found</Text>
+          <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.paper60, textAlign: 'center' }}>
+            It may have been removed. Go back and pick it again.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Pre-start view for scheduled lessons
+  if (status === 'scheduled') {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.sessionBg }} edges={['top']}>
+        {statusBar}
         <View style={{ flex: 1 }}>
-          {/* Top bar */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 }}>
-            <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 }}>
+            <TouchableOpacity onPress={minimise} hitSlop={SLOP} style={{ minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, justifyContent: 'center' }}>
               <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.paper, letterSpacing: 0.5 }}>← BACK</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleCancelScheduled} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.crimson, letterSpacing: 0.5 }}>CANCEL</Text>
+            <TouchableOpacity onPress={handleCancelScheduled} hitSlop={SLOP} style={{ minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, justifyContent: 'center', alignItems: 'flex-end' }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.crimson, letterSpacing: 0.5 }}>CANCEL LESSON</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Student name */}
           <View style={{ alignItems: 'center', paddingTop: 24, paddingBottom: 12, paddingHorizontal: 24 }}>
             <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.paper }}>{student?.full_name ?? ''}</Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: PAPER_60, letterSpacing: 1, marginTop: 6 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
               {student ? `GR ${student.grade} ${student.subject.toUpperCase()}` : ''}
             </Text>
           </View>
 
-          {/* Session details card */}
-          <View style={{ marginHorizontal: 24, borderWidth: 1, borderColor: PAPER_20, borderRadius: 16, padding: 20, marginBottom: 32 }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 10, color: PAPER_60, letterSpacing: 1.5, marginBottom: 16 }}>SCHEDULED SESSION</Text>
+          <View style={{ marginHorizontal: 24, borderWidth: 1, borderColor: COLORS.paper20, borderRadius: 16, padding: 20, marginBottom: 32 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: 16 }}>SCHEDULED LESSON</Text>
             <View style={{ gap: 10 }}>
-              {scheduledFor && (
+              {row.scheduled_for && (
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>WHEN</Text>
-                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper, flex: 1 }}>{formatScheduledTime(scheduledFor)}</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, width: 72 }}>WHEN</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper, flex: 1 }}>{formatScheduledTime(row.scheduled_for)}</Text>
                 </View>
               )}
-              {estimatedMinutes && (
+              {row.estimated_duration_minutes ? (
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>DURATION</Text>
-                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper }}>{formatHours(estimatedMinutes / 60)}</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, width: 72 }}>LENGTH</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper }}>{formatHours(row.estimated_duration_minutes / 60)}</Text>
                 </View>
-              )}
+              ) : null}
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>MODE</Text>
-                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper }}>{mode === 'in_person' ? '📍 In-Person' : '💻 Online'}</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, width: 72 }}>MODE</Text>
+                <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.paper }}>{mode === 'in_person' ? '📍 In-person' : '💻 Online'}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, width: 72 }}>CREDIT</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: balance < 0 ? COLORS.crimson : COLORS.paper }}>
+                  {balance < 0 ? `OWES ${formatHours(-balance)}` : formatHours(balance)}
+                </Text>
               </View>
               {selectedTopics.length > 0 && (
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: PAPER_60, width: 64 }}>TOPICS</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, width: 72 }}>TOPICS</Text>
                   <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.paper, flex: 1 }}>{selectedTopics.join(', ')}</Text>
                 </View>
               )}
             </View>
           </View>
 
-          {/* Action buttons */}
           <View style={{ paddingHorizontal: 24, gap: 12 }}>
             <TouchableOpacity
-              onPress={handleStartSession}
-              style={{ backgroundColor: COLORS.oxblood, borderRadius: 16, paddingVertical: 18, alignItems: 'center' }}
+              onPress={handleStart}
+              style={{ backgroundColor: COLORS.oxblood, borderRadius: 16, minHeight: 56, alignItems: 'center', justifyContent: 'center' }}
               activeOpacity={0.85}
+              accessibilityRole="button"
             >
-              <Text style={{ fontFamily: F.mono, fontSize: 15, color: COLORS.paper }}>▶ Start session</Text>
+              <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.paper }}>▶ Start lesson</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               onPress={handleReschedule}
-              style={{ borderWidth: 1, borderColor: PAPER_40, borderRadius: 16, paddingVertical: 14, alignItems: 'center' }}
+              style={{ borderWidth: 1, borderColor: COLORS.paper40, borderRadius: 16, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}
               activeOpacity={0.75}
+              accessibilityRole="button"
             >
-              <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.paper }}>↺ Reschedule</Text>
+              <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.paper }}>↺ Reschedule</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -310,66 +343,80 @@ export default function SessionScreen() {
     );
   }
 
-  // Active timer view
+  // Active / paused timer view
   const parts = formatDuration(elapsedSeconds).split(':');
+  const remaining = remainingInfo({
+    elapsedSeconds,
+    bookedMinutes: row.estimated_duration_minutes,
+    balanceHours: balance,
+  });
+  const remainingColour =
+    remaining.tone === 'crimson' ? COLORS.crimson : remaining.tone === 'amber' ? COLORS.amber : COLORS.paper60;
 
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: COLORS.sessionBg }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      {statusBar}
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 40 }}
-          keyboardShouldPersistTaps="handled"
+        {/* Top bar: minimise · mode · menu */}
+        <View
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingHorizontal: 12,
+            paddingTop: 4,
+            paddingBottom: 4,
+          }}
         >
-          {/* Top bar: cancel + mode toggle */}
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              paddingHorizontal: 24,
-              paddingTop: 16,
-              paddingBottom: 8,
-            }}
+          <TouchableOpacity
+            onPress={minimise}
+            hitSlop={SLOP}
+            accessibilityRole="button"
+            accessibilityLabel="Minimise — the lesson keeps running"
+            style={{ minHeight: MIN_TOUCH, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 }}
           >
-            <TouchableOpacity
-              onPress={handleCancelActive}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            >
-              <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.paper, letterSpacing: 0.5 }}>
-                × CANCEL
-              </Text>
-            </TouchableOpacity>
+            <Feather name="chevron-down" size={20} color={COLORS.paper} />
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper, letterSpacing: 0.5 }}>MINIMISE</Text>
+          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity
               onPress={() => setMode(m => (m === 'in_person' ? 'online' : 'in_person'))}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              hitSlop={SLOP}
+              accessibilityRole="button"
+              accessibilityLabel={`Mode: ${mode === 'in_person' ? 'in-person' : 'online'}. Tap to switch.`}
+              style={{ minHeight: MIN_TOUCH, justifyContent: 'center', paddingHorizontal: 8 }}
             >
               <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper }}>
                 {mode === 'in_person' ? '📍 IN-PERSON' : '💻 ONLINE'}
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setMenuOpen(true)}
+              hitSlop={SLOP}
+              accessibilityRole="button"
+              accessibilityLabel="Lesson options"
+              style={{ minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Feather name="more-vertical" size={20} color={COLORS.paper} />
+            </TouchableOpacity>
           </View>
+        </View>
 
-          {/* Student name + session label */}
-          <View style={{ alignItems: 'center', paddingTop: 16, paddingBottom: 28 }}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Student name + lesson label */}
+          <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 28 }}>
             <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.paper }}>
               {student?.full_name ?? ''}
             </Text>
-            <Text
-              style={{
-                fontFamily: F.mono,
-                fontSize: 11,
-                color: PAPER_60,
-                letterSpacing: 1,
-                marginTop: 6,
-              }}
-            >
-              {student
-                ? `GR ${student.grade} ${student.subject.toUpperCase()} · SESSION ${sessionCount}`
-                : ''}
+            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
+              {student ? `GR ${student.grade} ${student.subject.toUpperCase()} · LESSON ${sessionCount}` : ''}
             </Text>
           </View>
 
@@ -377,11 +424,11 @@ export default function SessionScreen() {
           <View style={{ alignItems: 'center', marginBottom: 36 }}>
             <View
               style={{
-                width: 220,
-                height: 220,
-                borderRadius: 110,
+                width: 232,
+                height: 232,
+                borderRadius: 116,
                 borderWidth: 1,
-                borderColor: PAPER_20,
+                borderColor: remaining.tone === 'normal' ? COLORS.paper20 : remainingColour,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
@@ -394,71 +441,38 @@ export default function SessionScreen() {
                   left: 12,
                   right: 12,
                   bottom: 12,
-                  borderRadius: 98,
+                  borderRadius: 104,
                   borderWidth: 0.5,
-                  borderColor: PAPER_12,
+                  borderColor: COLORS.paper12,
                 }}
               />
-              <Text
-                style={{
-                  fontFamily: F.mono,
-                  fontSize: 10,
-                  color: PAPER_60,
-                  letterSpacing: 2,
-                  marginBottom: 8,
-                }}
-              >
-                ELAPSED
+              <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.paper60, letterSpacing: 2, marginBottom: 8 }}>
+                {isPaused ? 'PAUSED' : 'ELAPSED'}
               </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Text
-                  style={{
-                    fontFamily: F.mono,
-                    fontSize: 40,
-                    color: COLORS.paper,
-                    includeFontPadding: false,
-                  }}
-                >
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', opacity: isPaused ? 0.6 : 1 }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 40, color: COLORS.paper, includeFontPadding: false }}>
                   {parts[0]}:{parts[1]}:
                 </Text>
-                <Text
-                  style={{
-                    fontFamily: F.mono,
-                    fontSize: 40,
-                    color: COLORS.oxblood,
-                    includeFontPadding: false,
-                  }}
-                >
+                <Text style={{ fontFamily: F.mono, fontSize: 40, color: COLORS.oxblood, includeFontPadding: false }}>
                   {parts[2]}
                 </Text>
               </View>
               <Text
-                style={{
-                  fontFamily: F.mono,
-                  fontSize: 11,
-                  color: PAPER_60,
-                  letterSpacing: 1,
-                  marginTop: 10,
-                }}
+                accessibilityLiveRegion="polite"
+                style={{ fontFamily: F.monoMed, fontSize: 12, color: remainingColour, letterSpacing: 1, marginTop: 10 }}
               >
-                {isPaused
-                  ? '⏸ PAUSED'
-                  : `· LIVE · ${formatHours(remainingHours).toUpperCase()} REMAINING`}
+                {isPaused ? '▮▮ ' : '· '}
+                {remaining.label}
+              </Text>
+              <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.paper40, letterSpacing: 1, marginTop: 4 }}>
+                {remaining.caption}
               </Text>
             </View>
           </View>
 
           {/* Topics section */}
           <View style={{ paddingHorizontal: 24, marginBottom: 32 }}>
-            <Text
-              style={{
-                fontFamily: F.mono,
-                fontSize: 11,
-                color: PAPER_60,
-                letterSpacing: 1.5,
-                marginBottom: 12,
-              }}
-            >
+            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: 12 }}>
               TOPICS COVERED
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -479,14 +493,14 @@ export default function SessionScreen() {
                   onSubmitEditing={submitCustomTopic}
                   onBlur={submitCustomTopic}
                   placeholder="Topic name…"
-                  placeholderTextColor={PAPER_40}
+                  placeholderTextColor={COLORS.paper40}
                   returnKeyType="done"
                   style={{
                     fontFamily: F.sans,
                     fontSize: 13,
                     color: COLORS.paper,
                     borderWidth: 1,
-                    borderColor: PAPER_40,
+                    borderColor: COLORS.paper40,
                     borderRadius: 999,
                     paddingHorizontal: 12,
                     paddingVertical: 6,
@@ -496,17 +510,19 @@ export default function SessionScreen() {
               ) : (
                 <TouchableOpacity
                   onPress={() => setAddingTopic(true)}
+                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                   style={{
                     borderWidth: 1,
-                    borderColor: PAPER_40,
+                    borderColor: COLORS.paper40,
                     borderStyle: 'dashed',
                     borderRadius: 999,
                     paddingHorizontal: 12,
-                    paddingVertical: 6,
+                    minHeight: 36,
+                    justifyContent: 'center',
                   }}
                   activeOpacity={0.75}
                 >
-                  <Text style={{ fontFamily: F.sans, fontSize: 13, color: PAPER_60 }}>+ add</Text>
+                  <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.paper60 }}>+ add</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -515,41 +531,70 @@ export default function SessionScreen() {
           {/* Action buttons */}
           <View style={{ flexDirection: 'row', paddingHorizontal: 24, gap: 12 }}>
             <TouchableOpacity
-              onPress={isPaused ? resume : pause}
+              onPress={togglePause}
+              accessibilityRole="button"
               style={{
                 flex: 1,
                 borderWidth: 1,
-                borderColor: PAPER_40,
+                borderColor: COLORS.paper40,
                 borderRadius: 16,
-                paddingVertical: 16,
+                minHeight: 56,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
               activeOpacity={0.8}
             >
-              <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.paper }}>
+              <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.paper }}>
                 {isPaused ? '▶ Resume' : '▮▮ Pause'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleEndSession}
+              accessibilityRole="button"
               style={{
                 flex: 2,
                 backgroundColor: COLORS.oxblood,
                 borderRadius: 16,
-                paddingVertical: 16,
+                minHeight: 56,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
               activeOpacity={0.8}
             >
-              <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.paper }}>
-                End Session ▸
-              </Text>
+              <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.paper }}>End lesson ▸</Text>
             </TouchableOpacity>
           </View>
+          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.paper40, textAlign: 'center', marginTop: 16, paddingHorizontal: 24 }}>
+            Minimise keeps the lesson running in the background.
+          </Text>
         </ScrollView>
       </SafeAreaView>
+
+      <ActionSheet
+        visible={menuOpen}
+        onDismiss={() => setMenuOpen(false)}
+        theme="dark"
+        items={[
+          {
+            label: 'Minimise (keeps running)',
+            icon: 'chevron-down',
+            onPress: () => {
+              setMenuOpen(false);
+              minimise();
+            },
+          },
+          {
+            label: 'Discard lesson…',
+            icon: 'trash-2',
+            destructive: true,
+            onPress: () => {
+              setMenuOpen(false);
+              // Let the sheet close before the system alert appears.
+              setTimeout(confirmDiscard, 250);
+            },
+          },
+        ]}
+      />
     </KeyboardAvoidingView>
   );
 }
