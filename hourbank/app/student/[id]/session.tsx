@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import {
   View,
@@ -21,7 +21,14 @@ import { useStartLesson } from '../../../src/hooks/useStartLesson';
 import { getDb } from '../../../src/db/client';
 import { getStudent } from '../../../src/db/students';
 import { currentBalance } from '../../../src/db/ledger';
-import { cancelScheduled, computeElapsedSeconds, discardSession, getSession } from '../../../src/db/sessions';
+import {
+  cancelScheduled,
+  computeElapsedSeconds,
+  discardSession,
+  getSession,
+  parseSessionTopics,
+  saveLiveTopics,
+} from '../../../src/db/sessions';
 import { listTopicsForStudentSubject } from '../../../src/db/catalog';
 import { TopicChip } from '../../../src/components/TopicChip';
 import { ActionSheet } from '../../../src/components/ActionSheet';
@@ -43,6 +50,8 @@ export default function SessionScreen() {
   const [loaded, setLoaded] = useState(false);
   const [mode, setMode] = useState<'in_person' | 'online'>('in_person');
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const selectedTopicsRef = useRef<string[]>([]);
+  selectedTopicsRef.current = selectedTopics;
   const [addingTopic, setAddingTopic] = useState(false);
   const [customTopic, setCustomTopic] = useState('');
   const [student, setStudent] = useState<Student | null>(null);
@@ -80,17 +89,9 @@ export default function SessionScreen() {
       const sess = getSession(sessionId);
       if (sess) {
         if (sess.mode === 'online' || sess.mode === 'in_person') setMode(sess.mode);
-        try {
-          const prePicked: unknown = JSON.parse(sess.topics);
-          if (Array.isArray(prePicked) && prePicked.length > 0) {
-            const picked = prePicked.filter((t): t is string => typeof t === 'string');
-            setSelectedTopics(picked);
-            setAvailableTopics(prev => {
-              const extras = picked.filter(t => !prev.includes(t));
-              return extras.length > 0 ? [...prev, ...extras] : prev;
-            });
-          }
-        } catch { /* ignore malformed topics */ }
+        // Planned topics (scheduled) or live picks persisted before an app kill.
+        const picked = parseSessionTopics(sess.topics);
+        if (picked.length > 0) showTopics(picked);
       }
     } catch (e) {
       console.error('SessionScreen mount error', e);
@@ -100,7 +101,13 @@ export default function SessionScreen() {
   // Every focus (incl. Back from end-session): status + balance + elapsed from the DB.
   const reload = useCallback(() => {
     try {
-      setRow(getSession(sessionId));
+      const fresh = getSession(sessionId);
+      setRow(fresh);
+      // In-flight lesson: the row's topics are the persisted live picks (also
+      // edited on end-session) — the DB is the source of truth.
+      if (fresh && (fresh.status === 'active' || fresh.status === 'paused')) {
+        showTopics(parseSessionTopics(fresh.topics));
+      }
       setBalance(currentBalance(id));
       refreshFromDb();
     } catch (e) {
@@ -113,6 +120,26 @@ export default function SessionScreen() {
   useFocusEffect(reload);
 
   const status = row?.status ?? null;
+
+  /** Select `picked`, adding any not already offered as chips. */
+  function showTopics(picked: string[]) {
+    setSelectedTopics(picked);
+    setAvailableTopics(prev => {
+      const extras = picked.filter(t => !prev.includes(t));
+      return extras.length > 0 ? [...prev, ...extras] : prev;
+    });
+  }
+
+  /** Update picks and write them to the in-flight session row (survives an app kill). */
+  function updateTopics(next: string[]) {
+    selectedTopicsRef.current = next;
+    setSelectedTopics(next);
+    try {
+      saveLiveTopics(sessionId, next);
+    } catch (e) {
+      console.error('saveLiveTopics error', e);
+    }
+  }
 
   // A finished/discarded lesson has nothing to time — show its summary instead.
   useEffect(() => {
@@ -150,7 +177,15 @@ export default function SessionScreen() {
   function handleStart() {
     startLesson(sessionId, {
       studentName: student?.full_name,
-      onStarted: () => reload(),
+      onStarted: () => {
+        // Keep anything picked before Start (the row was 'scheduled' until now).
+        try {
+          saveLiveTopics(sessionId, selectedTopicsRef.current);
+        } catch (e) {
+          console.error('saveLiveTopics error', e);
+        }
+        reload();
+      },
     });
   }
 
@@ -221,9 +256,8 @@ export default function SessionScreen() {
   }
 
   function toggleTopic(topic: string) {
-    setSelectedTopics(prev =>
-      prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic],
-    );
+    const prev = selectedTopicsRef.current;
+    updateTopics(prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]);
   }
 
   function submitCustomTopic() {
@@ -232,7 +266,8 @@ export default function SessionScreen() {
     if (!availableTopics.includes(trimmed)) {
       setAvailableTopics(prev => [...prev, trimmed]);
     }
-    setSelectedTopics(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+    const prev = selectedTopicsRef.current;
+    if (!prev.includes(trimmed)) updateTopics([...prev, trimmed]);
     setCustomTopic('');
     setAddingTopic(false);
   }

@@ -12,6 +12,7 @@ const mockEndTimer = jest.fn();
 const mockRefresh = jest.fn();
 const mockToast = jest.fn();
 let mockSession: Record<string, unknown> | null = null;
+let mockTopicsParam: string | undefined = encodeURIComponent('["Algebra"]');
 
 jest.mock('@expo/vector-icons', () => ({ Feather: () => null }));
 jest.mock('expo-router', () => ({
@@ -20,7 +21,7 @@ jest.mock('expo-router', () => ({
     sessionId: 'session-1',
     endedAt: encodeURIComponent('2026-10-09T10:00:00.000Z'),
     mode: 'online',
-    topics: encodeURIComponent('["Algebra"]'),
+    topics: mockTopicsParam,
   }),
   useRouter: () => ({ replace: mockReplace, back: mockBack }),
 }));
@@ -36,6 +37,7 @@ jest.mock('../../db/sessions', () => {
     ...actual,
     getSession: () => mockSession,
     endSession: jest.fn(),
+    saveLiveTopics: jest.fn(() => true),
   };
 });
 jest.mock('../../components/Toast', () => ({ useToast: () => ({ show: mockToast, hide: jest.fn() }) }));
@@ -44,7 +46,7 @@ jest.mock('../../contexts/SessionTimerContext', () => ({
 }));
 
 import EndSessionScreen from '../../../app/student/[id]/end-session';
-import { endSession, SessionError } from '../../db/sessions';
+import { endSession, saveLiveTopics, SessionError } from '../../db/sessions';
 import { lessonDraftStore } from '../../contexts/SessionTimerContext.helpers';
 
 function session(overrides: Record<string, unknown> = {}) {
@@ -75,6 +77,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   lessonDraftStore.clear('session-1');
   mockSession = session();
+  mockTopicsParam = encodeURIComponent('["Algebra"]');
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
 
@@ -209,4 +212,16 @@ test('a billing amount the tutor changed survives re-entering the review', () =>
   const second = renderScreen();
   fireEvent.press(second.getByText(/Save lesson/));
   expect(endSession).toHaveBeenCalledWith(expect.objectContaining({ billedMinutes: 75 }));
+});
+
+test('topics: persisted to the in-flight row; restored from it when the param is missing (app was killed)', () => {
+  const first = renderScreen();
+  expect(saveLiveTopics).toHaveBeenCalledWith('session-1', ['Algebra']);
+  first.unmount();
+
+  mockTopicsParam = undefined;
+  mockSession = session({ topics: '["Geometry"]' });
+  const screen = renderScreen();
+  fireEvent.press(screen.getByText(/Save lesson/));
+  expect(endSession).toHaveBeenCalledWith(expect.objectContaining({ topics: ['Geometry'] }));
 });

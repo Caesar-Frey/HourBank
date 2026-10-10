@@ -1,6 +1,6 @@
 import { createMigratedTestDb as createTestDb, resetDbSingleton } from './testDb';
 import type { TestDb } from './testDb';
-import { createUnscheduled, startSession, sessionsThisWeekCount, getActiveOrPausedSession, cancelSession, endSession, listUpcoming, listAllUpcoming } from '../sessions';
+import { createUnscheduled, startSession, sessionsThisWeekCount, getActiveOrPausedSession, cancelSession, endSession, listUpcoming, listAllUpcoming, getSession, parseSessionTopics, saveLiveTopics } from '../sessions';
 
 describe('sessions', () => {
   let db: TestDb;
@@ -312,5 +312,50 @@ describe('upcoming session time boundaries', () => {
     }
     const rows = scope === 'student' ? listUpcoming('boundary-student') : listAllUpcoming();
     expect(rows.map(row => row.id)).toEqual(['future']);
+  });
+});
+
+describe('live-timer topic persistence (survives app kill)', () => {
+  let db: TestDb;
+  const NOW = new Date().toISOString();
+  beforeEach(() => {
+    db = createTestDb();
+    db.runSync(
+      `INSERT INTO students (id, full_name, grade, subject, curriculum, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ['student-1', 'Alice Botha', 10, 'Mathematics', 'CAPS', 'active', NOW]
+    );
+    db.runSync(
+      `INSERT INTO sessions (id, student_id, mode, status, started_at, topics, created_at)
+       VALUES ('live', 'student-1', 'online', 'active', ?, '[]', ?),
+              ('done', 'student-1', 'online', 'completed', ?, '["Algebra"]', ?)`,
+      [NOW, NOW, NOW, NOW]
+    );
+  });
+  afterEach(() => resetDbSingleton());
+
+  const topicsOf = (id: string) => parseSessionTopics(getSession(id)!.topics);
+
+  it('writes picks to the active/paused session row', () => {
+    expect(saveLiveTopics('live', ['Fractions', 'Ratios'])).toBe(true);
+    expect(topicsOf('live')).toEqual(['Fractions', 'Ratios']);
+    db.runSync(`UPDATE sessions SET status = 'paused', paused_at = ? WHERE id = 'live'`, [NOW]);
+    expect(saveLiveTopics('live', ['Graphs'])).toBe(true);
+    expect(topicsOf('live')).toEqual(['Graphs']);
+    expect(saveLiveTopics('live', [])).toBe(true);
+    expect(topicsOf('live')).toEqual([]);
+  });
+
+  it('never touches a finished lesson or the ledger', () => {
+    expect(saveLiveTopics('done', ['Overwrite'])).toBe(false);
+    expect(topicsOf('done')).toEqual(['Algebra']);
+    expect(saveLiveTopics('missing', ['X'])).toBe(false);
+    expect(db.getFirstSync<{ n: number }>('SELECT COUNT(*) AS n FROM ledger_entries')!.n).toBe(0);
+  });
+
+  it('parseSessionTopics tolerates junk', () => {
+    expect(parseSessionTopics('["A", 2, "B"]')).toEqual(['A', 'B']);
+    expect(parseSessionTopics('nope')).toEqual([]);
+    expect(parseSessionTopics(null)).toEqual([]);
+    expect(parseSessionTopics('{"a":1}')).toEqual([]);
   });
 });

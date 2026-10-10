@@ -44,6 +44,32 @@ export function getSession(sessionId: string): Session | null {
   return db.getFirstSync<Session>('SELECT * FROM sessions WHERE id = ?', [sessionId]) ?? null;
 }
 
+/** sessions.topics JSON → string[]; anything malformed reads as no topics. */
+export function parseSessionTopics(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((t): t is string => typeof t === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Persist the live timer's topic picks onto the in-flight session row so they
+ * survive the app being killed (restored on resume / orphan recovery). Only an
+ * active or paused lesson is touched; returns false otherwise. Sessions table
+ * only — the ledger is never written here.
+ */
+export function saveLiveTopics(sessionId: string, topics: string[]): boolean {
+  const db = getDb();
+  const res = db.runSync(
+    `UPDATE sessions SET topics = ? WHERE id = ? AND status IN ('active', 'paused')`,
+    [JSON.stringify(topics), sessionId]
+  );
+  return res.changes > 0;
+}
+
 function mustGet(sessionId: string): Session {
   const s = getSession(sessionId);
   if (!s) throw new SessionError('NOT_FOUND', `Session ${sessionId} not found`);

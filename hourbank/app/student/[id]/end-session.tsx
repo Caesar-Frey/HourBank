@@ -3,7 +3,14 @@ import { View, Text, TouchableOpacity, TextInput, Alert, StatusBar } from 'react
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getStudent } from '../../../src/db/students';
 import { currentBalance as fetchBalance } from '../../../src/db/ledger';
-import { computeElapsedSeconds, endSession, getSession, isSessionError } from '../../../src/db/sessions';
+import {
+  computeElapsedSeconds,
+  endSession,
+  getSession,
+  isSessionError,
+  parseSessionTopics,
+  saveLiveTopics,
+} from '../../../src/db/sessions';
 import { getOrCreateTutorProfile } from '../../../src/db/tutorProfile';
 import { TopicChip } from '../../../src/components/TopicChip';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
@@ -69,7 +76,11 @@ export default function EndSessionScreen() {
     }
   });
   const [endedAtIso] = useState(() => validIso(params.endedAt) ?? new Date().toISOString());
-  const [initialTopics] = useState(() => parseTopicsParam(params.topics));
+  // Topics from the timer; fall back to the picks persisted on the row (app was killed).
+  const [initialTopics] = useState(() => {
+    const fromParam = parseTopicsParam(params.topics);
+    return fromParam.length > 0 ? fromParam : parseSessionTopics(session?.topics);
+  });
 
   const actualSeconds = session?.started_at
     ? computeElapsedSeconds(session, new Date(endedAtIso))
@@ -113,6 +124,15 @@ export default function EndSessionScreen() {
       console.error('EndSessionScreen load error', e);
     }
   }, [id, initialTopics]);
+
+  // Topic edits go to the in-flight row too, so the timer (and a relaunch) sees them.
+  useEffect(() => {
+    try {
+      saveLiveTopics(sessionId, selectedTopics);
+    } catch (e) {
+      console.error('saveLiveTopics error', e);
+    }
+  }, [sessionId, selectedTopics]);
 
   // Keep edits while the tutor hops back to the timer (in memory only).
   useEffect(() => {
