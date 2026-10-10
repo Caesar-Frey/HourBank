@@ -1,7 +1,12 @@
 import { Tabs } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { COLORS } from '../../src/theme/colors';
+import { TAB_LABEL_STYLE } from '../../src/theme/fonts';
 
+/**
+ * Four tabs: HOME · SCHEDULE (calendar + agenda) · MONEY (in / out) · SETTINGS.
+ * `profile.tsx` keeps its file name (route /profile) but is titled Settings.
+ */
 export default function AppLayout() {
   return (
     <Tabs
@@ -10,6 +15,7 @@ export default function AppLayout() {
         tabBarStyle: { backgroundColor: COLORS.paper, borderTopColor: COLORS.paperEdge },
         tabBarActiveTintColor: COLORS.oxblood,
         tabBarInactiveTintColor: COLORS.inkFaint,
+        tabBarLabelStyle: TAB_LABEL_STYLE,
       }}
     >
       <Tabs.Screen
@@ -20,41 +26,26 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
-        name="sessions"
+        name="schedule"
         options={{
-          title: 'SESSIONS',
-          tabBarIcon: ({ color, size }) => <Feather name="clock" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="calendar"
-        options={{
-          title: 'CALENDAR',
+          title: 'SCHEDULE',
           tabBarIcon: ({ color, size }) => <Feather name="calendar" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="reports"
+        name="money"
         options={{
-          title: 'REPORTS',
-          tabBarIcon: ({ color, size }) => <Feather name="bar-chart-2" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="payouts"
-        options={{
-          title: 'PAYOUTS',
+          title: 'MONEY',
           tabBarIcon: ({ color, size }) => <Feather name="dollar-sign" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'PROFILE',
-          tabBarIcon: ({ color, size }) => <Feather name="user" size={size} color={color} />,
+          title: 'SETTINGS',
+          tabBarIcon: ({ color, size }) => <Feather name="settings" size={size} color={color} />,
         }}
       />
-
     </Tabs>
   );
 }
