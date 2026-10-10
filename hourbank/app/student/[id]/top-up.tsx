@@ -1,467 +1,322 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Image,
-  Alert,
-} from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Image, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import { F } from '../../../src/theme/fonts';
+import { Feather } from '@expo/vector-icons';
+import { F, MIN_TOUCH, hitSlopFor } from '../../../src/theme/fonts';
 import { COLORS } from '../../../src/theme/colors';
+import { FormScreen } from '../../../src/components/FormScreen';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
 import { PackageCard } from '../../../src/components/PackageCard';
+import { useToast } from '../../../src/components/Toast';
 import { getStudent } from '../../../src/db/students';
+import { currentBalance } from '../../../src/db/ledger';
 import { createPackage } from '../../../src/db/packages';
-import { getOrCreateTutorProfile, TutorProfile, PackageTier } from '../../../src/db/tutorProfile';
-import { formatRand, formatHours } from '../../../src/utils/format';
-import { sendTopUpConfirmation } from '../../../src/utils/notifications';
-import { Student } from '../../../src/db/schema';
+import { newId } from '../../../src/db/uuid';
+import { getOrCreateTutorProfile, PackageTier, TutorProfile } from '../../../src/db/tutorProfile';
+import { CreditPackage, Student } from '../../../src/db/schema';
+import { formatHours, formatRand } from '../../../src/utils/format';
+import { persistProofImage } from '../../../src/utils/proofImages';
+import { getTopUpReceiptText } from '../../../src/utils/receipt';
+import { openWhatsApp } from '../../../src/utils/whatsapp';
+import {
+  Button, ChoicePills, FieldHint, LoadingState, NotFoundState, PageHeading, SectionLabel,
+} from '../../../src/components/student/ui';
+import {
+  balanceReviewLine, decimalPreview, formatBalance, tierSavings, topUpCtaLabel,
+} from '../../../src/components/student/flowLogic';
 
-type PaymentMethod = 'eft' | 'cash' | 'card' | 'other';
+type PaymentMethod = CreditPackage['payment_method'];
+type Selection = number | 'custom' | null;
 
-const PAYMENT_METHODS: { key: PaymentMethod; label: string }[] = [
-  { key: 'eft', label: 'EFT' },
-  { key: 'cash', label: 'Cash' },
-  { key: 'card', label: 'Card' },
-  { key: 'other', label: 'Other' },
+const PAYMENT_METHODS: Array<{ value: PaymentMethod; label: string }> = [
+  { value: 'eft', label: 'EFT' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'card', label: 'Card' },
+  { value: 'other', label: 'Other' },
 ];
 
-// sentinel index meaning "Other / custom"
-const CUSTOM_INDEX = -1;
+const INPUT = {
+  fontFamily: F.mono,
+  fontSize: 17,
+  color: COLORS.ink,
+  borderBottomWidth: 1,
+  borderBottomColor: COLORS.paperEdge,
+  paddingVertical: 10,
+} as const;
 
-function computeSavingsPct(hours: number, price: number, hourlyRate: number): number | null {
-  if (hourlyRate <= 0 || hours <= 0 || price <= 0) return null;
-  const fullPrice = hourlyRate * hours;
-  const saving = fullPrice - price;
-  if (saving <= 0) return null;
-  return Math.round((saving / fullPrice) * 100);
+function parseTiers(p: TutorProfile): PackageTier[] {
+  if (p.tier_system_enabled !== 1) return [];
+  try {
+    const parsed = JSON.parse(p.package_tiers);
+    return Array.isArray(parsed)
+      ? (parsed as PackageTier[]).filter(t => t.hours > 0).sort((a, b) => a.sort_order - b.sort_order)
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 export default function TopUpScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const toast = useToast();
+  // Generated once per screen visit: makes a double-submitted top-up idempotent.
+  const [packageId] = useState(() => newId());
+  const savingRef = useRef(false);
 
   const [student, setStudent] = useState<Student | null>(null);
   const [profile, setProfile] = useState<TutorProfile | null>(null);
   const [tiers, setTiers] = useState<PackageTier[]>([]);
-  const [tierEnabled, setTierEnabled] = useState(false);
+  const [balance, setBalance] = useState(0);
+  const [loaded, setLoaded] = useState(false);
 
-  // selectedTierIndex = index in sorted tiers array, or CUSTOM_INDEX
-  const [selectedTierIndex, setSelectedTierIndex] = useState<number>(0);
+  const [selection, setSelection] = useState<Selection>(null);
   const [customHours, setCustomHours] = useState('');
   const [customAmount, setCustomAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('eft');
   const [reference, setReference] = useState('');
   const [proofUri, setProofUri] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     try {
       const s = getStudent(id);
       setStudent(s);
-    } catch (e) {
-      console.error('Failed to load student', e);
-    }
-    try {
+      if (s) setBalance(currentBalance(id));
       const p = getOrCreateTutorProfile();
       setProfile(p);
-      const enabled = p.tier_system_enabled === 1;
-      setTierEnabled(enabled);
-      if (enabled) {
-        try {
-          const parsed: PackageTier[] = JSON.parse(p.package_tiers);
-          const sorted = Array.isArray(parsed)
-            ? [...parsed].sort((a, b) => a.sort_order - b.sort_order)
-            : [];
-          setTiers(sorted);
-          setSelectedTierIndex(sorted.length > 0 ? 0 : CUSTOM_INDEX);
-        } catch {
-          setTiers([]);
-          setSelectedTierIndex(CUSTOM_INDEX);
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load tutor profile', e);
+      setTiers(parseTiers(p));
+    } catch {
+      // student stays null → not-found state; profile optional
+    } finally {
+      setLoaded(true);
     }
   }, [id]);
 
-  const hourlyRate = profile?.hourly_rate ?? 0;
+  if (!loaded) return <LoadingState />;
+  if (!student) return <NotFoundState title="Student not found" onBack={() => router.back()} />;
 
-  // Compute selected hours/price from tier or custom inputs
-  let selectedHours = 0;
-  let selectedPrice = 0;
+  const hasTiers = tiers.length > 0;
+  const isCustom = !hasTiers || selection === 'custom';
+  const hasSelection = !hasTiers || selection !== null;
+  const hoursPreview = decimalPreview(customHours, 'hours');
+  const amountPreview = decimalPreview(customAmount, 'rand');
+  const tier = typeof selection === 'number' ? tiers[selection] : undefined;
+  const hours = isCustom ? hoursPreview.value : tier?.hours ?? null;
+  const price = isCustom ? amountPreview.value : tier?.price ?? null;
+  const ready = hasSelection && hours !== null && hours > 0 && price !== null && price >= 0;
+  const parentPrice = profile?.parent_hourly_price ?? null;
+  const customSaving = isCustom && hours && price !== null ? tierSavings(hours, price, parentPrice) : null;
+  const firstName = student.full_name.trim().split(/\s+/)[0];
 
-  if (tierEnabled) {
-    if (selectedTierIndex === CUSTOM_INDEX) {
-      selectedHours = parseFloat(customHours) || 0;
-      selectedPrice = parseFloat(customAmount) || 0;
-    } else {
-      const tier = tiers[selectedTierIndex];
-      if (tier) {
-        selectedHours = tier.hours;
-        selectedPrice = tier.price;
-      }
+  async function pickProof() {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 0.8 });
+      if (!result.canceled && result.assets[0]) setProofUri(result.assets[0].uri);
+    } catch {
+      toast.show({ kind: 'error', message: "Couldn't open your photos" });
     }
-  } else {
-    selectedHours = parseFloat(customHours) || 0;
-    selectedPrice = parseFloat(customAmount) || 0;
   }
 
-  const savingsPct = computeSavingsPct(selectedHours, selectedPrice, hourlyRate);
-
-  const pickProof = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'] as any,
-      allowsEditing: false,
-      quality: 0.8,
-    });
-    if (!result.canceled) {
-      setProofUri(result.assets[0].uri);
-    }
-  };
-
-  const handleConfirm = async () => {
-    if (selectedHours <= 0) {
-      Alert.alert('Invalid hours', 'Please select or enter a valid number of hours.');
-      return;
-    }
-    if (selectedPrice < 0) {
-      Alert.alert('Invalid amount', 'Amount paid cannot be negative.');
-      return;
-    }
-    if (!tierEnabled || selectedTierIndex === CUSTOM_INDEX) {
-      const h = parseFloat(customHours);
-      const a = parseFloat(customAmount);
-      if (!customHours || isNaN(h) || h <= 0) {
-        Alert.alert('Invalid hours', 'Please enter a valid number of hours.');
-        return;
-      }
-      if (!customAmount || isNaN(a) || a < 0) {
-        Alert.alert('Invalid amount', 'Please enter a valid amount.');
-        return;
-      }
-    }
-
-    if (submitting) return;
-    setSubmitting(true);
+  async function sendConfirmation(pkgId: string) {
     try {
-      const result = createPackage({
+      const text = getTopUpReceiptText(pkgId, { parentName: student?.parent_name });
+      if (!text) throw new Error('missing package');
+      await openWhatsApp(student?.parent_phone, text);
+    } catch {
+      toast.show({ kind: 'error', message: "Couldn't prepare the confirmation" });
+    }
+  }
+
+  async function handleConfirm() {
+    if (savingRef.current || !ready || hours === null || price === null) return;
+    savingRef.current = true;
+    setSaving(true);
+
+    let storedProof: string | undefined;
+    if (proofUri) {
+      try {
+        storedProof = await persistProofImage(proofUri);
+        setProofUri(storedProof);
+      } catch {
+        savingRef.current = false;
+        setSaving(false);
+        toast.show({ kind: 'error', message: "Couldn't save the proof photo — remove it or try again" });
+        return;
+      }
+    }
+
+    try {
+      const { pkg, entry } = createPackage({
+        id: packageId,
         studentId: id,
-        hoursAdded: selectedHours,
-        amountPaid: selectedPrice,
+        hoursAdded: hours,
+        amountPaid: price,
         paymentMethod,
         paymentRef: reference.trim() || undefined,
-        proofImageUri: proofUri || undefined,
+        proofImageUri: storedProof,
       });
-
-      await sendTopUpConfirmation({
-        studentName: student?.full_name ?? '',
-        hoursAdded: selectedHours,
-        amountPaid: selectedPrice,
-        newBalance: result.entry.balance_after,
+      toast.show({
+        kind: 'success',
+        message: `Added ${formatHours(hours)} · balance ${formatBalance(entry.balance_after)}`,
+        actionLabel: 'Send confirmation',
+        onAction: () => { void sendConfirmation(pkg.id); },
+        durationMs: 8000,
       });
-
-      Alert.alert('Credits added', `Balance is now ${formatHours(result.entry.balance_after)}.`, [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
-    } catch (e) {
-      console.error('Top-up failed', e);
-      Alert.alert('Error', 'Failed to add credits. Please try again.');
-    } finally {
-      setSubmitting(false);
+      router.back();
+    } catch {
+      savingRef.current = false;
+      setSaving(false);
+      toast.show({ kind: 'error', message: "Couldn't add the top-up — please try again" });
     }
-  };
-
-  const monoLabel = {
-    fontFamily: F.mono,
-    fontSize: 10,
-    color: COLORS.inkFaint,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 0.5,
-    marginTop: 16,
-    marginBottom: 4,
-  };
-
-  const firstName = student?.full_name?.split(' ')[0] ?? 'BACK';
+  }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top']}>
-      <ScreenHeader
-        backLabel={firstName.toUpperCase()}
-        onBack={() => router.back()}
-      />
-
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 48 }}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Page heading */}
-        <View style={{ marginBottom: 24 }}>
-          <Text
-            style={{
-              fontFamily: F.mono,
-              fontSize: 10,
-              color: COLORS.oxblood,
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              marginBottom: 8,
-            }}
-          >
-            ★ ADD CREDITS
-          </Text>
-          <Text style={{ fontFamily: F.serif, fontSize: 28, color: COLORS.ink, lineHeight: 32 }}>
-            How many
-          </Text>
-          <Text style={{ fontFamily: F.serifItalic, fontSize: 28, color: COLORS.oxblood, lineHeight: 34 }}>
-            hours?
-          </Text>
-        </View>
-
-        {/* ── TIER SYSTEM ─────────────────────────────────────────────────── */}
-        {tierEnabled && tiers.length > 0 ? (
-          <>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-              {tiers.map((tier, i) => {
-                const savPct = computeSavingsPct(tier.hours, tier.price, hourlyRate);
-                return (
-                  <View key={i} style={{ width: '48%' }}>
-                    <PackageCard
-                      hours={tier.hours}
-                      price={tier.price}
-                      badge={tier.label || null}
-                      save={savPct !== null ? Math.round(hourlyRate * tier.hours - tier.price) : null}
-                      selected={selectedTierIndex === i}
-                      onPress={() => setSelectedTierIndex(i)}
-                    />
-                  </View>
-                );
-              })}
-              {/* Other tile */}
-              <View style={{ width: '48%' }}>
-                <PackageCard
-                  hours={0}
-                  price={null}
-                  badge={null}
-                  save={null}
-                  selected={selectedTierIndex === CUSTOM_INDEX}
-                  onPress={() => setSelectedTierIndex(CUSTOM_INDEX)}
-                  isCustom={true}
-                />
-              </View>
-            </View>
-
-            {/* Custom inputs — only when "Other" selected */}
-            {selectedTierIndex === CUSTOM_INDEX && (
-              <View style={{ marginTop: 12 }}>
-                <Text style={monoLabel}>CUSTOM HOURS</Text>
-                <TextInput
-                  value={customHours}
-                  onChangeText={setCustomHours}
-                  placeholder="e.g. 8"
-                  keyboardType="numeric"
-                  placeholderTextColor={COLORS.inkFaint}
-                  style={{
-                    fontFamily: F.mono,
-                    fontSize: 16,
-                    color: COLORS.ink,
-                    borderBottomWidth: 1,
-                    borderBottomColor: COLORS.paperEdge,
-                    paddingVertical: 12,
-                  }}
-                />
-                <Text style={monoLabel}>CUSTOM AMOUNT ({profile?.currency ?? 'ZAR'})</Text>
-                <TextInput
-                  value={customAmount}
-                  onChangeText={setCustomAmount}
-                  placeholder="e.g. 4500"
-                  keyboardType="numeric"
-                  placeholderTextColor={COLORS.inkFaint}
-                  style={{
-                    fontFamily: F.mono,
-                    fontSize: 16,
-                    color: COLORS.ink,
-                    borderBottomWidth: 1,
-                    borderBottomColor: COLORS.paperEdge,
-                    paddingVertical: 12,
-                  }}
-                />
-              </View>
-            )}
-          </>
-        ) : (
-          /* Free entry mode — tier system disabled */
-          <View>
-            <Text style={monoLabel}>HOURS</Text>
-            <TextInput
-              value={customHours}
-              onChangeText={setCustomHours}
-              placeholder="e.g. 10"
-              keyboardType="numeric"
-              placeholderTextColor={COLORS.inkFaint}
-              style={{
-                fontFamily: F.mono,
-                fontSize: 16,
-                color: COLORS.ink,
-                borderBottomWidth: 1,
-                borderBottomColor: COLORS.paperEdge,
-                paddingVertical: 12,
-              }}
-            />
-            <Text style={monoLabel}>AMOUNT ({profile?.currency ?? 'ZAR'})</Text>
-            <TextInput
-              value={customAmount}
-              onChangeText={setCustomAmount}
-              placeholder="e.g. 6000"
-              keyboardType="numeric"
-              placeholderTextColor={COLORS.inkFaint}
-              style={{
-                fontFamily: F.mono,
-                fontSize: 16,
-                color: COLORS.ink,
-                borderBottomWidth: 1,
-                borderBottomColor: COLORS.paperEdge,
-                paddingVertical: 12,
-              }}
-            />
-          </View>
-        )}
-
-        {/* Savings label */}
-        {savingsPct !== null && selectedHours > 0 && (
-          <View
-            style={{
-              backgroundColor: COLORS.okFill,
-              borderRadius: 8,
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              marginTop: 10,
-              alignSelf: 'flex-start',
-            }}
-          >
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.moss }}>
-              Save {savingsPct}% vs. hourly rate
+    <FormScreen
+      header={<ScreenHeader backLabel={firstName.toUpperCase()} onBack={() => router.back()} />}
+      footer={
+        <View style={{ gap: 8 }}>
+          {ready && hours !== null ? (
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, textAlign: 'center' }}>
+              {balanceReviewLine(balance, balance + hours)}
             </Text>
-          </View>
-        )}
-
-        {/* Payment method */}
-        <Text style={monoLabel}>PAYMENT METHOD</Text>
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-          {PAYMENT_METHODS.map(({ key, label }) => {
-            const active = paymentMethod === key;
-            return (
-              <TouchableOpacity
-                key={key}
-                onPress={() => setPaymentMethod(key)}
-                activeOpacity={0.75}
-                style={{
-                  backgroundColor: active ? COLORS.ink : 'transparent',
-                  borderWidth: 1,
-                  borderColor: active ? COLORS.ink : COLORS.paperEdge,
-                  borderRadius: 20,
-                  paddingHorizontal: 14,
-                  paddingVertical: 8,
-                }}
-              >
-                <Text
-                  style={{
-                    fontFamily: F.mono,
-                    fontSize: 12,
-                    color: active ? COLORS.paper : COLORS.ink,
-                  }}
-                >
-                  {label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+          ) : null}
+          <Button
+            label={topUpCtaLabel(hours, price, hasSelection)}
+            onPress={handleConfirm}
+            disabled={!ready}
+            busy={saving}
+            testID="top-up-confirm"
+          />
         </View>
+      }
+    >
+      <PageHeading eyebrow="★ ADD CREDITS" line1="How many" line2="hours?" />
 
-        {/* Reference */}
-        <Text style={monoLabel}>REFERENCE</Text>
+      <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, marginBottom: 16 }}>
+        {`${firstName} has ${formatBalance(balance)} now`}
+      </Text>
+
+      {hasTiers ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }} accessibilityRole="radiogroup">
+          {tiers.map((t, i) => (
+            <View key={`${t.hours}-${t.price}-${i}`} style={{ width: '48%' }}>
+              <PackageCard
+                hours={t.hours}
+                price={t.price}
+                badge={t.label || null}
+                save={tierSavings(t.hours, t.price, parentPrice)}
+                selected={selection === i}
+                onPress={() => setSelection(i)}
+              />
+            </View>
+          ))}
+          <View style={{ width: '48%' }}>
+            <PackageCard
+              hours={0}
+              price={null}
+              badge={null}
+              save={null}
+              selected={selection === 'custom'}
+              onPress={() => setSelection('custom')}
+              isCustom
+            />
+          </View>
+        </View>
+      ) : null}
+
+      {isCustom ? (
+        <View style={{ marginTop: hasTiers ? 16 : 0 }}>
+          <SectionLabel>HOURS</SectionLabel>
+          <TextInput
+            value={customHours}
+            onChangeText={setCustomHours}
+            placeholder="e.g. 8 or 7,5"
+            placeholderTextColor={COLORS.inkFaint}
+            keyboardType="decimal-pad"
+            accessibilityLabel="Hours to add"
+            style={{ ...INPUT, borderBottomColor: hoursPreview.error ? COLORS.crimson : COLORS.paperEdge }}
+          />
+          {hoursPreview.text ? <FieldHint tone={hoursPreview.error ? 'bad' : 'soft'}>{hoursPreview.text}</FieldHint> : null}
+
+          <SectionLabel style={{ marginTop: 16 }}>{`AMOUNT PAID (${profile?.currency ?? 'ZAR'})`}</SectionLabel>
+          <TextInput
+            value={customAmount}
+            onChangeText={setCustomAmount}
+            placeholder="e.g. 4 500"
+            placeholderTextColor={COLORS.inkFaint}
+            keyboardType="decimal-pad"
+            accessibilityLabel="Amount paid in rand"
+            style={{ ...INPUT, borderBottomColor: amountPreview.error ? COLORS.crimson : COLORS.paperEdge }}
+          />
+          {amountPreview.text ? <FieldHint tone={amountPreview.error ? 'bad' : 'soft'}>{amountPreview.text}</FieldHint> : null}
+          {customSaving ? (
+            <View style={{ backgroundColor: COLORS.okFill, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginTop: 8, alignSelf: 'flex-start' }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.moss }}>
+                {`Parent saves ${formatRand(customSaving)} vs hourly price`}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {hasTiers && selection === null ? (
+        <FieldHint>Pick the package the parent paid for.</FieldHint>
+      ) : null}
+
+      <View style={{ marginTop: 24 }}>
+        <SectionLabel>PAYMENT METHOD</SectionLabel>
+        <ChoicePills options={PAYMENT_METHODS} value={paymentMethod} onChange={setPaymentMethod} />
+      </View>
+
+      <View style={{ marginTop: 24 }}>
+        <SectionLabel>REFERENCE (OPTIONAL)</SectionLabel>
         <TextInput
           value={reference}
           onChangeText={setReference}
           placeholder="e.g. AN0504"
           placeholderTextColor={COLORS.inkFaint}
           autoCapitalize="characters"
-          style={{
-            fontFamily: F.mono,
-            fontSize: 16,
-            color: COLORS.ink,
-            borderBottomWidth: 1,
-            borderBottomColor: COLORS.paperEdge,
-            paddingVertical: 12,
-          }}
+          accessibilityLabel="Payment reference"
+          style={INPUT}
         />
+      </View>
 
-        {/* Proof of payment */}
-        <Text style={monoLabel}>PROOF OF PAYMENT</Text>
-        <TouchableOpacity
-          onPress={pickProof}
-          activeOpacity={0.75}
-          style={{
-            borderWidth: 1,
-            borderColor: COLORS.paperEdge,
-            borderRadius: 12,
-            paddingHorizontal: 16,
-            paddingVertical: 12,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-            marginTop: 4,
-          }}
-        >
-          <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.inkFaint }}>
-            {proofUri ? 'Image attached' : 'Attach image (optional)'}
-          </Text>
-        </TouchableOpacity>
-
-        {proofUri && (
-          <Image
-            source={{ uri: proofUri }}
+      <View style={{ marginTop: 24 }}>
+        <SectionLabel>PROOF OF PAYMENT (OPTIONAL)</SectionLabel>
+        {proofUri ? (
+          <View>
+            <Image source={{ uri: proofUri }} style={{ width: '100%', height: 160, borderRadius: 12 }} resizeMode="cover" />
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+              <Button label="Replace" icon="image" variant="quiet" style={{ flex: 1 }} onPress={pickProof} />
+              <Button label="Remove" icon="x" variant="danger" style={{ flex: 1 }} onPress={() => setProofUri(null)} />
+            </View>
+          </View>
+        ) : (
+          <TouchableOpacity
+            onPress={pickProof}
+            activeOpacity={0.75}
+            hitSlop={hitSlopFor(MIN_TOUCH)}
+            accessibilityRole="button"
+            accessibilityLabel="Attach proof of payment image"
             style={{
-              width: '100%',
-              height: 160,
+              minHeight: MIN_TOUCH + 4,
+              borderWidth: 1,
+              borderStyle: 'dashed',
+              borderColor: COLORS.inkFaint,
               borderRadius: 12,
-              marginTop: 8,
-              resizeMode: 'cover',
-            } as any}
-          />
-        )}
-
-        {/* CTA */}
-        <TouchableOpacity
-          onPress={handleConfirm}
-          disabled={submitting}
-          activeOpacity={0.85}
-          style={{
-            backgroundColor: COLORS.oxblood,
-            borderRadius: 16,
-            paddingVertical: 16,
-            alignItems: 'center',
-            marginTop: 28,
-            opacity: submitting ? 0.5 : 1,
-          }}
-        >
-          <Text
-            style={{
-              fontFamily: F.sansMed,
-              fontSize: 15,
-              color: COLORS.paper,
+              paddingHorizontal: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
             }}
           >
-            {`Confirm top-up · ${formatRand(selectedPrice)} ▸`}
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+            <Feather name="paperclip" size={15} color={COLORS.inkSoft} />
+            <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkSoft }}>Attach image</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </FormScreen>
   );
 }
