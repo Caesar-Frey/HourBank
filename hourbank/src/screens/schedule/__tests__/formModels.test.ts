@@ -1,6 +1,7 @@
 import {
   DEFAULT_BLOCK_TITLE,
   eventIsoRange,
+  formatEventWhen,
   initialRange,
   resolveTitle,
   shiftEndWithStart,
@@ -50,6 +51,14 @@ describe('event form', () => {
     expect(r.end.getTime()).toBe(d(14, 10).getTime());
     expect(initialRange('garbage', d(3, 18)).start.getTime()).toBe(d(3, 9).getTime());
   });
+});
+
+test('formatEventWhen covers single-day, all-day and multi-day', () => {
+  const iso = (x: Date) => x.toISOString();
+  expect(formatEventWhen({ starts_at: iso(d(9, 9)), ends_at: iso(d(9, 10)), all_day: 0 })).toBe('Fri 9 Oct · 09:00–10:00');
+  expect(formatEventWhen({ starts_at: iso(d(9)), ends_at: iso(d(9, 23, 59)), all_day: 1 })).toBe('All day · Fri 9 Oct');
+  expect(formatEventWhen({ starts_at: iso(d(9, 14)), ends_at: iso(d(11, 10)), all_day: 0 })).toBe('Fri 9 Oct 14:00 – Sun 11 Oct 10:00');
+  expect(formatEventWhen({ starts_at: iso(d(9)), ends_at: iso(d(10, 23, 59)), all_day: 1 })).toBe('All day · Fri 9 Oct – Sat 10 Oct');
 });
 
 describe('start lesson', () => {

@@ -3,6 +3,7 @@
  * The form holds two full Date values (start, end); pickers edit either the
  * date part or the time part.
  */
+import { formatDayShort, formatTime, formatTimeRange } from '../../utils/format';
 
 export type EventFormKind = 'event' | 'time_block';
 
@@ -74,4 +75,21 @@ export function initialRange(dateParam: string | undefined, now: Date = new Date
   }
   const start = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 9, 0, 0, 0);
   return { start, end: new Date(start.getTime() + 60 * 60_000) };
+}
+
+function sameLocalDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+/** "Fri 9 Oct · 09:00–10:00", "All day · Fri 9 Oct", multi-day: "Fri 9 Oct 14:00 – Sun 11 Oct 10:00". */
+export function formatEventWhen(event: { starts_at: string; ends_at: string | null; all_day: number }): string {
+  const start = new Date(event.starts_at);
+  const end = event.ends_at ? new Date(event.ends_at) : null;
+  if (event.all_day) {
+    if (end && !sameLocalDay(start, end)) return `All day · ${formatDayShort(start)} – ${formatDayShort(end)}`;
+    return `All day · ${formatDayShort(start)}`;
+  }
+  if (!end || end.getTime() <= start.getTime()) return `${formatDayShort(start)} · ${formatTime(start)}`;
+  if (!sameLocalDay(start, end)) return `${formatDayShort(start)} ${formatTime(start)} – ${formatDayShort(end)} ${formatTime(end)}`;
+  return `${formatDayShort(start)} · ${formatTimeRange(start, end)}`;
 }
