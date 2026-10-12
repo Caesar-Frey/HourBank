@@ -458,10 +458,15 @@ export function endSession(data: {
   pausedSeconds?: number;
   topics: string[];
   sessionNotes?: string;
+  /** Review override; undefined = keep the lesson's subject. */
+  subjectId?: string | null;
+  /** Review override; undefined = booked km → student default. Ignored for online. */
+  travelKm?: number | null;
 }): { session: Session; entry: LedgerEntry } {
   const db = getDb();
   let session: Session | null = null;
   let entry: LedgerEntry | null = null;
+  assertValidKm(data.travelKm);
 
   db.withTransactionSync(() => {
     // read inside transaction
@@ -476,8 +481,8 @@ export function endSession(data: {
     const pausedSeconds = Math.max(dbPaused, data.pausedSeconds ?? 0);
 
     const topicsJson = JSON.stringify(data.topics);
-    const subjectId = resolveSubjectIdInTx(existing.student_id, existing.subject_id);
-    const travel = lessonTravelInTx(existing.student_id, existing.mode, undefined, existing.travel_km);
+    const subjectId = resolveSubjectIdInTx(existing.student_id, data.subjectId ?? existing.subject_id);
+    const travel = lessonTravelInTx(existing.student_id, existing.mode, data.travelKm, existing.travel_km);
     const result = db.runSync(
       `UPDATE sessions SET ended_at = ?, duration_minutes = ?, billed_minutes = ?, paused_seconds = ?, paused_at = NULL, topics = ?, session_notes = ?, status = 'completed',
          subject_id = ?, travel_km = ?, parent_travel_fee = ?

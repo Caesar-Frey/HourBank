@@ -220,3 +220,34 @@ export function claimWarning(inClaim: boolean, claimLabel?: string | null): stri
   const which = claimLabel ? `the payout claim for ${claimLabel}` : 'a payout claim';
   return `This lesson is in ${which}. You can still edit it, but the submitted claim won’t change.`;
 }
+
+// ─── Timer review (end-session) ──────────────────────────────────────────────
+
+export type TimerReviewOverrides = { subjectId?: string; travelKm?: number | null };
+
+/** Subject / km the tutor changed on the timer review (only changed fields). */
+export function timerReviewOverrides(a: {
+  subjectId: string | null;
+  bookedSubjectId: string | null;
+  mode: LessonMode;
+  km: number | null;
+  initialKm: number | null;
+}): TimerReviewOverrides {
+  const o: TimerReviewOverrides = {};
+  if (a.subjectId && a.subjectId !== a.bookedSubjectId) o.subjectId = a.subjectId;
+  if (a.mode === 'in_person' && a.km !== a.initialKm) o.travelKm = a.km;
+  return o;
+}
+
+/**
+ * recordLesson for a billed, started lesson with review changes (it re-derives
+ * the end from the start); otherwise endSession — which takes the same
+ * overrides, so a zero-billed lesson never drops a subject/km change.
+ */
+export function timerReviewSaveRoute(a: {
+  overrides: TimerReviewOverrides;
+  billedMinutes: number;
+  hasStarted: boolean;
+}): 'record' | 'end' {
+  return Object.keys(a.overrides).length > 0 && a.billedMinutes > 0 && a.hasStarted ? 'record' : 'end';
+}

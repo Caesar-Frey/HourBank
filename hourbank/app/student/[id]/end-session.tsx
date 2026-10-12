@@ -18,7 +18,9 @@ import { isSubjectError } from '../../../src/db/subjects';
 import { getOrCreateTutorProfile } from '../../../src/db/tutorProfile';
 import { SubjectPicker, TravelKmField, LessonPreview } from '../../../src/components/lesson/LessonFields';
 import { loadSubjectOptions, parentTravelTerms, catalogTopics, type SubjectOption } from '../../../src/components/lesson/lessonFormData';
-import { balancePreview, defaultSubjectId, parseKmInput, travelPreview } from '../../../src/components/lesson/lessonFormLogic';
+import {
+  balancePreview, defaultSubjectId, parseKmInput, timerReviewOverrides, timerReviewSaveRoute, travelPreview,
+} from '../../../src/components/lesson/lessonFormLogic';
 import { TopicChip } from '../../../src/components/TopicChip';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
 import { FormScreen } from '../../../src/components/FormScreen';
@@ -187,9 +189,8 @@ export default function EndSessionScreen() {
   const kmError = lessonMode === 'in_person' ? parsedKm.error : null;
   const preview = balancePreview({ subjectName, balanceNow: subjectBalance, billedMinutes });
   const travel = student ? travelPreview({ lessonMode, km: kmValue, ...parentTravelTerms(student) }) : null;
-  // Picked a different subject or km than booked → save via recordLesson (applies both).
-  const reviewChangedBooking =
-    (!!subjectId && subjectId !== bookedSubjectId) || (lessonMode === 'in_person' && kmValue !== initialKm);
+  // Subject / km picked on review that differ from the booking (applied on every save path).
+  const reviewOverrides = timerReviewOverrides({ subjectId, bookedSubjectId, mode: lessonMode, km: kmValue, initialKm });
   const timeDisplay = session?.started_at
     ? `${formatDateLong(endedAtIso)} · ${formatTimeRange(session.started_at, endedAtIso)}`
     : formatDateLong(endedAtIso);
@@ -253,7 +254,8 @@ export default function EndSessionScreen() {
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      if (reviewChangedBooking && billed > 0 && session?.started_at) {
+      const route = timerReviewSaveRoute({ overrides: reviewOverrides, billedMinutes: billed, hasStarted: !!session?.started_at });
+      if (route === 'record' && session?.started_at) {
         recordLesson({
           sessionId,
           studentId: id,
@@ -274,6 +276,7 @@ export default function EndSessionScreen() {
           billedMinutes: billed,
           topics: selectedTopics,
           sessionNotes: notes.trim() || undefined,
+          ...reviewOverrides,
         });
       }
     } catch (e: unknown) {

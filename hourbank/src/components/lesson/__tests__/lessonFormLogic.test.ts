@@ -9,6 +9,8 @@ import {
   parseKmInput,
   parseMinutesInput,
   stepBilled,
+  timerReviewOverrides,
+  timerReviewSaveRoute,
   travelPreview,
   validateLessonForm,
   type LessonFormValues,
@@ -190,4 +192,27 @@ test('claimWarning', () => {
   expect(claimWarning(false)).toBeNull();
   expect(claimWarning(true)).toMatch(/claim/);
   expect(claimWarning(true, 'Sep 2026')).toContain('claim for Sep 2026');
+});
+
+describe('timer review save decision', () => {
+  const base = { subjectId: 'ss-1', bookedSubjectId: 'ss-1', mode: 'in_person' as const, km: 10, initialKm: 10 };
+
+  it('no changes → no overrides', () => {
+    expect(timerReviewOverrides(base)).toEqual({});
+  });
+
+  it('only the changed subject / km are overridden; online ignores km', () => {
+    expect(timerReviewOverrides({ ...base, subjectId: 'ss-2' })).toEqual({ subjectId: 'ss-2' });
+    expect(timerReviewOverrides({ ...base, km: 14 })).toEqual({ travelKm: 14 });
+    expect(timerReviewOverrides({ ...base, mode: 'online', km: null })).toEqual({});
+    expect(timerReviewOverrides({ ...base, subjectId: null })).toEqual({});
+  });
+
+  it('recordLesson only for a billed, started lesson with changes; else endSession', () => {
+    expect(timerReviewSaveRoute({ overrides: { subjectId: 'ss-2' }, billedMinutes: 60, hasStarted: true })).toBe('record');
+    expect(timerReviewSaveRoute({ overrides: {}, billedMinutes: 60, hasStarted: true })).toBe('end');
+    // Zero-billed: endSession, which applies the same overrides (nothing dropped).
+    expect(timerReviewSaveRoute({ overrides: { travelKm: 14 }, billedMinutes: 0, hasStarted: true })).toBe('end');
+    expect(timerReviewSaveRoute({ overrides: { subjectId: 'ss-2' }, billedMinutes: 60, hasStarted: false })).toBe('end');
+  });
 });

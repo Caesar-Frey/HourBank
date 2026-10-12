@@ -5,6 +5,7 @@ import {
   startSession,
   createAndStartUnscheduled,
   recordLesson,
+  endSession,
   editLesson,
   logPastSession,
   markNoShow,
@@ -178,6 +179,21 @@ describe('lesson recording + editing (Phase A)', () => {
         recordLesson({ studentId: s.id, subjectId: getPrimarySubjectId(other.id), startedAt: '2026-10-12T09:00:00.000Z', billedMinutes: 60, topics: [], now: NOW });
       } catch (e) { err = e; }
       expect(isSubjectError(err, 'WRONG_STUDENT')).toBe(true);
+    });
+
+    it('endSession applies review subject + km overrides (zero-billed timer lesson keeps them)', () => {
+      const { s, sci } = setup(db);
+      const live = createAndStartUnscheduled({ studentId: s.id, mode: 'in_person', now: new Date('2026-10-12T13:00:00.000Z') });
+      const { session } = endSession({
+        sessionId: live.id, endedAt: '2026-10-12T14:00:00.000Z', durationMinutes: 60, billedMinutes: 0, topics: [],
+        subjectId: sci, travelKm: 4,
+      });
+      expect(session).toMatchObject({ status: 'completed', subject_id: sci, travel_km: 4, parent_travel_fee: 20, billed_minutes: 0 });
+      const live2 = createAndStartUnscheduled({ studentId: s.id, mode: 'in_person', now: new Date('2026-10-12T14:30:00.000Z') });
+      const kept = endSession({ sessionId: live2.id, endedAt: '2026-10-12T15:00:00.000Z', durationMinutes: 30, billedMinutes: 30, topics: [] });
+      expect(kept.session).toMatchObject({ subject_id: getPrimarySubjectId(s.id), travel_km: 10, parent_travel_fee: 50 });
+      expect(() => endSession({ sessionId: createAndStartUnscheduled({ studentId: s.id, mode: 'in_person' }).id, endedAt: NOW.toISOString(), durationMinutes: 5, billedMinutes: 0, topics: [], travelKm: -1 }))
+        .toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
     });
 
     it('logPastSession and markNoShow book against the lesson subject', () => {
