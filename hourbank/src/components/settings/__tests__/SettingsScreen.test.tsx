@@ -172,5 +172,9 @@ test('restore: cancelled picker does nothing; bad file gets friendly copy', asyn
   await act(async () => {
     fireEvent.press(screen.getByText('Restore from backup'));
   });
-  expect(mockToast).toHaveBeenCalledWith({ kind: 'error', message: expect.stringContaining("isn't an HourBank backup") });
+  expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+    kind: 'error',
+    message: expect.stringContaining("isn't an HourBank backup"),
+    detail: 'NOT_SQLITE',
+  }));
 });

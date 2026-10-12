@@ -38,6 +38,8 @@ export type ToastKind = 'success' | 'error' | 'info';
 export interface ToastOptions {
   kind: ToastKind;
   message: string;
+  /** Optional small diagnostic line under the message (e.g. an error code). */
+  detail?: string;
   /** Optional inline action, e.g. "Undo". */
   actionLabel?: string;
   onAction?: () => void;
@@ -204,11 +206,26 @@ export function ToastProvider({ children, bottomOffset = DEFAULT_BOTTOM_OFFSET }
             >
               <Feather name={ICON[toast.kind]} size={14} color={COLORS.paper} />
             </View>
-            <Text
-              style={{ flex: 1, fontFamily: F.sans, fontSize: 14, lineHeight: 19, color: COLORS.paper, paddingVertical: 14 }}
-            >
-              {toast.message}
-            </Text>
+            {toast.detail ? (
+              <View style={{ flex: 1, paddingVertical: 12 }}>
+                <Text style={{ fontFamily: F.sans, fontSize: 14, lineHeight: 19, color: COLORS.paper }}>
+                  {toast.message}
+                </Text>
+                <Text
+                  testID="toast-detail"
+                  selectable
+                  style={{ fontFamily: F.mono, fontSize: 11, lineHeight: 15, color: COLORS.paper60, marginTop: 4 }}
+                >
+                  {toast.detail}
+                </Text>
+              </View>
+            ) : (
+              <Text
+                style={{ flex: 1, fontFamily: F.sans, fontSize: 14, lineHeight: 19, color: COLORS.paper, paddingVertical: 14 }}
+              >
+                {toast.message}
+              </Text>
+            )}
             {toast.actionLabel ? (
               <TouchableOpacity
                 onPress={handleAction}

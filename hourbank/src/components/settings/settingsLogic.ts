@@ -94,18 +94,33 @@ export function validateTierDrafts(drafts: TierDraft[]): { tiers: PackageTier[] 
 
 const BACKUP_ERROR_COPY: Record<string, string> = {
   NO_STORAGE: "Your phone doesn't have storage available to read the backup. Free up space and try again.",
+  UNREADABLE: "Couldn't open that file. Save it to your phone's Files or Downloads, then pick it from there.",
   NOT_SQLITE: "That file isn't an HourBank backup. Pick a .db file made with \"Back up now\".",
   CORRUPT: "That backup file is damaged and can't be restored. Try an older backup.",
-  MISSING_TABLES: "That file doesn't contain HourBank data. Pick a backup made with \"Back up now\".",
+  EMPTY_BACKUP:
+    'This backup file is empty. Older HourBank versions sometimes saved the backup before your data reached it, so there is nothing in this file to restore.',
+  MISSING_TABLES: "That backup is missing part of HourBank's data, so it can't be restored. Pick a backup made with \"Back up now\".",
   NEWER_VERSION: 'This backup was made by a newer version of HourBank. Update the app, then try again.',
   RESTORE_FAILED: 'Restore failed — your previous data was kept. Try again or use another backup.',
 };
 
+function backupErrorParts(e: unknown): { code?: string; detail?: string } {
+  if ((e as { name?: string } | null)?.name !== 'BackupError') return {};
+  const { code, detail } = e as { code?: string; detail?: string };
+  return { code, detail };
+}
+
 export function backupErrorMessage(e: unknown): string {
-  const code = (e as { name?: string; code?: string } | null)?.name === 'BackupError'
-    ? (e as { code?: string }).code
-    : undefined;
+  const { code } = backupErrorParts(e);
   return (code && BACKUP_ERROR_COPY[code]) || "Couldn't read that file. Try again or pick another backup.";
+}
+
+/** Small diagnostic line under the message, e.g. "MISSING_TABLES · missing ledger_entries · found …". */
+export function backupErrorDetail(e: unknown): string {
+  const { code, detail } = backupErrorParts(e);
+  if (code) return detail ? `${code} · ${detail}` : code;
+  const msg = e instanceof Error ? e.message : String(e);
+  return `UNKNOWN · ${msg.slice(0, 80)}`;
 }
 
 /** Label/value rows for the restore confirmation. */
@@ -116,6 +131,8 @@ export function restoreSummaryLines(s: BackupSummary): [string, string][] {
     ['Ledger entries', String(s.ledgerRows)],
     ['Last entry', s.lastEntryAt ? formatDateLong(s.lastEntryAt) : 'None'],
   ];
-  if (s.exportedAt) lines.push(['Backup created', formatDateLong(s.exportedAt)]);
+  // Backups without exported_at come from builds before Oct 2026; the oldest of
+  // those could miss recent changes, so point the tutor at "Last entry".
+  lines.push(['Backup created', s.exportedAt ? formatDateLong(s.exportedAt) : 'Older app version — check Last entry']);
   return lines;
 }
