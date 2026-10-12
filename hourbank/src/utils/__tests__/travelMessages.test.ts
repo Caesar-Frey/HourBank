@@ -38,6 +38,13 @@ describe('reminder with subjects + travel owed', () => {
     expect(t).toContain("Amahle's Maths lesson balance is low: 30m remaining.");
   });
 
+  it('accepts a plain subjectName (old call shape still works)', () => {
+    expect(buildLowBalanceReminderText({ ...base, subjectName: 'Science', balanceHours: -0.5 }))
+      .toContain("Amahle's Science lesson account is owing 30m.");
+    expect(buildLowBalanceReminderText({ studentName: 'Amahle', balanceHours: 0.5 }))
+      .toContain("Amahle's lesson balance is low: 30m remaining.");
+  });
+
   it('adds travel owed, total with travel and keeps the reference line', () => {
     const t = buildLowBalanceReminderText({
       ...base,

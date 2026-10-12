@@ -144,6 +144,8 @@ export type LowBalanceReminderTextInput = RecipientFields & {
    * name is used in the wording. balanceHours stays the headline total.
    */
   subjectBalances?: Array<{ subject: string; balanceHours: number }> | null;
+  /** Subject that balanceHours belongs to (single-subject wording); ignored when subjectBalances is given. */
+  subjectName?: string | null;
   /** Parent travel owed (rand, in arrears). Shown when > 0. */
   travelOwed?: { amount: number; lessonCount: number } | null;
 };
@@ -156,7 +158,12 @@ function subjectBalanceLine(subject: string, h: number): string {
 
 export function buildLowBalanceReminderText(i: LowBalanceReminderTextInput): string {
   const whose = isStudent(i) ? 'your' : `${i.studentName}'s`;
-  const subjects = (i.subjectBalances ?? []).filter(s => s.subject?.trim());
+  const listed = (i.subjectBalances ?? []).filter(s => s.subject?.trim());
+  const subjects = listed.length > 0
+    ? listed
+    : i.subjectName?.trim()
+      ? [{ subject: i.subjectName, balanceHours: i.balanceHours }]
+      : [];
   let lines: string[];
   if (subjects.length > 1) {
     lines = [
