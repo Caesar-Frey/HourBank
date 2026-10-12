@@ -1,9 +1,9 @@
 /**
  * Pure helpers for Money → In (reports) and Money → Out (payouts/claims).
  */
-import type { SessionListRow } from '../../db/reports';
+import type { SessionListRow, TopUpRow, TravelSettlementRow } from '../../db/reports';
 import type { ClaimablePoolLine } from '../../db/claims';
-import { formatHours, formatMinutes, pluralize } from '../../utils/format';
+import { formatHours, formatMinutes, formatRand, pluralize } from '../../utils/format';
 
 const EPS = 1e-9;
 
@@ -65,6 +65,41 @@ export function taughtLessonsLabel(lessons: number): string {
 export function noShowChargedLabel(count: number, hours: number): string | null {
   if (!(count > 0)) return null;
   return `+ ${count} ${pluralize(count, 'no-show')} charged · ${formatHours(hours)}`;
+}
+
+// ─── Cash received (packages + travel) ───────────────────────────────────────
+
+export type CashRow =
+  | { kind: 'package'; id: string; created_at: string; student_full_name: string; amount: number | null; method: string | null; hours: number; subject: string | null }
+  | { kind: 'travel'; id: string; created_at: string; student_full_name: string; amount: number; method: string; withTopUp: boolean };
+
+/** One newest-first list of money in: hours packages and travel payments. */
+export function mergeCashRows(
+  topUps: Pick<TopUpRow, 'id' | 'created_at' | 'student_full_name' | 'amount_paid' | 'payment_method' | 'hours_delta' | 'subject_name'>[],
+  travel: Pick<TravelSettlementRow, 'id' | 'created_at' | 'student_full_name' | 'amount' | 'payment_method' | 'package_id'>[]
+): CashRow[] {
+  const rows: CashRow[] = [
+    ...topUps.map(t => ({
+      kind: 'package' as const, id: t.id, created_at: t.created_at, student_full_name: t.student_full_name,
+      amount: t.amount_paid, method: t.payment_method, hours: t.hours_delta, subject: t.subject_name,
+    })),
+    ...travel.map(t => ({
+      kind: 'travel' as const, id: t.id, created_at: t.created_at, student_full_name: t.student_full_name,
+      amount: t.amount, method: t.payment_method, withTopUp: !!t.package_id,
+    })),
+  ];
+  return rows.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+}
+
+/** "Packages R 5 500.00 · Travel R 360.00"; null when no travel came in. */
+export function cashSplitLabel(totalCash: number, travelCash: number): string | null {
+  if (!(travelCash > 0)) return null;
+  return `Packages ${formatRand(totalCash - travelCash)} · Travel ${formatRand(travelCash)}`;
+}
+
+/** "Travel owed by 2 families" */
+export function travelOwedLabel(families: number): string {
+  return `Travel owed by ${families} ${pluralize(families, 'family', 'families')}`;
 }
 
 // ─── Payout hints ────────────────────────────────────────────────────────────
