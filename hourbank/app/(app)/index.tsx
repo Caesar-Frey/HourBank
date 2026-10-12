@@ -23,6 +23,8 @@ import {
   buildNeedsAttention,
   overOweMessage,
   backupNudge,
+  rosterHoursTotals,
+  rosterMatchesSearch,
 } from '../../src/components/home/homeLogic';
 import { listActiveStudents, listPausedStudents, listArchivedStudents } from '../../src/db/students';
 import {
@@ -168,7 +170,7 @@ export default function HomeScreen() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!showAll || !q) return sorted;
-    return sorted.filter(s => s.full_name.toLowerCase().includes(q) || s.subject.toLowerCase().includes(q));
+    return sorted.filter(s => rosterMatchesSearch(s, q));
   }, [sorted, showAll, search]);
   const displayed = showAll ? filtered : sorted.slice(0, ROSTER_LIMIT);
 
@@ -179,13 +181,9 @@ export default function HomeScreen() {
   );
 
   const { hoursBanked, hoursOwed } = useMemo(() => {
-    let banked = 0;
-    let owed = 0;
-    for (const s of [...active, ...paused]) {
-      if (s.current_balance > 0) banked += s.current_balance;
-      else owed += -s.current_balance;
-    }
-    return { hoursBanked: banked, hoursOwed: owed };
+    // Per subject: credit in one subject doesn't hide hours owed in another.
+    const t = rosterHoursTotals([...active, ...paused]);
+    return { hoursBanked: t.banked, hoursOwed: t.owed };
   }, [active, paused]);
 
   // Live pill: the context ticks for the session it owns; otherwise derive from the DB row.
