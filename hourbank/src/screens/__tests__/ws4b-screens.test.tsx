@@ -106,12 +106,22 @@ test('Schedule agenda shows overdue + upcoming lessons with type labels and owe 
   expect(screen.getAllByText('Overdue').length).toBeGreaterThan(0); // legend
 });
 
-test('Start lesson: over-owe nudge confirms then retries; running lesson is never discarded', async () => {
+test('New lesson: defaults to Record a lesson → record form for the picked student', async () => {
+  mockParams = { studentId: 's1' };
+  const screen = render(<StartLessonScreen />);
+  await flush();
+  fireEvent.press(screen.getByText('Record lesson for Ann'));
+  expect(mockRouter.replace).toHaveBeenCalledWith('/student/s1/log-past');
+  expect(getActiveOrPausedSession()).toBeNull();
+});
+
+test('Start timer: over-owe nudge confirms then retries; running lesson is never discarded', async () => {
   mockParams = { studentId: 's1' };
   const screen = render(<StartLessonScreen />);
   await flush();
 
-  fireEvent.press(screen.getByText('Start lesson with Ann'));
+  fireEvent.press(screen.getByLabelText('Start a timer'));
+  fireEvent.press(screen.getByText('Start timer with Ann'));
   const [title, , buttons] = (Alert.alert as jest.Mock).mock.calls[0];
   expect(title).toBe('Ann Lee will owe 1h');
   const startAnyway = (buttons as { text: string; onPress?: () => void }[]).find(b => b.text === 'Start anyway');
@@ -124,10 +134,10 @@ test('Start lesson: over-owe nudge confirms then retries; running lesson is neve
 
   // Second lesson while one is running → prompt with "Open live lesson"; nothing discarded.
   (Alert.alert as jest.Mock).mockClear();
-  mockParams = { studentId: 's2' };
+  mockParams = { studentId: 's2', kind: 'timer' };
   const second = render(<StartLessonScreen />);
   await flush();
-  fireEvent.press(second.getByText('Start lesson with Ben'));
+  fireEvent.press(second.getByText('Start timer with Ben'));
   // The running lesson is reported before any owe check.
   const running = (Alert.alert as jest.Mock).mock.calls[0];
   expect(running[0]).toBe('A lesson with Ann Lee is running');
