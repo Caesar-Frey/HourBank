@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -14,6 +14,9 @@ import { getStudent } from '../../src/db/students';
 import { formatDateLong, formatHours, formatHoursSigned, formatRand, formatTime } from '../../src/utils/format';
 import { getTopUpReceiptText, shareTopUpReceipt } from '../../src/utils/receipt';
 import { openWhatsApp } from '../../src/utils/whatsapp';
+import { resolveRecipient } from '../../src/utils/recipient';
+import { RecipientChooser } from '../../src/components/student/RecipientChooser';
+import type { PreferredContact } from '../../src/db/schema';
 import { Button, LoadingState, NotFoundState, SectionLabel } from '../../src/components/student/ui';
 import { shortRef } from '../../src/components/student/flowLogic';
 
@@ -68,6 +71,7 @@ export default function TransactionDetailScreen() {
   const [detail, setDetail] = useState<LedgerEntryDetail | null | undefined>(undefined);
   const [proofExists, setProofExists] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
   const sharingRef = useRef(false);
 
   useEffect(() => {
@@ -77,6 +81,16 @@ export default function TransactionDetailScreen() {
       setDetail(null);
     }
   }, [id]);
+
+  const studentId = detail?.student_id ?? null;
+  const student = useMemo(() => {
+    if (!studentId) return null;
+    try {
+      return getStudent(studentId);
+    } catch {
+      return null;
+    }
+  }, [studentId]);
 
   const proofUri = detail?.package?.proof_image_uri ?? null;
   useEffect(() => {
@@ -99,22 +113,16 @@ export default function TransactionDetailScreen() {
   const after = balanceDisplay(entry.balance_after);
   const pkg = entry.package;
 
-  function parentContact() {
-    try {
-      const s = getStudent(entry.student_id);
-      return { name: s?.parent_name ?? null, phone: s?.parent_phone ?? null };
-    } catch {
-      return { name: null, phone: null };
-    }
-  }
+  const recipient = student
+    ? resolveRecipient(student, sendTo)
+    : { phone: null, name: null, who: 'parent' as const };
 
   async function shareWhatsApp() {
     if (!pkg) return;
     try {
-      const parent = parentContact();
-      const text = getTopUpReceiptText(pkg.id, { parentName: parent.name });
+      const text = getTopUpReceiptText(pkg.id, { recipientName: recipient.name, audience: recipient.who });
       if (!text) throw new Error('missing');
-      await openWhatsApp(parent.phone, text);
+      await openWhatsApp(recipient.phone, text);
     } catch {
       toast.show({ kind: 'error', message: "Couldn't prepare the confirmation" });
     }
@@ -212,6 +220,7 @@ export default function TransactionDetailScreen() {
 
             {DIVIDER}
             <SectionLabel>SEND CONFIRMATION</SectionLabel>
+            <RecipientChooser student={student} value={recipient.who} onChange={setSendTo} style={{ marginBottom: 10 }} />
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Button label="WhatsApp" icon="message-circle" variant="secondary" style={{ flex: 1 }} onPress={shareWhatsApp} />
               <Button label="PDF" icon="file-text" variant="secondary" style={{ flex: 1 }} onPress={sharePdf} busy={sharing} />

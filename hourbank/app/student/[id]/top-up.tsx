@@ -19,6 +19,9 @@ import { formatHours, formatRand } from '../../../src/utils/format';
 import { persistProofImage } from '../../../src/utils/proofImages';
 import { getTopUpReceiptText } from '../../../src/utils/receipt';
 import { openWhatsApp } from '../../../src/utils/whatsapp';
+import { resolveRecipient } from '../../../src/utils/recipient';
+import { RecipientChooser } from '../../../src/components/student/RecipientChooser';
+import type { PreferredContact } from '../../../src/db/schema';
 import {
   Button, ChoicePills, FieldHint, LoadingState, NotFoundState, PageHeading, SectionLabel,
 } from '../../../src/components/student/ui';
@@ -78,6 +81,7 @@ export default function TopUpScreen() {
   const [reference, setReference] = useState('');
   const [proofUri, setProofUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
 
   useEffect(() => {
     try {
@@ -119,11 +123,13 @@ export default function TopUpScreen() {
     }
   }
 
+  const recipient = resolveRecipient(student, sendTo);
+
   async function sendConfirmation(pkgId: string) {
     try {
-      const text = getTopUpReceiptText(pkgId, { parentName: student?.parent_name });
+      const text = getTopUpReceiptText(pkgId, { recipientName: recipient.name, audience: recipient.who });
       if (!text) throw new Error('missing package');
-      await openWhatsApp(student?.parent_phone, text);
+      await openWhatsApp(recipient.phone, text);
     } catch {
       toast.show({ kind: 'error', message: "Couldn't prepare the confirmation" });
     }
@@ -317,6 +323,13 @@ export default function TopUpScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      <RecipientChooser
+        student={student}
+        value={recipient.who}
+        onChange={setSendTo}
+        style={{ marginTop: 24 }}
+      />
     </FormScreen>
   );
 }
