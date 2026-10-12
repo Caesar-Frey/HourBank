@@ -11,9 +11,14 @@ import {
   getSession,
   isSessionError,
   parseSessionTopics,
+  recordLesson,
   saveLiveTopics,
 } from '../../../src/db/sessions';
+import { isSubjectError } from '../../../src/db/subjects';
 import { getOrCreateTutorProfile } from '../../../src/db/tutorProfile';
+import { SubjectPicker, TravelKmField, LessonPreview } from '../../../src/components/lesson/LessonFields';
+import { loadSubjectOptions, parentTravelTerms, catalogTopics, type SubjectOption } from '../../../src/components/lesson/lessonFormData';
+import { balancePreview, defaultSubjectId, parseKmInput, travelPreview } from '../../../src/components/lesson/lessonFormLogic';
 import { TopicChip } from '../../../src/components/TopicChip';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
 import { FormScreen } from '../../../src/components/FormScreen';
@@ -23,7 +28,6 @@ import { COLORS } from '../../../src/theme/colors';
 import { formatDateLong, formatHours, formatMinutes, formatTimeRange } from '../../../src/utils/format';
 import { balanceStatus, balanceColour } from '../../../src/utils/balance';
 import { defaultBilledMinutes, shouldWarnBilledDeviation } from '../../../src/utils/duration';
-import { listTopicsForStudentSubject } from '../../../src/db/catalog';
 import { Session, Student } from '../../../src/db/schema';
 import { useSessionTimer } from '../../../src/contexts/SessionTimerContext';
 import { canEndFromStatus, lessonDraftStore } from '../../../src/contexts/SessionTimerContext.helpers';
@@ -96,6 +100,12 @@ export default function EndSessionScreen() {
 
   const [student, setStudent] = useState<Student | null>(null);
   const [bal, setBal] = useState(0);
+  const [subjectOptions, setSubjectOptions] = useState<SubjectOption[]>([]);
+  const [subjectId, setSubjectId] = useState<string | null>(draft?.subjectId ?? session?.subject_id ?? null);
+  /** Subject + km as booked, so an untouched review keeps the timer's own save path. */
+  const [bookedSubjectId, setBookedSubjectId] = useState<string | null>(session?.subject_id ?? null);
+  const [initialKm, setInitialKm] = useState<number | null>(null);
+  const [kmText, setKmText] = useState(draft?.kmText ?? '');
   const [selectedTopics, setSelectedTopics] = useState<string[]>(initialTopics);
   const [availableTopics, setAvailableTopics] = useState<string[]>(initialTopics);
   const [addingTopic, setAddingTopic] = useState(false);
@@ -116,9 +126,25 @@ export default function EndSessionScreen() {
   useEffect(() => {
     try {
       const s = getStudent(id);
+      let subjectName: string | null = s?.subject ?? null;
       if (s) {
         setStudent(s);
-        const allTopics = listTopicsForStudentSubject(s.subject).map(t => t.name);
+        try {
+          const { options, primaryId } = loadSubjectOptions(id);
+          const booked = session?.subject_id ?? primaryId ?? null;
+          setSubjectOptions(options);
+          setBookedSubjectId(booked);
+          const prev = draft?.subjectId ?? null;
+          const pick = prev && options.some(o => o.id === prev) ? prev : defaultSubjectId(options, booked, primaryId);
+          subjectName = options.find(o => o.id === pick)?.subject ?? subjectName;
+          setSubjectId(pick);
+        } catch (e) {
+          console.error('EndSessionScreen subjects load error', e);
+        }
+        const km = session?.travel_km ?? s.travel_distance_km ?? 0;
+        setInitialKm(parseKmInput(String(km)).value);
+        if (!draft?.kmText) setKmText(String(km));
+        const allTopics = catalogTopics(subjectName);
         const extras = initialTopics.filter(t => !allTopics.includes(t));
         setAvailableTopics([...allTopics, ...extras]);
       }
@@ -126,7 +152,7 @@ export default function EndSessionScreen() {
     } catch (e) {
       console.error('EndSessionScreen load error', e);
     }
-  }, [id, initialTopics]);
+  }, [id, initialTopics, session, draft]);
 
   // Topic edits go to the in-flight row too, so the timer (and a relaunch) sees them.
   useEffect(() => {
@@ -139,8 +165,8 @@ export default function EndSessionScreen() {
 
   // Keep edits while the tutor hops back to the timer (in memory only).
   useEffect(() => {
-    lessonDraftStore.set(sessionId, { notes, billedMinutes, billedChanged });
-  }, [sessionId, notes, billedMinutes, billedChanged]);
+    lessonDraftStore.set(sessionId, { notes, billedMinutes, billedChanged, subjectId, kmText });
+  }, [sessionId, notes, billedMinutes, billedChanged, subjectId, kmText]);
 
   // Lesson already finished/discarded elsewhere → nothing to review.
   const alreadyClosed = !!session && !canEndFromStatus(session.status);
@@ -148,10 +174,22 @@ export default function EndSessionScreen() {
     if (alreadyClosed) router.replace(`/lesson/${sessionId}`);
   }, [alreadyClosed, sessionId, router]);
 
-  const balanceAfter = bal - billedMinutes / 60;
+  const lessonMode = session?.mode ?? (params.mode === 'online' ? 'online' : 'in_person');
+  const subjectOption = subjectOptions.find(o => o.id === subjectId) ?? null;
+  const subjectBalance = subjectOption ? subjectOption.balance : bal;
+  const subjectName = subjectOption?.subject ?? student?.subject ?? '';
+  const balanceAfter = subjectBalance - billedMinutes / 60;
   const bColour = balanceColour(balanceStatus(balanceAfter));
   const firstName = student?.full_name?.trim().split(/\s+/)[0] ?? 'Student';
-  const modeDisplay = params.mode === 'online' ? 'Online' : 'In-person';
+  const modeDisplay = lessonMode === 'online' ? 'Online' : 'In-person';
+  const parsedKm = parseKmInput(kmText);
+  const kmValue = lessonMode === 'in_person' ? (parsedKm.error ? null : parsedKm.value ?? 0) : null;
+  const kmError = lessonMode === 'in_person' ? parsedKm.error : null;
+  const preview = balancePreview({ subjectName, balanceNow: subjectBalance, billedMinutes });
+  const travel = student ? travelPreview({ lessonMode, km: kmValue, ...parentTravelTerms(student) }) : null;
+  // Picked a different subject or km than booked → save via recordLesson (applies both).
+  const reviewChangedBooking =
+    (!!subjectId && subjectId !== bookedSubjectId) || (lessonMode === 'in_person' && kmValue !== initialKm);
   const timeDisplay = session?.started_at
     ? `${formatDateLong(endedAtIso)} · ${formatTimeRange(session.started_at, endedAtIso)}`
     : formatDateLong(endedAtIso);
@@ -185,6 +223,12 @@ export default function EndSessionScreen() {
     return billedMinutes;
   };
 
+  const changeSubject = (next: string) => {
+    setSubjectId(next);
+    const allTopics = catalogTopics(subjectOptions.find(o => o.id === next)?.subject);
+    setAvailableTopics([...allTopics, ...selectedTopics.filter(t => !allTopics.includes(t))]);
+  };
+
   const toggleTopic = (topic: string) => {
     setTopicError(false);
     setSelectedTopics(prev => (prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]));
@@ -209,18 +253,37 @@ export default function EndSessionScreen() {
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      endSession({
-        sessionId,
-        endedAt: endedAtIso,
-        durationMinutes: actualMinutes,
-        billedMinutes: billed,
-        topics: selectedTopics,
-        sessionNotes: notes.trim() || undefined,
-      });
+      if (reviewChangedBooking && billed > 0 && session?.started_at) {
+        recordLesson({
+          sessionId,
+          studentId: id,
+          subjectId,
+          startedAt: session.started_at,
+          minutes: Math.max(1, actualMinutes),
+          billedMinutes: billed,
+          topics: selectedTopics,
+          notes: notes.trim() || null,
+          mode: lessonMode,
+          travelKm: kmValue,
+        });
+      } else {
+        endSession({
+          sessionId,
+          endedAt: endedAtIso,
+          durationMinutes: actualMinutes,
+          billedMinutes: billed,
+          topics: selectedTopics,
+          sessionNotes: notes.trim() || undefined,
+        });
+      }
     } catch (e: unknown) {
       submittingRef.current = false;
       setSubmitting(false);
       console.error('endSession error', e);
+      if (isSubjectError(e)) {
+        Alert.alert('Pick another subject', 'That subject is no longer active for this student. Nothing was deducted.');
+        return;
+      }
       if (isSessionError(e, 'INVALID_STATE') || isSessionError(e, 'NOT_FOUND')) {
         refreshFromDb();
         Alert.alert(
@@ -266,12 +329,13 @@ export default function EndSessionScreen() {
       setTopicError(true);
       return;
     }
+    if (kmError) return;
     // Warn-but-allow: going past zero credit is a confirm, never a block.
-    const after = bal - billed / 60;
+    const after = subjectBalance - billed / 60;
     if (after < 0) {
       Alert.alert(
         'Balance will go negative',
-        `${firstName} has ${formatHours(bal)} left. Saving puts them at OWES ${formatHours(Math.abs(after))}.`,
+        `${firstName} has ${formatHours(subjectBalance)} of ${subjectName} left. Saving puts them at OWES ${formatHours(Math.abs(after))}.`,
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Save anyway', onPress: () => proceedZeroOrSave(billed) },
@@ -392,14 +456,21 @@ export default function EndSessionScreen() {
             <Text style={valueStyle(F.sans)}>{student ? `Gr ${student.grade} · ${student.curriculum}` : '—'}</Text>
           </View>
           <View style={rowStyle}>
-            <Text style={labelStyle}>SUBJECT</Text>
-            <Text style={valueStyle(F.sans)}>{student?.subject ?? '—'}</Text>
-          </View>
-          <View style={rowStyle}>
             <Text style={labelStyle}>MODE</Text>
             <Text style={valueStyle(F.sans)}>{modeDisplay}</Text>
           </View>
         </View>
+
+        <View style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, gap: 8 }}>
+          <Text style={labelStyle}>SUBJECT</Text>
+          <SubjectPicker options={subjectOptions} value={subjectId} onChange={changeSubject} fallbackName={student?.subject ?? null} />
+        </View>
+        {lessonMode === 'in_person' ? (
+          <View style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, gap: 4 }}>
+            <Text style={labelStyle}>TRAVEL</Text>
+            <TravelKmField text={kmText} onChangeText={setKmText} error={kmError} defaultKm={student?.travel_distance_km ?? null} />
+          </View>
+        ) : null}
 
         {/* Billed duration */}
         <View style={{ ...rowStyle, paddingVertical: 12 }}>
@@ -472,11 +543,14 @@ export default function EndSessionScreen() {
           </Text>
         ) : null}
 
-        <View style={{ ...rowStyle, marginBottom: 28 }}>
+        <View style={{ ...rowStyle, marginBottom: 12 }}>
           <Text style={labelStyle}>BALANCE AFTER</Text>
           <Text style={valueStyle(F.monoMed, bColour)}>
             {balanceAfter < 0 ? `OWES ${formatHours(Math.abs(balanceAfter))}` : `${formatHours(balanceAfter)} left`}
           </Text>
+        </View>
+        <View style={{ marginBottom: 28 }}>
+          <LessonPreview balanceText={preview.text} owes={preview.owes} travelText={travel?.text ?? null} />
         </View>
 
         {/* Topics */}

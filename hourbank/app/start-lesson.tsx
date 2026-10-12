@@ -1,5 +1,8 @@
 /**
- * Start a lesson now (ad-hoc, not booked). Route: /start-lesson?studentId=
+ * New lesson (ad-hoc, not booked). Route: /start-lesson?studentId=&kind=record|timer
+ *
+ * Two ways in: "Record a lesson that happened" (default → the Record lesson form)
+ * or "Start a timer" (optional live timer).
  *
  * - Atomic create+start (createAndStartUnscheduled) — no orphan rows.
  * - Over the owing limit is a NUDGE: confirm, then retry with allowOverOwe.
@@ -24,6 +27,7 @@ import {
   getActiveOrPausedSession,
   isSessionError,
 } from '../src/db/sessions';
+import { isSubjectError } from '../src/db/subjects';
 import type { Session } from '../src/db/schema';
 import { formatHours } from '../src/utils/format';
 import { balanceColour, balanceStatus } from '../src/utils/balance';
@@ -36,7 +40,15 @@ type PickStudent = {
   subject: string;
   status: string;
   current_balance: number;
+  subjects: Array<{ subject_id: string; subject: string; balance_hours: number }>;
 };
+
+type NewLessonKind = 'record' | 'timer';
+
+const KIND_OPTIONS: Array<{ value: NewLessonKind; title: string; detail: string; icon: 'check-square' | 'play' }> = [
+  { value: 'record', title: 'Record a lesson that happened', detail: 'Already taught — log time, topics and travel.', icon: 'check-square' },
+  { value: 'timer', title: 'Start a timer', detail: 'Teaching now — time it live, record at the end.', icon: 'play' },
+];
 
 const LABEL = {
   fontFamily: F.mono,
@@ -51,7 +63,9 @@ export default function StartLessonScreen() {
   const router = useRouter();
   const toast = useToast();
   const { startTimer } = useSessionTimer();
-  const { studentId: paramStudentId } = useLocalSearchParams<{ studentId?: string }>();
+  const { studentId: paramStudentId, kind: paramKind } = useLocalSearchParams<{ studentId?: string; kind?: string }>();
+  const [kind, setKind] = useState<NewLessonKind>(paramKind === 'timer' ? 'timer' : 'record');
+  const [timerSubjectId, setTimerSubjectId] = useState<string | null>(null);
 
   const [students, setStudents] = useState<PickStudent[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -71,6 +85,7 @@ export default function StartLessonScreen() {
           subject: s.subject,
           status: s.status,
           current_balance: s.current_balance,
+          subjects: s.subject_balances ?? [],
         }));
         list.sort((a, b) => a.full_name.localeCompare(b.full_name));
         setStudents(list);
@@ -94,6 +109,16 @@ export default function StartLessonScreen() {
     return `/student/${s.student_id}/session?sessionId=${s.id}` as Href;
   }
 
+  function selectStudent(id: string) {
+    setSelectedId(id);
+    setTimerSubjectId(null);
+  }
+
+  function record() {
+    if (!selected) return;
+    router.replace(`/student/${selected.id}/log-past` as Href);
+  }
+
   function start(allowOverOwe = false) {
     if (!selected) return;
     if (busyRef.current && !allowOverOwe) return;
@@ -102,6 +127,7 @@ export default function StartLessonScreen() {
     try {
       const session = createAndStartUnscheduled({
         studentId: selected.id,
+        subjectId: timerSubjectId ?? undefined,
         mode,
         sessionType,
         allowOverOwe,
@@ -138,7 +164,9 @@ export default function StartLessonScreen() {
         );
         return;
       }
-      if (isSessionError(e, 'NOT_STARTABLE')) {
+      if (isSubjectError(e)) {
+        toast.show({ kind: 'error', message: 'That subject isn’t available any more — pick another.' });
+      } else if (isSessionError(e, 'NOT_STARTABLE')) {
         toast.show({ kind: 'error', message: `${selected.full_name} can’t start a lesson right now (archived?).` });
       } else {
         toast.show({ kind: 'error', message: 'Couldn’t start the lesson. Nothing was saved — try again.' });
@@ -147,9 +175,10 @@ export default function StartLessonScreen() {
     }
   }
 
+  const firstName = selected ? selected.full_name.split(/\s+/)[0] : '';
   const footer = (
     <TouchableOpacity
-      onPress={() => start(false)}
+      onPress={() => (kind === 'record' ? record() : start(false))}
       disabled={!selected || busy}
       activeOpacity={0.85}
       accessibilityRole="button"
@@ -166,22 +195,57 @@ export default function StartLessonScreen() {
       }}
     >
       <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: selected ? COLORS.paper : COLORS.inkSoft }}>
-        {selected ? `Start lesson with ${selected.full_name.split(/\s+/)[0]}` : 'Pick a student'}
+        {!selected ? 'Pick a student' : kind === 'record' ? `Record lesson for ${firstName}` : `Start timer with ${firstName}`}
       </Text>
-      <Feather name="play" size={16} color={selected ? COLORS.paper : COLORS.inkSoft} />
+      <Feather name={kind === 'record' ? 'arrow-right' : 'play'} size={16} color={selected ? COLORS.paper : COLORS.inkSoft} />
     </TouchableOpacity>
   );
 
   return (
     <FormScreen
-      header={<ScreenHeader backLabel="BACK" onBack={() => router.back()} title="Start a lesson" />}
+      header={<ScreenHeader backLabel="BACK" onBack={() => router.back()} title="New lesson" />}
       footer={footer}
     >
-      <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.ink, marginTop: 8 }}>Start now</Text>
+      <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.ink, marginTop: 8 }}>New lesson</Text>
       <Text style={{ fontFamily: F.serifItalic, fontSize: 18, color: COLORS.oxblood, marginBottom: 20 }}>
-        an unbooked lesson.
+        not on the schedule.
       </Text>
 
+      <View style={{ gap: 10, marginBottom: 24 }} accessibilityRole="radiogroup">
+        {KIND_OPTIONS.map(opt => {
+          const sel = opt.value === kind;
+          return (
+            <TouchableOpacity
+              key={opt.value}
+              onPress={() => setKind(opt.value)}
+              activeOpacity={0.8}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: sel, checked: sel }}
+              accessibilityLabel={opt.title}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+                minHeight: MIN_TOUCH + 16,
+                padding: 14,
+                borderRadius: 14,
+                borderWidth: sel ? 2 : 1,
+                borderColor: sel ? COLORS.oxblood : COLORS.paperEdge,
+                backgroundColor: sel ? COLORS.oxbloodFill : COLORS.transparent,
+              }}
+            >
+              <Feather name={opt.icon} size={18} color={sel ? COLORS.oxblood : COLORS.inkSoft} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>{opt.title}</Text>
+                <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkSoft, marginTop: 2 }}>{opt.detail}</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {kind === 'timer' ? (
+        <>
       <Text style={LABEL}>Mode</Text>
       <SegmentedControl options={MODE_OPTIONS} value={mode} onChange={setMode} style={{ marginBottom: 20 }} />
 
@@ -212,6 +276,45 @@ export default function StartLessonScreen() {
           );
         })}
       </View>
+        </>
+      ) : null}
+
+      {kind === 'timer' && selected && selected.subjects.length > 1 ? (
+        <>
+          <Text style={LABEL}>Subject</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+            {selected.subjects.map(sub => {
+              const sel = (timerSubjectId ?? selected.subjects[0].subject_id) === sub.subject_id;
+              return (
+                <TouchableOpacity
+                  key={sub.subject_id}
+                  onPress={() => setTimerSubjectId(sub.subject_id)}
+                  activeOpacity={0.75}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: sel }}
+                  hitSlop={{ top: 4, bottom: 4, left: 0, right: 0 }}
+                  style={{
+                    minHeight: 36,
+                    paddingHorizontal: 14,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: sel ? COLORS.ink : COLORS.paperEdge,
+                    backgroundColor: sel ? COLORS.ink : COLORS.transparent,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <Text style={{ fontFamily: F.sans, fontSize: 13, color: sel ? COLORS.paper : COLORS.ink }}>{sub.subject}</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 11, color: sel ? COLORS.paper60 : COLORS.inkSoft }}>
+                    {sub.balance_hours < 0 ? `−${formatHours(-sub.balance_hours)}` : formatHours(sub.balance_hours)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
 
       <Text style={LABEL}>Student</Text>
       {students.length > 5 ? (
@@ -257,7 +360,7 @@ export default function StartLessonScreen() {
         return (
           <TouchableOpacity
             key={s.id}
-            onPress={() => setSelectedId(s.id)}
+            onPress={() => selectStudent(s.id)}
             activeOpacity={0.7}
             accessibilityRole="radio"
             accessibilityState={{ selected: sel }}
@@ -290,7 +393,7 @@ export default function StartLessonScreen() {
                 {s.full_name}
               </Text>
               <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkSoft }} numberOfLines={1}>
-                {s.subject}
+                {s.subjects.length > 0 ? s.subjects.map(x => x.subject).join(' · ') : s.subject}
                 {s.status === 'paused' ? ' · Paused' : ''}
               </Text>
               {warn ? (

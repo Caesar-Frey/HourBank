@@ -4,8 +4,12 @@ import {
   agendaIsEmpty,
   agendaTimeLabel,
   bookedMinutes,
+  agendaBalanceKey,
+  agendaRowDetails,
+  agendaRowActions,
   owedAfter,
   projectAgendaBalances,
+  subjectBalanceMap,
 } from '../agendaModel';
 import { sessionTypeLabel, modeLabel, paymentMethodLabel } from '../labels';
 
@@ -90,5 +94,44 @@ describe('labels', () => {
     expect(modeLabel('online')).toBe('Online');
     expect(paymentMethodLabel('eft')).toBe('EFT');
     expect(paymentMethodLabel(null)).toBe('');
+  });
+});
+
+describe('per-subject projection', () => {
+  test('subject balances are drawn separately; falls back to the student total', () => {
+    const balances = subjectBalanceMap([
+      { id: 's1', current_balance: 3, subject_balances: [{ subject_id: 'm', balance_hours: 1 }, { subject_id: 'sc', balance_hours: 2 }] },
+      { id: 's2', current_balance: 0.5, subject_balances: [] },
+    ]);
+    expect(balances['s1|m']).toBe(1);
+    expect(balances.s1).toBe(3);
+    const a: Agenda = {
+      ...empty,
+      today: [
+        item({ id: 'a', student_id: 's1', subject_id: 'm', scheduled_for: at(9) }),
+        item({ id: 'b', student_id: 's1', subject_id: 'sc', scheduled_for: at(11) }),
+        item({ id: 'c', student_id: 's2', subject_id: 'x', scheduled_for: at(12) }),
+      ],
+    };
+    const p = projectAgendaBalances(a, balances);
+    expect(p.a).toBeCloseTo(0);
+    expect(p.b).toBeCloseTo(1);
+    expect(p.c).toBeCloseTo(-0.5);
+    expect(agendaBalanceKey(item({ student_id: 's1', subject_id: 'm' }))).toBe('s1|m');
+  });
+});
+
+describe('agenda row content', () => {
+  test('details lead with the lesson subject', () => {
+    expect(agendaRowDetails(item({ subject_name: 'Science', session_type: 'test_prep', estimated_duration_minutes: 90 })))
+      .toEqual(['Science', 'Test prep', 'In person', '1h 30m booked']);
+    expect(agendaRowDetails(item({ subject_name: null }))[0]).toBe('Maths');
+  });
+
+  test('overdue + today rows get Record (primary) and Start timer; others none', () => {
+    expect(agendaRowActions('overdue')).toEqual(['record', 'timer']);
+    expect(agendaRowActions('today')).toEqual(['record', 'timer']);
+    expect(agendaRowActions('upcoming')).toEqual([]);
+    expect(agendaRowActions('inProgress')).toEqual([]);
   });
 });

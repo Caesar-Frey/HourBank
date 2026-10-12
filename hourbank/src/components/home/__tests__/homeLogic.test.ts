@@ -99,7 +99,13 @@ describe('buildNeedsAttention', () => {
     expect(items.map(i => i.href)).toEqual(['/lesson/old', '/lesson/new']);
     expect(items[0].kind).toBe('overdue');
     expect(items[0].title).toBe('Student a');
-    expect(items[0].detail).toMatch(/^Not logged · /);
+    expect(items[0].detail).toMatch(/^Not recorded · /);
+    expect(items[0].recordHref).toBe('/student/a/log-past?sessionId=old');
+  });
+
+  test('overdue detail leads with the lesson subject when known', () => {
+    const agenda: Agenda = { ...emptyAgenda, overdue: [lesson('o', 'a', '2026-10-07T09:00:00', { subject_name: 'Science' })] };
+    expect(buildNeedsAttention({ agenda, students: [] })[0].detail).toMatch(/^Science · Not recorded · /);
   });
 
   test('students owing link to the student, most owed first', () => {

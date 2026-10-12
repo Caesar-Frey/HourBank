@@ -207,6 +207,10 @@ export type LessonDraft = {
   notes?: string;
   billedMinutes?: number;
   billedChanged?: boolean;
+  /** Subject picked on the review screen. */
+  subjectId?: string | null;
+  /** Travel km as typed on the review screen. */
+  kmText?: string;
 };
 
 const drafts = new Map<string, LessonDraft>();

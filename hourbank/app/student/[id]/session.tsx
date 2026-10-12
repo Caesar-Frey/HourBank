@@ -31,6 +31,7 @@ import {
   saveLiveTopics,
 } from '../../../src/db/sessions';
 import { listTopicsForStudentSubject } from '../../../src/db/catalog';
+import { subjectNameFor } from '../../../src/components/lesson/lessonFormData';
 import { TopicChip } from '../../../src/components/TopicChip';
 import { ActionSheet } from '../../../src/components/ActionSheet';
 import { useToast } from '../../../src/components/Toast';
@@ -56,6 +57,8 @@ export default function SessionScreen() {
   const [addingTopic, setAddingTopic] = useState(false);
   const [customTopic, setCustomTopic] = useState('');
   const [student, setStudent] = useState<Student | null>(null);
+  /** The LESSON's subject (multi-subject students); falls back to students.subject. */
+  const [lessonSubject, setLessonSubject] = useState<string | null>(null);
   const [balance, setBalance] = useState(0);
   const [sessionCount, setSessionCount] = useState(1);
   const [availableTopics, setAvailableTopics] = useState<string[]>([]);
@@ -90,9 +93,14 @@ export default function SessionScreen() {
           [id],
         );
         setSessionCount((c?.count ?? 0) + 1);
-        setAvailableTopics(listTopicsForStudentSubject(s.subject).map(t => t.name));
       }
       const sess = getSession(sessionId);
+      let subjectName = s?.subject ?? null;
+      try {
+        subjectName = subjectNameFor(sess?.subject_id) ?? subjectName;
+      } catch { /* keep student subject */ }
+      setLessonSubject(subjectName);
+      if (s && subjectName) setAvailableTopics(listTopicsForStudentSubject(subjectName).map(t => t.name));
       if (sess) {
         if (sess.mode === 'online' || sess.mode === 'in_person') setMode(sess.mode);
         // Planned topics (scheduled) or live picks persisted before an app kill.
@@ -323,7 +331,7 @@ export default function SessionScreen() {
           <View style={{ alignItems: 'center', paddingTop: 24, paddingBottom: 12, paddingHorizontal: 24 }}>
             <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.paper }}>{student?.full_name ?? ''}</Text>
             <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
-              {student ? `GR ${student.grade} ${student.subject.toUpperCase()}` : ''}
+              {student ? `GR ${student.grade} ${(lessonSubject ?? student.subject).toUpperCase()}` : ''}
             </Text>
           </View>
 
@@ -458,7 +466,7 @@ export default function SessionScreen() {
               {student?.full_name ?? ''}
             </Text>
             <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
-              {student ? `GR ${student.grade} ${student.subject.toUpperCase()} · LESSON ${sessionCount}` : ''}
+              {student ? `GR ${student.grade} ${(lessonSubject ?? student.subject).toUpperCase()} · LESSON ${sessionCount}` : ''}
             </Text>
           </View>
 
