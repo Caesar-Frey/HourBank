@@ -25,6 +25,7 @@ import {
   MAX_OWE_EXPLANATION,
   TierDraft,
   TierErrors,
+  backupErrorDetail,
   backupErrorMessage,
   billingRoundingExplanation,
   lastBackupLabel,
@@ -241,6 +242,11 @@ export default function SettingsScreen() {
     }
   }
 
+  function showBackupError(e: unknown) {
+    // Longer than the default so the code line can be read / screenshotted.
+    toast.show({ kind: 'error', message: backupErrorMessage(e), detail: backupErrorDetail(e), durationMs: 10000 });
+  }
+
   async function handlePickRestore() {
     if (!claimBusy('inspect')) return;
     try {
@@ -250,7 +256,7 @@ export default function SettingsScreen() {
       setPendingRestore(pending);
       setRestoreSummary(pending.summary);
     } catch (e) {
-      toast.show({ kind: 'error', message: backupErrorMessage(e) });
+      showBackupError(e);
     } finally {
       releaseBusy();
     }
@@ -281,7 +287,7 @@ export default function SettingsScreen() {
     } catch (e) {
       setRestoreSummary(null);
       setPendingRestore(null);
-      toast.show({ kind: 'error', message: backupErrorMessage(e) });
+      showBackupError(e);
     } finally {
       releaseBusy();
     }

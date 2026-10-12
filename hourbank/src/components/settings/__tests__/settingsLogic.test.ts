@@ -4,6 +4,7 @@ import {
   tierDraftsFromTiers,
   validateTierDrafts,
   backupErrorMessage,
+  backupErrorDetail,
   billingRoundingExplanation,
   restoreSummaryLines,
   BILLING_ROUND_OPTIONS,
@@ -88,6 +89,23 @@ describe('backupErrorMessage', () => {
   test('unknown errors get a generic message', () => {
     expect(backupErrorMessage(new Error('boom'))).toBe("Couldn't read that file. Try again or pick another backup.");
   });
+  test('empty old-version backups and partial ones get distinct copy', () => {
+    const be = (code: string) => Object.assign(new Error('x'), { name: 'BackupError', code });
+    expect(backupErrorMessage(be('EMPTY_BACKUP'))).toMatch(/backup file is empty/);
+    expect(backupErrorMessage(be('MISSING_TABLES'))).toMatch(/missing part of HourBank's data/);
+    expect(backupErrorMessage(be('UNREADABLE'))).toMatch(/Couldn't open that file/);
+  });
+});
+
+describe('backupErrorDetail', () => {
+  test('code plus detail for BackupErrors', () => {
+    const e = Object.assign(new Error('x'), { name: 'BackupError', code: 'MISSING_TABLES', detail: 'missing ledger_entries · found students · 8 KB' });
+    expect(backupErrorDetail(e)).toBe('MISSING_TABLES · missing ledger_entries · found students · 8 KB');
+    expect(backupErrorDetail(Object.assign(new Error('x'), { name: 'BackupError', code: 'CORRUPT' }))).toBe('CORRUPT');
+  });
+  test('other errors show their message', () => {
+    expect(backupErrorDetail(new Error('boom'))).toBe('UNKNOWN · boom');
+  });
 });
 
 describe('billing rounding', () => {
@@ -113,6 +131,13 @@ describe('restore summary', () => {
       ['Last entry', 'Sat 3 Oct 2026'],
       ['Backup created', 'Sun 4 Oct 2026'],
     ]);
+  });
+  test('older-version backups (no exported_at) say so', () => {
+    const lines = restoreSummaryLines({
+      students: 1, activeStudents: 1, sessions: 1, ledgerRows: 2, lastEntryAt: null,
+      proofImages: 0, exportedAt: null, migrationVersions: ['002_post_grilling'],
+    });
+    expect(lines[lines.length - 1]).toEqual(['Backup created', 'Older app version — check Last entry']);
   });
   test('confirm word', () => expect(RESTORE_CONFIRM_WORD).toBe('RESTORE'));
 });
