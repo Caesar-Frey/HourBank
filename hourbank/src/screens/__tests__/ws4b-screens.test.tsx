@@ -31,7 +31,7 @@ jest.mock('../../utils/claimReport', () => ({ shareClaimReport: jest.fn(async ()
 
 import { createMigratedTestDb, resetDbSingleton } from '../../db/__tests__/testDb';
 import type { TestDb } from '../../db/__tests__/testDb';
-import { logPastSession, getActiveOrPausedSession, markNoShow } from '../../db/sessions';
+import { logPastSession, getActiveOrPausedSession, markNoShow, editLesson } from '../../db/sessions';
 import { listClaims, finaliseClaim } from '../../db/claims';
 import ScheduleTab from '../../../app/(app)/schedule';
 import MoneyTab from '../../../app/(app)/money';
@@ -195,4 +195,18 @@ test('Claim detail dates a charged no-show by its booked time (it has no ended_a
   await flush();
   expect(screen.getByText('07')).toBeTruthy();
   expect(screen.queryByText('—')).toBeNull();
+});
+
+test('Finalised claim detail shows the frozen travel fee, not a live km that an edit could change', async () => {
+  db.runSync("UPDATE students SET travel_distance_km = 12 WHERE id = 's1'");
+  const { session } = logPastSession({ studentId: 's1', startedAt: new Date(Date.now() - 3 * 3600_000).toISOString(), minutes: 60, topics: [] });
+  expect(session.travel_km).toBe(12);
+  const { claim } = finaliseClaim({ sessionIds: [session.id] });
+  editLesson(session.id, { travelKm: 30 });
+  mockParams = { id: claim.id };
+
+  const screen = render(<ClaimDetailScreen />);
+  await flush();
+  expect(screen.getByText(/^Travel R/)).toBeTruthy();
+  expect(screen.queryByText(/\bkm\b/)).toBeNull();
 });
