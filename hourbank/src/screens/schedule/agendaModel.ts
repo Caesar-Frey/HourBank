@@ -3,7 +3,8 @@
  * Input is `listAgenda()` output plus current student balances; no DB access.
  */
 import type { Agenda, AgendaItem } from '../../db/sessions';
-import { formatTime, formatTimeRange } from '../../utils/format';
+import { formatMinutes, formatTime, formatTimeRange } from '../../utils/format';
+import { modeLabel, sessionTypeLabel } from './labels';
 
 /** Matches sessions.ts DEFAULT_LESSON_MINUTES (not imported to keep this module DB-free). */
 export const AGENDA_DEFAULT_MINUTES = 60;
@@ -58,9 +59,42 @@ export function agendaTimeLabel(item: AgendaItem): string {
   return formatTimeRange(item.scheduled_for, end);
 }
 
+/** Balance-map key for a lesson: per subject when known, else the student. */
+export function agendaBalanceKey(item: Pick<AgendaItem, 'student_id' | 'subject_id'>): string {
+  return item.subject_id ? `${item.student_id}|${item.subject_id}` : item.student_id;
+}
+
+/** Balances keyed by student id (total) and `student|subject` (per subject). */
+export function subjectBalanceMap(
+  students: Array<{ id: string; current_balance: number; subject_balances?: Array<{ subject_id: string; balance_hours: number }> }>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const s of students) {
+    out[s.id] = s.current_balance;
+    for (const b of s.subject_balances ?? []) out[`${s.id}|${b.subject_id}`] = b.balance_hours;
+  }
+  return out;
+}
+
+/** Second line of an agenda row: subject · type · mode · booked length. */
+export function agendaRowDetails(item: AgendaItem): string[] {
+  return [
+    item.subject_name || item.student_subject,
+    sessionTypeLabel(item.session_type),
+    modeLabel(item.mode),
+    `${formatMinutes(bookedMinutes(item))} booked`,
+  ].filter(Boolean);
+}
+
+/** Inline actions on a row (Record first = primary). */
+export function agendaRowActions(section: AgendaSectionKey): Array<'record' | 'timer'> {
+  return section === 'overdue' || section === 'today' ? ['record', 'timer'] : [];
+}
+
 /**
  * Projected balance (hours) after each lesson, deducting booked lengths in
- * chronological order per student. In-progress lessons deduct first (they will
+ * chronological order per student (per SUBJECT when the balance map has
+ * `student|subject` keys; otherwise the student's total). In-progress lessons deduct first (they will
  * be billed before anything still scheduled). Returns sessionId → balance after.
  */
 export function projectAgendaBalances(
@@ -77,10 +111,12 @@ export function projectAgendaBalances(
   const running: Record<string, number> = {};
   const out: Record<string, number> = {};
   for (const item of ordered) {
-    const start = running[item.student_id] ?? balances[item.student_id];
+    const subjectKey = agendaBalanceKey(item);
+    const key = balances[subjectKey] !== undefined || running[subjectKey] !== undefined ? subjectKey : item.student_id;
+    const start = running[key] ?? balances[key];
     if (start === undefined) continue; // unknown balance → no projection
     const after = start - bookedMinutes(item) / 60;
-    running[item.student_id] = after;
+    running[key] = after;
     out[item.id] = after;
   }
   return out;
