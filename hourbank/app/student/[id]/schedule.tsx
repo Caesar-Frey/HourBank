@@ -10,7 +10,10 @@ import { ErrorBoundary } from '../../../src/components/ErrorBoundary';
 import { DurationStepperSheet } from '../../../src/components/DurationStepperSheet';
 import { useToast } from '../../../src/components/Toast';
 import { getStudent } from '../../../src/db/students';
-import { currentBalance } from '../../../src/db/ledger';
+import { isSubjectError } from '../../../src/db/subjects';
+import { SubjectPicker, TravelKmField } from '../../../src/components/lesson/LessonFields';
+import { loadSubjectOptions, type SubjectOption } from '../../../src/components/lesson/lessonFormData';
+import { defaultSubjectId, parseKmInput } from '../../../src/components/lesson/lessonFormLogic';
 import {
   createScheduled, getSession, isSessionError, listUpcomingWithProjection, rescheduleSession, updateScheduled,
 } from '../../../src/db/sessions';
@@ -74,8 +77,11 @@ function ScheduleScreenInner() {
   const [student, setStudent] = useState<Student | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [balance, setBalance] = useState(0);
-  const [booked, setBooked] = useState<Array<{ id: string; estimated_duration_minutes: number | null }>>([]);
+  const [booked, setBooked] = useState<Array<{ id: string; estimated_duration_minutes: number | null; subject_id?: string | null }>>([]);
+  const [subjectOptions, setSubjectOptions] = useState<SubjectOption[]>([]);
+  const [primaryId, setPrimaryId] = useState<string | null>(null);
+  const [subjectId, setSubjectId] = useState<string | null>(null);
+  const [km, setKm] = useState('');
 
   const [date, setDate] = useState<Date>(() => defaultStart(isReschedule ? undefined : dateParam));
   const [minutes, setMinutes] = useState(60);
@@ -94,9 +100,23 @@ function ScheduleScreenInner() {
       const s = getStudent(id);
       setStudent(s);
       if (!s) return;
-      setBalance(currentBalance(id));
       setBooked(listUpcomingWithProjection(id));
-      setTopics(listTopicsForStudentSubject(s.subject).map(t => t.name));
+      const { options, primaryId: primary } = loadSubjectOptions(id);
+      setSubjectOptions(options);
+      setPrimaryId(primary);
+      let sid = defaultSubjectId(options, null, primary);
+      let lessonKm: number | null = null;
+      if (sessionId) {
+        const existing = getSession(sessionId);
+        if (existing && existing.student_id === id) {
+          sid = existing.subject_id && options.some(o => o.id === existing.subject_id) ? existing.subject_id : sid;
+          lessonKm = existing.travel_km ?? null;
+        }
+      }
+      setSubjectId(sid);
+      setKm(String(lessonKm ?? s.travel_distance_km ?? 0));
+      const subjectName = options.find(o => o.id === sid)?.subject ?? s.subject;
+      setTopics(listTopicsForStudentSubject(subjectName).map(t => t.name));
       if (sessionId) {
         const existing = getSession(sessionId);
         if (!existing || existing.student_id !== id) {
@@ -144,7 +164,24 @@ function ScheduleScreenInner() {
   const firstName = student.full_name.trim().split(/\s+/)[0];
   const validation = validateScheduleStart(date);
   const showPastError = !validation.ok;
-  const { otherBookedHours, projected } = projectedBalanceWithBookings(balance, booked, minutes, sessionId);
+  const subject = subjectOptions.find(o => o.id === subjectId) ?? null;
+  const subjectName = subject?.subject ?? student.subject;
+  const balance = subject ? subject.balance : 0;
+  // Per subject: only lessons booked on this subject draw on its balance.
+  const bookedSameSubject = booked.filter(b => (b.subject_id ?? primaryId) === subjectId);
+  const { otherBookedHours, projected } = projectedBalanceWithBookings(balance, bookedSameSubject, minutes, sessionId);
+  const parsedKm = parseKmInput(km);
+  const kmError = mode === 'in_person' ? parsedKm.error : null;
+  /** Stored override: null = follow the student's default km. */
+  const travelKmToStore =
+    mode === 'online' || parsedKm.value === null || parsedKm.value === (student.travel_distance_km ?? 0) ? null : parsedKm.value;
+
+  function changeSubject(next: string) {
+    setSubjectId(next);
+    const name = subjectOptions.find(o => o.id === next)?.subject ?? student!.subject;
+    const catalog = listTopicsForStudentSubject(name).map(t => t.name);
+    setTopics([...catalog, ...selectedTopics.filter(t => !catalog.includes(t))]);
+  }
 
   function changeDate(next: Date) {
     setDate(next);
@@ -166,8 +203,8 @@ function ScheduleScreenInner() {
     setCustomTopicInput('');
     if (!trimmed || !student) return;
     try {
-      addCustomTopicForSubject(student.subject, trimmed);
-      const refreshed = listTopicsForStudentSubject(student.subject).map(t => t.name);
+      addCustomTopicForSubject(subjectName, trimmed);
+      const refreshed = listTopicsForStudentSubject(subjectName).map(t => t.name);
       setTopics([...refreshed, ...selectedTopics.filter(t => !refreshed.includes(t))]);
     } catch {
       setTopics(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
@@ -182,7 +219,7 @@ function ScheduleScreenInner() {
     const iso = date.toISOString();
     try {
       if (isReschedule && sessionId) {
-        rescheduleSession(sessionId, iso, { estimatedDurationMinutes: minutes });
+        rescheduleSession(sessionId, iso, { estimatedDurationMinutes: minutes, travelKm: travelKmToStore });
         updateScheduled(sessionId, {
           scheduledFor: iso,
           estimatedDurationMinutes: minutes,
@@ -190,11 +227,15 @@ function ScheduleScreenInner() {
           session_type: sessionType,
           topics: selectedTopics,
           notes: notes.trim() || undefined,
+          subjectId: subjectId ?? undefined,
+          travelKm: travelKmToStore,
         });
         toast.show({ kind: 'success', message: `Lesson moved to ${formatScheduledTime(iso)}` });
       } else {
         createScheduled({
           studentId: id,
+          subjectId,
+          travelKm: travelKmToStore,
           scheduledFor: iso,
           estimatedDurationMinutes: minutes,
           mode,
@@ -212,17 +253,21 @@ function ScheduleScreenInner() {
         kind: 'error',
         message: isSessionError(e, 'INVALID_STATE')
           ? 'That lesson has already started or been cancelled'
-          : `Couldn't ${isReschedule ? 'move' : 'book'} the lesson — please try again`,
+          : isSubjectError(e)
+            ? 'That subject isn’t available any more — pick another'
+            : isSessionError(e, 'INVALID_INPUT')
+              ? 'Check the km — it must be zero or more'
+              : `Couldn't ${isReschedule ? 'move' : 'book'} the lesson — please try again`,
       });
     }
   }
 
   function handleConfirm() {
-    if (!validateScheduleStart(date).ok) return;
+    if (!validateScheduleStart(date).ok || kmError) return;
     if (projected < 0) {
       Alert.alert(
         `${firstName} will owe ${formatBalance(-projected)}`,
-        `Balance ${formatBalance(balance)}, other booked lessons ${formatMinutes(otherBookedHours * 60)}, this lesson ${formatMinutes(minutes)}. Remind the parent to top up.`,
+        `${subjectName} balance ${formatBalance(balance)}, other booked ${subjectName} lessons ${formatMinutes(otherBookedHours * 60)}, this lesson ${formatMinutes(minutes)}. Remind the parent to top up.`,
         [
           { text: 'Cancel', style: 'cancel' },
           { text: isReschedule ? 'Move anyway' : 'Book anyway', onPress: doConfirm },
@@ -243,7 +288,7 @@ function ScheduleScreenInner() {
           label={isReschedule ? 'Move lesson' : 'Book lesson'}
           icon={isReschedule ? 'repeat' : 'calendar'}
           onPress={handleConfirm}
-          disabled={!validation.ok}
+          disabled={!validation.ok || !!kmError}
           busy={saving}
         />
       }
@@ -253,6 +298,11 @@ function ScheduleScreenInner() {
         line1={isReschedule ? 'New time,' : 'When are'}
         line2={isReschedule ? 'same student.' : 'you meeting?'}
       />
+
+      <View style={{ marginBottom: 24 }}>
+        <SectionLabel>SUBJECT</SectionLabel>
+        <SubjectPicker options={subjectOptions} value={subjectId} onChange={changeSubject} fallbackName={student.subject} />
+      </View>
 
       <View style={{ flexDirection: 'row', gap: 16 }}>
         <View style={{ flex: 3 }}>
@@ -287,9 +337,9 @@ function ScheduleScreenInner() {
             <Banner
               tone="info"
               icon="clock"
-              action={{ label: 'Log as past lesson →', onPress: logAsPast }}
+              action={{ label: 'Record it instead →', onPress: logAsPast }}
             >
-              Already taught this one? Log it instead and the hours are deducted.
+              Already taught this one? Record it instead and the hours are deducted.
             </Banner>
           </View>
         </View>
@@ -334,7 +384,7 @@ function ScheduleScreenInner() {
         <Text
           style={{ fontFamily: F.mono, fontSize: 12, color: projected < 0 ? COLORS.crimson : COLORS.inkSoft, marginTop: 10 }}
         >
-          {`Balance ${formatBalance(balance)}`}
+          {`${subjectName} ${formatBalance(balance)}`}
           {otherBookedHours > 0 ? ` · booked ${formatMinutes(otherBookedHours * 60)}` : ''}
           {` · after this ${formatBalance(projected)}`}
         </Text>
@@ -370,6 +420,13 @@ function ScheduleScreenInner() {
           icons={{ in_person: 'map-pin', online: 'monitor' }}
         />
       </View>
+
+      {mode === 'in_person' ? (
+        <View style={{ marginTop: 20 }}>
+          <SectionLabel>TRAVEL</SectionLabel>
+          <TravelKmField text={km} onChangeText={setKm} error={kmError} defaultKm={student.travel_distance_km ?? null} />
+        </View>
+      ) : null}
 
       <View style={{ marginTop: 24 }}>
         <SectionLabel>TYPE</SectionLabel>
