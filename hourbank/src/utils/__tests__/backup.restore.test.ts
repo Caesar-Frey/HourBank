@@ -1,5 +1,5 @@
 import BetterSQLite from 'better-sqlite3';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'fs';
+import { copyFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
@@ -10,7 +10,10 @@ jest.mock('expo-file-system/legacy', () => {
   return {
     __esModule: true,
     cacheDirectory: '', documentDirectory: '',
-    getInfoAsync: jest.fn(async (uri: string) => ({ exists: fs.existsSync(toPath(uri)) })),
+    getInfoAsync: jest.fn(async (uri: string) => {
+      const p = toPath(uri);
+      return fs.existsSync(p) ? { exists: true, size: fs.statSync(p).size } : { exists: false };
+    }),
     copyAsync: jest.fn(async ({ from, to }: { from: string; to: string }) => {
       fs.copyFileSync(toPath(from), toPath(to));
     }),
@@ -73,7 +76,14 @@ import {
   ALL_MIGRATIONS,
   type Migration,
 } from '../../db/migrations';
-import { inspectBackup, restoreBackup, importBackup, BackupError } from '../backup';
+import { inspectBackup, restoreBackup, importBackup, getLastBackupAt, BackupError } from '../backup';
+import {
+  SCHEMA_V1_NO_RUNNER,
+  SCHEMA_MAY_2026,
+  SCHEMA_OCT_2026_PRE_REMEDIATION,
+  VERSIONS_MAY_2026,
+  VERSIONS_OCT_2026_PRE_REMEDIATION,
+} from './fixtures/legacySchemas';
 
 // Same chain the app boots with (incl. 007 columns + ledger append-only triggers).
 const MIGRATIONS: Migration[] = ALL_MIGRATIONS;
@@ -167,7 +177,17 @@ describe('inspectBackup', () => {
   it('rejects a file that is not SQLite and cleans its temp copy', async () => {
     const p = join(root, 'picked', 'notes.txt');
     writeFileSync(p, 'hello world, definitely not a database');
-    await expect(inspectBackup(pathToFileURL(p).href, VERSIONS)).rejects.toMatchObject({ code: 'NOT_SQLITE' });
+    await expect(inspectBackup(pathToFileURL(p).href, VERSIONS)).rejects.toMatchObject({
+      code: 'NOT_SQLITE', detail: '38 B · file · .txt',
+    });
+    expect(readdirSync(join(root, 'cache'))).toEqual([]);
+  });
+
+  it('reports an unreadable picked file with its URI scheme', async () => {
+    const err = await inspectBackup('content://com.android.providers.downloads/document/42', VERSIONS).catch(e => e);
+    expect(err).toBeInstanceOf(BackupError);
+    expect(err.code).toBe('UNREADABLE');
+    expect(err.detail).toMatch(/^content · /);
     expect(readdirSync(join(root, 'cache'))).toEqual([]);
   });
 
@@ -226,6 +246,116 @@ describe('restoreBackup', () => {
     expect(err.code).toBe('RESTORE_FAILED');
     expect(liveNames()).toEqual(['Live Lerato']);
     expect(readdirSync(join(root, 'cache'))).toEqual([]);
+  });
+});
+
+describe('backups made by older app versions', () => {
+  type Legacy = { schema: string[]; versions: string[] | null };
+  const V1: Legacy = { schema: SCHEMA_V1_NO_RUNNER, versions: null };
+  const MAY: Legacy = { schema: SCHEMA_MAY_2026, versions: VERSIONS_MAY_2026 };
+  const OCT: Legacy = { schema: SCHEMA_OCT_2026_PRE_REMEDIATION, versions: VERSIONS_OCT_2026_PRE_REMEDIATION };
+
+  /**
+   * Re-create the old app's live DB (WAL mode, as its initDb set) and export it
+   * the way that build did. `walOnly` mirrors the pre-2a36e90 export: a raw copy
+   * of hourbank.db taken while the app still had it open, so every committed
+   * page still sat in hourbank.db-wal, which was never shared.
+   */
+  function buildLegacyBackup(legacy: Legacy, opts: { walOnly?: boolean } = {}): string {
+    const livePath = join(root, 'picked', 'old-live.db');
+    const bs = new BetterSQLite(livePath);
+    bs.pragma('journal_mode = WAL');
+    bs.pragma('wal_autocheckpoint = 0'); // small DBs never reached the 1000-page autocheckpoint
+    for (const sql of legacy.schema) bs.exec(sql);
+    for (const v of legacy.versions ?? []) {
+      bs.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(v, '2026-05-19T10:00:00.000Z');
+    }
+    const v1 = legacy.versions === null;
+    bs.exec(`INSERT INTO students (id, full_name, grade, subject, curriculum, status, created_at)
+             VALUES ('o1', 'Old Olga', 10, 'Mathematics', 'CAPS', 'active', '2026-05-01T08:00:00.000Z')`);
+    bs.exec(`INSERT INTO credit_packages (id, student_id, hours_added, amount_paid, created_at)
+             VALUES ('op1', 'o1', 10, 5500, '2026-05-01T08:00:00.000Z')`);
+    bs.exec(`INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_package_id, created_at)
+             VALUES ('oe1', 'o1', 'top_up', 10, 10, 'op1', '2026-05-01T08:00:00.000Z')`);
+    bs.exec(`INSERT INTO sessions (id, student_id, status, started_at, ended_at, duration_minutes, created_at)
+             VALUES ('os1', 'o1', '${v1 ? 'verified' : 'completed'}', '2026-05-02T10:00:00.000Z', '2026-05-02T11:00:00.000Z', 60, '2026-05-02T10:00:00.000Z')`);
+    bs.exec(`INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_session_id, created_at)
+             VALUES ('oe2', 'o1', 'session_deduction', -1, 9, 'os1', '2026-05-02T11:00:00.000Z')`);
+    if (!v1) {
+      bs.exec(`INSERT INTO tutor_profile (id, full_name, last_backup_at) VALUES ('tp1', 'Old Tutor', '2026-05-10T09:00:00.000Z')`);
+    }
+    const out = join(root, 'picked', 'hourbank_backup.db'); // old export file name
+    if (opts.walOnly) {
+      copyFileSync(livePath, out); // what FileSystem.copyAsync(DB_PATH → cache) shipped
+      bs.close();
+    } else {
+      bs.close(); // checkpoint: main file holds everything
+      copyFileSync(livePath, out);
+    }
+    return pathToFileURL(out).href;
+  }
+
+  it.each([
+    ['May 2026 build (4c6b1d6, migrations 002–005)', MAY],
+    ['pre-remediation build (2a36e90, migrations 002–006)', OCT],
+  ])('restores a %s backup and migrates it forward', async (_label, legacy) => {
+    const pending = await importBackup(buildLegacyBackup(legacy), MIGRATIONS);
+    expect(pending.summary).toMatchObject({
+      students: 1, sessions: 1, ledgerRows: 2, exportedAt: null, migrationVersions: legacy.versions,
+    });
+    await pending.restore();
+    expect(liveNames()).toEqual(['Old Olga']);
+    const applied = getDb().getAllSync<{ version: string }>('SELECT version FROM schema_migrations ORDER BY version').map(r => r.version);
+    expect(applied).toEqual([...VERSIONS].sort());
+    const bal = getDb().getFirstSync<{ s: number }>(`SELECT SUM(hours_delta) AS s FROM ledger_entries WHERE student_id = 'o1'`)!;
+    expect(bal.s).toBe(9);
+    expect(await getLastBackupAt()).toBe('2026-05-10T09:00:00.000Z');
+  });
+
+  it('restores a backup from before the migration runner (no schema_migrations / tutor_profile)', async () => {
+    const pending = await importBackup(buildLegacyBackup(V1), MIGRATIONS);
+    expect(pending.summary).toMatchObject({ students: 1, sessions: 1, ledgerRows: 2, migrationVersions: [] });
+    await pending.restore();
+    expect(liveNames()).toEqual(['Old Olga']);
+    const s = getDb().getFirstSync<{ status: string }>(`SELECT status FROM sessions WHERE id = 'os1'`)!;
+    expect(s.status).toBe('completed');
+    const applied = getDb().getAllSync<{ version: string }>('SELECT version FROM schema_migrations').map(r => r.version);
+    expect(applied.sort()).toEqual([...VERSIONS].sort());
+  });
+
+  it('explains an old raw-copy export whose data was left behind in the WAL (the phone report)', async () => {
+    const uri = buildLegacyBackup(MAY, { walOnly: true });
+    // The shared file is just the WAL-mode header page: valid SQLite, zero tables.
+    const shared = new BetterSQLite(join(root, 'picked', 'hourbank_backup.db'), { readonly: true });
+    expect(shared.prepare(`SELECT COUNT(*) AS n FROM sqlite_master`).get()).toEqual({ n: 0 });
+    shared.close();
+
+    const err = await importBackup(uri, MIGRATIONS).catch(e => e);
+    expect(err).toBeInstanceOf(BackupError);
+    expect(err.code).toBe('EMPTY_BACKUP');
+    expect(err.detail).toBe('no tables · 4 KB');
+    expect(liveNames()).toEqual(['Live Lerato']);
+    expect(readdirSync(join(root, 'cache'))).toEqual([]);
+  });
+
+  it('names the missing table when an HourBank backup is only partly there', async () => {
+    const uri = buildLegacyBackup(MAY);
+    const bs = new BetterSQLite(join(root, 'picked', 'hourbank_backup.db'));
+    bs.exec('PRAGMA foreign_keys = OFF; DROP TABLE ledger_entries;');
+    bs.close();
+    const err = await inspectBackup(uri, VERSIONS).catch(e => e);
+    expect(err.code).toBe('MISSING_TABLES');
+    expect(err.detail).toMatch(/^missing ledger_entries · found calendar_events, credit_packages, .* · \d+ KB$/);
+  });
+
+  it('names the unknown migration when a backup is newer than the app', async () => {
+    const uri = buildLegacyBackup(OCT);
+    const bs = new BetterSQLite(join(root, 'picked', 'hourbank_backup.db'));
+    bs.prepare(`INSERT INTO schema_migrations (version, applied_at) VALUES ('999_future', 'x')`).run();
+    bs.close();
+    const err = await inspectBackup(uri, VERSIONS).catch(e => e);
+    expect(err.code).toBe('NEWER_VERSION');
+    expect(err.detail).toBe('999_future');
   });
 });
 

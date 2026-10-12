@@ -33,13 +33,17 @@ const BLOBS_TABLE = 'backup_blobs';
 const META_TABLE = 'backup_meta';
 const TEMP_PREFIXES = ['hourbank_backup_', 'restore_', 'pre_restore_'];
 
+/**
+ * Data tables every HourBank build has had since the first schema (f6e302b).
+ * tutor_profile and schema_migrations are NOT required: the earliest builds had
+ * neither, and initDb()/runMigrations() create them when an old backup is
+ * migrated forward on restore.
+ */
 export const REQUIRED_TABLES = [
   'students',
   'sessions',
   'ledger_entries',
   'credit_packages',
-  'tutor_profile',
-  'schema_migrations',
 ];
 
 function requireCacheDirectory(): string {
@@ -170,15 +174,22 @@ export async function getLastBackupAt(): Promise<string | null> {
 
 export type BackupErrorCode =
   | 'NO_STORAGE'
+  | 'UNREADABLE'
   | 'NOT_SQLITE'
   | 'CORRUPT'
+  | 'EMPTY_BACKUP'
   | 'MISSING_TABLES'
   | 'NEWER_VERSION'
   | 'RESTORE_FAILED';
 
 export class BackupError extends Error {
-  constructor(public readonly code: BackupErrorCode, message: string) {
-    super(message);
+  constructor(
+    public readonly code: BackupErrorCode,
+    message: string,
+    /** Short diagnostic (table names, versions, SQLite error) shown under the friendly copy. */
+    public readonly detail?: string
+  ) {
+    super(detail ? `${message} [${detail}]` : message);
     this.name = 'BackupError';
   }
 }
@@ -200,6 +211,31 @@ export type BackupInspection = { tempUri: string; summary: BackupSummary };
 
 const SQLITE_MAGIC_B64 = 'U1FMaXRlIGZvcm1hdCAzAA=='; // "SQLite format 3\0"
 
+function errorText(e: unknown): string {
+  return (e instanceof Error ? e.message : String(e)).slice(0, 80);
+}
+
+/** "12 KB" / "0 B" — for diagnostic detail lines only. */
+async function describeSize(uri: string): Promise<string> {
+  try {
+    const info = (await FileSystem.getInfoAsync(uri)) as { exists: boolean; size?: number };
+    const size = info.exists ? info.size ?? 0 : 0;
+    return size < 1024 ? `${size} B` : `${Math.round(size / 1024)} KB`;
+  } catch {
+    return 'size unknown';
+  }
+}
+
+function uriScheme(uri: string): string {
+  return uri.match(/^([a-z][a-z0-9+.-]*):/i)?.[1] ?? 'path';
+}
+
+function uriExtension(uri: string): string {
+  const name = uri.split(/[?#]/)[0].split('/').pop() ?? '';
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot) : 'no extension';
+}
+
 /**
  * Validate a backup file WITHOUT touching the live database: copy it to a temp
  * file, check the SQLite header, PRAGMA integrity_check, required tables and
@@ -211,7 +247,12 @@ export async function inspectBackup(uri: string, appMigrationVersions: string[])
   if (!cacheDirectory) throw new BackupError('NO_STORAGE', 'No cache directory is available.');
   const tempName = `restore_${randomUUID()}.db`;
   const tempUri = cacheDirectory + tempName;
-  await FileSystem.copyAsync({ from: uri, to: tempUri });
+  try {
+    await FileSystem.copyAsync({ from: uri, to: tempUri });
+  } catch (e) {
+    await deleteDbFiles(tempUri);
+    throw new BackupError('UNREADABLE', "The backup file couldn't be opened.", `${uriScheme(uri)} · ${errorText(e)}`);
+  }
 
   try {
     let header = '';
@@ -221,7 +262,11 @@ export async function inspectBackup(uri: string, appMigrationVersions: string[])
       header = '';
     }
     if (header !== SQLITE_MAGIC_B64) {
-      throw new BackupError('NOT_SQLITE', 'This file is not an HourBank backup (not a SQLite database).');
+      throw new BackupError(
+        'NOT_SQLITE',
+        'This file is not an HourBank backup (not a SQLite database).',
+        `${await describeSize(tempUri)} · ${uriScheme(uri)} · ${uriExtension(uri)}`
+      );
     }
 
     const db = await openDatabaseAsync(tempName, {}, cacheDirectory);
@@ -229,26 +274,51 @@ export async function inspectBackup(uri: string, appMigrationVersions: string[])
       let integrity: Array<Record<string, string>>;
       try {
         integrity = await db.getAllAsync<Record<string, string>>('PRAGMA integrity_check');
-      } catch {
-        throw new BackupError('CORRUPT', 'The backup file is damaged and cannot be read.');
+      } catch (e) {
+        throw new BackupError('CORRUPT', 'The backup file is damaged and cannot be read.', errorText(e));
       }
       const ok = integrity.length === 1 && Object.values(integrity[0])[0] === 'ok';
-      if (!ok) throw new BackupError('CORRUPT', 'The backup file failed an integrity check.');
+      if (!ok) {
+        const first = integrity.length > 0 ? String(Object.values(integrity[0])[0]) : 'no result';
+        throw new BackupError('CORRUPT', 'The backup file failed an integrity check.', first.slice(0, 80));
+      }
 
       const tables = new Set(
         (await db.getAllAsync<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'table'`)).map(t => t.name)
       );
+      if (tables.size === 0) {
+        // Builds before 2a36e90 exported by raw-copying hourbank.db while it was
+        // open in WAL mode; the committed pages stayed in hourbank.db-wal, which
+        // was never shared, so the file is only the empty header page.
+        throw new BackupError(
+          'EMPTY_BACKUP',
+          'The backup file has no data in it.',
+          `no tables · ${await describeSize(tempUri)}`
+        );
+      }
       const missing = REQUIRED_TABLES.filter(t => !tables.has(t));
       if (missing.length > 0) {
-        throw new BackupError('MISSING_TABLES', `The backup is missing required data (${missing.join(', ')}).`);
+        const found = [...tables].filter(t => !t.startsWith('sqlite_')).sort();
+        throw new BackupError(
+          'MISSING_TABLES',
+          'The backup is missing required HourBank data.',
+          `missing ${missing.join(', ')} · found ${found.slice(0, 8).join(', ')}${found.length > 8 ? ', …' : ''} · ${await describeSize(tempUri)}`
+        );
       }
 
-      const versions = (await db.getAllAsync<{ version: string }>('SELECT version FROM schema_migrations ORDER BY version'))
-        .map(r => r.version);
+      // Backups from before the migration runner have no schema_migrations:
+      // treat them as version-less and let restore apply every migration.
+      const versions = tables.has('schema_migrations')
+        ? (await db.getAllAsync<{ version: string }>('SELECT version FROM schema_migrations ORDER BY version')).map(r => r.version)
+        : [];
       const known = new Set(appMigrationVersions);
       const unknown = versions.filter(v => !known.has(v));
       if (unknown.length > 0) {
-        throw new BackupError('NEWER_VERSION', 'This backup was made by a newer version of HourBank. Update the app first.');
+        throw new BackupError(
+          'NEWER_VERSION',
+          'This backup was made by a newer version of HourBank. Update the app first.',
+          unknown.join(', ')
+        );
       }
 
       const count = async (sql: string) => (await db.getFirstAsync<{ n: number }>(sql))?.n ?? 0;
@@ -363,8 +433,7 @@ export async function restoreBackup(
     } catch {
       // Leave the error below as the primary failure.
     }
-    const message = e instanceof Error ? e.message : String(e);
-    throw new BackupError('RESTORE_FAILED', `Restore failed and your previous data was kept. (${message})`);
+    throw new BackupError('RESTORE_FAILED', 'Restore failed and your previous data was kept.', errorText(e));
   } finally {
     await deleteDbFiles(inspection.tempUri);
     await deleteDbFiles(safetyUri);

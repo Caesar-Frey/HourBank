@@ -13,6 +13,7 @@ module.exports = {
     '<rootDir>/\\.claude/',
     '/src/db/__tests__/testDb\\.ts$',
     '/src/db/__tests__/wrapBetterSqlite\\.ts$',
+    '/__tests__/fixtures/',
   ],
   collectCoverageFrom: ['src/**/*.{ts,tsx}', '!src/**/*.d.ts'],
 };
