@@ -326,9 +326,55 @@ function createLedgerImmutabilityTriggers(db: SQLite.SQLiteDatabase): void {
   `);
 }
 
+/**
+ * Migration 009 guard: replaces the blanket `ledger_no_update`. The ONLY update
+ * allowed is editing a past lesson — a `session_deduction` row's hours_delta
+ * (must stay negative), subject_id and updated_at. Every other column, and every
+ * other row type, stays immutable. DELETE stays blocked by `ledger_no_delete`.
+ */
+function createLedgerEditGuard(db: SQLite.SQLiteDatabase): void {
+  db.runSync(`
+    CREATE TRIGGER IF NOT EXISTS ledger_update_guard
+      BEFORE UPDATE ON ledger_entries
+      WHEN NOT (
+        OLD.type = 'session_deduction'
+        AND NEW.type IS OLD.type
+        AND NEW.id IS OLD.id
+        AND NEW.student_id IS OLD.student_id
+        AND NEW.balance_after IS OLD.balance_after
+        AND NEW.related_session_id IS OLD.related_session_id
+        AND NEW.related_package_id IS OLD.related_package_id
+        AND NEW.reason IS OLD.reason
+        AND NEW.created_at IS OLD.created_at
+        AND NEW.tutor_id IS OLD.tutor_id
+        AND NEW.hours_delta < 0
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'ledger_entries is append-only: only a lesson deduction''s hours and subject may be edited');
+      END
+  `);
+}
+
 function dropLedgerImmutabilityTriggers(db: SQLite.SQLiteDatabase): void {
   db.runSync('DROP TRIGGER IF EXISTS ledger_no_update');
+  db.runSync('DROP TRIGGER IF EXISTS ledger_update_guard');
   db.runSync('DROP TRIGGER IF EXISTS ledger_no_delete');
+}
+
+/** Re-create whichever guard generation matches the current schema. */
+function createCurrentLedgerGuards(db: SQLite.SQLiteDatabase): void {
+  if (hasColumn(db, 'ledger_entries', 'subject_id')) {
+    createLedgerEditGuard(db);
+    db.runSync(`
+      CREATE TRIGGER IF NOT EXISTS ledger_no_delete
+        BEFORE DELETE ON ledger_entries
+        BEGIN
+          SELECT RAISE(ABORT, 'ledger_entries is append-only: DELETE not allowed');
+        END
+    `);
+  } else {
+    createLedgerImmutabilityTriggers(db);
+  }
 }
 
 /**
@@ -341,9 +387,154 @@ export function suspendLedgerGuards(fn: () => void): void {
   db.withTransactionSync(() => {
     dropLedgerImmutabilityTriggers(db);
     fn();
-    createLedgerImmutabilityTriggers(db);
+    createCurrentLedgerGuards(db);
   });
 }
+
+/**
+ * SQL scalar subquery: the student's PRIMARY subject id — first active subject
+ * by sort_order (archived only if none active). Rows whose subject_id is NULL
+ * (written by code paths that predate subjects) belong to this subject, so the
+ * per-subject balances always add up to the student's total.
+ */
+export function primarySubjectIdSql(studentIdExpr: string): string {
+  return `(SELECT p.id FROM student_subjects p WHERE p.student_id = ${studentIdExpr}
+           ORDER BY CASE p.status WHEN 'active' THEN 0 ELSE 1 END, p.sort_order, p.created_at, p.id LIMIT 1)`;
+}
+
+/** SQL: the subject a ledger/session/package row effectively belongs to. */
+export function effectiveSubjectIdSql(alias: string): string {
+  return `COALESCE(${alias}.subject_id, ${primarySubjectIdSql(`${alias}.student_id`)})`;
+}
+
+/**
+ * 009 — multiple subjects per student with a separate balance each, editable
+ * lessons, per-lesson travel km and parent travel billing (in arrears).
+ *
+ * - student_subjects: one row backfilled per student from students.subject
+ *   (id `ss-<student id>`; grade/curriculum NULL = inherit from the student).
+ * - subject_id on sessions / credit_packages / ledger_entries, backfilled.
+ * - student_subject_balances view.
+ * - sessions.travel_km (NULL = student default) + sessions.edited_at.
+ * - sessions.parent_travel_fee: parent travel charge snapshotted when a lesson
+ *   is recorded (NULL on historic lessons → never owed).
+ * - students.parent_travel_mode/_flat_fee/_per_km: per-student PARENT travel
+ *   rate, seeded from the tutor's travel config. Distinct from the tutor's
+ *   PAYOUT travel (tutor_profile.travel_mode + students.travel_flat_fee) used by claims.
+ * - travel_settlements (rand payments against travel owed; with or without a top-up).
+ * - ledger_no_update → ledger_update_guard (deduction hours/subject editable).
+ */
+export const MIGRATION_009_SUBJECTS_TRAVEL: Migration = {
+  version: '009_subjects_travel',
+  run: (db) => {
+    const now = new Date().toISOString();
+
+    if (!hasTable(db, 'student_subjects')) {
+      db.runSync(`
+        CREATE TABLE student_subjects (
+          id          TEXT PRIMARY KEY,
+          student_id  TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+          subject     TEXT NOT NULL,
+          grade       INTEGER CHECK (grade IS NULL OR grade BETWEEN 1 AND 12),
+          curriculum  TEXT CHECK (curriculum IS NULL OR curriculum IN ('CAPS','IEB','Cambridge','Other')),
+          status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
+          sort_order  INTEGER NOT NULL DEFAULT 0,
+          created_at  TEXT NOT NULL
+        )
+      `);
+    }
+    db.runSync('CREATE INDEX IF NOT EXISTS idx_student_subjects_student ON student_subjects(student_id, status, sort_order)');
+    db.runSync(
+      `CREATE UNIQUE INDEX IF NOT EXISTS student_subjects_active_name
+         ON student_subjects(student_id, subject COLLATE NOCASE) WHERE status = 'active'`
+    );
+
+    db.runSync(
+      `INSERT INTO student_subjects (id, student_id, subject, grade, curriculum, status, sort_order, created_at)
+       SELECT 'ss-' || st.id, st.id, st.subject, NULL, NULL, 'active', 0, COALESCE(st.created_at, ?)
+       FROM students st
+       WHERE NOT EXISTS (SELECT 1 FROM student_subjects x WHERE x.student_id = st.id)`,
+      [now]
+    );
+
+    for (const table of ['sessions', 'credit_packages', 'ledger_entries']) {
+      if (!hasColumn(db, table, 'subject_id')) {
+        db.runSync(`ALTER TABLE ${table} ADD COLUMN subject_id TEXT REFERENCES student_subjects(id)`);
+      }
+    }
+    if (!hasColumn(db, 'sessions', 'travel_km')) {
+      db.runSync('ALTER TABLE sessions ADD COLUMN travel_km REAL');
+    }
+    if (!hasColumn(db, 'sessions', 'edited_at')) {
+      db.runSync('ALTER TABLE sessions ADD COLUMN edited_at TEXT');
+    }
+    // Parent travel charge — snapshotted per lesson when it is recorded.
+    // NULL on historic lessons = never charged (they don't become travel owed).
+    if (!hasColumn(db, 'sessions', 'parent_travel_fee')) {
+      db.runSync('ALTER TABLE sessions ADD COLUMN parent_travel_fee REAL');
+    }
+
+    // Per-student parent travel rate (legacy agreements differ per family).
+    // Seeded from the tutor's travel config so existing behaviour is preserved.
+    if (!hasColumn(db, 'students', 'parent_travel_mode')) {
+      db.runSync(
+        `ALTER TABLE students ADD COLUMN parent_travel_mode TEXT NOT NULL DEFAULT 'flat'
+           CHECK (parent_travel_mode IN ('flat','per_km','none'))`
+      );
+      db.runSync('ALTER TABLE students ADD COLUMN parent_travel_flat_fee REAL NOT NULL DEFAULT 0');
+      db.runSync('ALTER TABLE students ADD COLUMN parent_travel_per_km REAL NOT NULL DEFAULT 0');
+      const profile = hasTable(db, 'tutor_profile')
+        ? db.getFirstSync<{ travel_mode: string | null; per_km_rate: number | null }>(
+            'SELECT travel_mode, per_km_rate FROM tutor_profile LIMIT 1'
+          )
+        : null;
+      db.runSync(
+        `UPDATE students SET parent_travel_mode = ?, parent_travel_flat_fee = COALESCE(travel_flat_fee, 0),
+           parent_travel_per_km = ?`,
+        [profile?.travel_mode === 'distance' ? 'per_km' : 'flat', profile?.per_km_rate ?? 0]
+      );
+    }
+
+    // Backfill subject_id. The old blanket UPDATE trigger must go first.
+    db.runSync('DROP TRIGGER IF EXISTS ledger_no_update');
+    for (const table of ['sessions', 'credit_packages', 'ledger_entries']) {
+      db.runSync(
+        `UPDATE ${table} SET subject_id = ${primarySubjectIdSql(`${table}.student_id`)} WHERE subject_id IS NULL`
+      );
+    }
+    db.runSync('CREATE INDEX IF NOT EXISTS idx_ledger_subject ON ledger_entries(subject_id)');
+    db.runSync('CREATE INDEX IF NOT EXISTS idx_sessions_subject ON sessions(subject_id)');
+
+    if (!hasTable(db, 'travel_settlements')) {
+      db.runSync(`
+        CREATE TABLE travel_settlements (
+          id               TEXT PRIMARY KEY,
+          student_id       TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+          amount           REAL NOT NULL CHECK (amount > 0),
+          payment_method   TEXT NOT NULL DEFAULT 'eft' CHECK (payment_method IN ('eft','cash','card','other')),
+          package_id       TEXT REFERENCES credit_packages(id) ON DELETE SET NULL,
+          note             TEXT,
+          created_at       TEXT NOT NULL
+        )
+      `);
+    }
+    db.runSync('CREATE INDEX IF NOT EXISTS idx_travel_settlements_student ON travel_settlements(student_id, created_at)');
+
+    db.runSync('DROP VIEW IF EXISTS student_subject_balances');
+    db.runSync(`
+      CREATE VIEW student_subject_balances AS
+      SELECT ss.student_id, ss.id AS subject_id, ss.subject, ss.status, ss.sort_order,
+             COALESCE((
+               SELECT SUM(le.hours_delta) FROM ledger_entries le
+               WHERE le.student_id = ss.student_id
+                 AND ${effectiveSubjectIdSql('le')} = ss.id
+             ), 0) AS balance_hours
+      FROM student_subjects ss
+    `);
+
+    createLedgerEditGuard(db);
+  },
+};
 
 /**
  * 007 — single migration owning all schema changes from the 2026-10-09 audit.
@@ -461,4 +652,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_006_CLAIMS,
   MIGRATION_007_AUDIT_REMEDIATION,
   MIGRATION_008_CONTACTS_REFERENCE,
+  MIGRATION_009_SUBJECTS_TRAVEL,
 ];

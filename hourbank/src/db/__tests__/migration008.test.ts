@@ -19,9 +19,9 @@ function colNames(db: TestDb, table: string): string[] {
 describe('migration 008 — student contact + payment reference', () => {
   afterEach(() => resetDbSingleton());
 
-  it('is the last migration and follows 007', () => {
+  it('follows 007 in the migration chain', () => {
     const idx = ALL_MIGRATIONS.indexOf(MIGRATION_008_CONTACTS_REFERENCE);
-    expect(idx).toBe(ALL_MIGRATIONS.length - 1);
+    expect(idx).toBeGreaterThan(0);
     expect(ALL_MIGRATIONS[idx - 1]).toBe(MIGRATION_007_AUDIT_REMEDIATION);
     expect(MIGRATION_008_CONTACTS_REFERENCE.version).toBe('008_contacts_reference');
   });

@@ -234,6 +234,7 @@ export function resetDb(): void {
     for (const t of ledgerDeleteGuards) db.runSync(`DROP TRIGGER IF EXISTS "${t.name}"`);
 
     const ordered = [
+      'travel_settlements',
       'claim_lines',
       'claims',
       'receipts',
@@ -241,6 +242,7 @@ export function resetDb(): void {
       'ledger_entries',
       'sessions',
       'credit_packages',
+      'student_subjects',
       'students',
     ];
     for (const table of ordered) {

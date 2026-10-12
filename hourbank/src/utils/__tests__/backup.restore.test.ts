@@ -310,6 +310,15 @@ describe('backups made by older app versions', () => {
     const bal = getDb().getFirstSync<{ s: number }>(`SELECT SUM(hours_delta) AS s FROM ledger_entries WHERE student_id = 'o1'`)!;
     expect(bal.s).toBe(9);
     expect(await getLastBackupAt()).toBe('2026-05-10T09:00:00.000Z');
+    // 009: the old single subject becomes the student's first subject, holding the whole balance.
+    expect(getDb().getAllSync(`SELECT subject_id, subject, balance_hours FROM student_subject_balances WHERE student_id = 'o1'`))
+      .toEqual([{ subject_id: 'ss-o1', subject: 'Mathematics', balance_hours: 9 }]);
+    const unassigned = getDb().getFirstSync<{ n: number }>(
+      `SELECT (SELECT COUNT(*) FROM ledger_entries WHERE subject_id IS NULL)
+            + (SELECT COUNT(*) FROM sessions WHERE subject_id IS NULL)
+            + (SELECT COUNT(*) FROM credit_packages WHERE subject_id IS NULL) AS n`
+    )!;
+    expect(unassigned.n).toBe(0);
   });
 
   it('restores a backup from before the migration runner (no schema_migrations / tutor_profile)', async () => {
@@ -360,6 +369,38 @@ describe('backups made by older app versions', () => {
     expect(s).toEqual({ student_phone: null, preferred_contact: 'parent' });
     const cols = getDb().getAllSync<{ name: string }>(`PRAGMA table_info(tutor_profile)`).map(c => c.name);
     expect(cols).toContain('payment_reference_template');
+  });
+
+  it('restores an 008-era backup (before 009) into per-subject balances with nothing lost', async () => {
+    const path = join(root, 'picked', 'backup-008.db');
+    const db = openWrapped(path);
+    __setDb(db);
+    initDb();
+    runMigrations(MIGRATIONS.filter(m => m.version !== '009_subjects_travel'));
+    addStudent(db, 's8', 'Eight Esi');
+    db.runSync(`INSERT INTO credit_packages (id, student_id, hours_added, amount_paid, created_at) VALUES ('p8', 's8', 6, 3300, '2026-10-01T08:00:00.000Z')`);
+    db.runSync(`INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_package_id, created_at)
+                VALUES ('e8', 's8', 'top_up', 6, 6, 'p8', '2026-10-01T08:00:00.000Z')`);
+    db.runSync(`INSERT INTO sessions (id, student_id, status, started_at, ended_at, duration_minutes, billed_minutes, created_at)
+                VALUES ('x8', 's8', 'completed', '2026-10-02T10:00:00.000Z', '2026-10-02T11:00:00.000Z', 60, 60, '2026-10-02T10:00:00.000Z')`);
+    db.runSync(`INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_session_id, created_at)
+                VALUES ('e9', 's8', 'session_deduction', -1, 5, 'x8', '2026-10-02T11:00:00.000Z')`);
+    db.closeSync();
+    __setDb(null);
+
+    const pending = await importBackup(pathToFileURL(path).href, MIGRATIONS);
+    expect(pending.summary.migrationVersions).toContain('008_contacts_reference');
+    expect(pending.summary.migrationVersions).not.toContain('009_subjects_travel');
+    await pending.restore();
+    expect(liveNames()).toEqual(['Eight Esi']);
+    const applied = getDb().getAllSync<{ version: string }>('SELECT version FROM schema_migrations ORDER BY version').map(r => r.version);
+    expect(applied).toEqual([...VERSIONS].sort());
+    const subjects = getDb().getAllSync<{ student_id: string; balance_hours: number }>(
+      `SELECT student_id, balance_hours FROM student_subject_balances WHERE student_id = 's8'`
+    );
+    expect(subjects).toEqual([{ student_id: 's8', balance_hours: 5 }]);
+    expect(getDb().getFirstSync(`SELECT COUNT(*) AS n FROM ledger_entries WHERE student_id = 's8'`)).toEqual({ n: 2 });
+    expect(getDb().getFirstSync(`SELECT subject_id FROM sessions WHERE id = 'x8'`)).toEqual({ subject_id: 'ss-s8' });
   });
 
   it('names the missing table when an HourBank backup is only partly there', async () => {
