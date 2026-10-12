@@ -386,7 +386,7 @@ export default function SettingsScreen() {
       />
 
       <View style={ROW_CONTAINER}>
-        <Text style={FIELD_LABEL}>Travel fee</Text>
+        <Text style={FIELD_LABEL}>Your travel payout (claims)</Text>
         <ChipRow
           options={['flat', 'distance'] as const}
           value={travelMode}
@@ -396,11 +396,13 @@ export default function SettingsScreen() {
             save({ travel_mode: m });
           }}
         />
-        <Text style={HELP_TEXT}>Flat: a set fee per student. Per km: charged by distance travelled.</Text>
+        <Text style={HELP_TEXT}>
+          What you claim for travel on payout claims. Flat: each student’s set fee. Per km: by each lesson’s distance.
+        </Text>
       </View>
       {travelMode === 'distance' && (
         <SettingsField
-          label="Rate per km"
+          label="Your payout rate per km"
           value={amounts.perKm}
           onChangeText={t => changeAmount('perKm', t)}
           onBlur={() => blurAmount('perKm')}
@@ -411,6 +413,20 @@ export default function SettingsScreen() {
           preview={amountPreview('perKm', 'rand')}
         />
       )}
+
+      <View style={ROW_CONTAINER} testID="parent-travel-defaults">
+        <Text style={FIELD_LABEL}>Default parent travel terms for new students</Text>
+        <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.ink }}>
+          {travelMode === 'distance'
+            ? `Per km · ${formatRand(validateAmount(amounts.perKm).value ?? 0)} per km`
+            : 'Flat · the student’s travel fee per in-person lesson'}
+        </Text>
+        <Text style={HELP_TEXT}>
+          What families pay you for travel, billed in arrears and settled with a top-up. New students start from your
+          payout terms above; change any family’s terms on their edit page. Changing terms never reprices lessons
+          already recorded.
+        </Text>
+      </View>
 
       {/* ── Billing ───────────────────────────────────────────────────── */}
       <SectionLabel>Billing</SectionLabel>
