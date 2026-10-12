@@ -17,11 +17,9 @@ import type { LedgerRow } from '../../../src/db/ledger';
 import { SubjectBalanceCard } from '../../../src/components/student/SubjectBalanceCard';
 import { TravelOwedCard } from '../../../src/components/student/TravelOwedCard';
 import { lessonSubjectName, lowestSubject } from '../../../src/components/student/subjectLogic';
-import { getOrCreateTutorProfile, PackageTier } from '../../../src/db/tutorProfile';
-import { buildLowBalanceReminderText } from '../../../src/utils/parentMessages';
+import { getLowBalanceReminderText } from '../../../src/utils/receipt';
 import { openWhatsApp } from '../../../src/utils/whatsapp';
 import { resolveRecipient } from '../../../src/utils/recipient';
-import { buildPaymentReference } from '../../../src/utils/paymentReference';
 import { StudentLedgerRow } from '../../../src/components/student/StudentLedgerRow';
 import { ContactsCard } from '../../../src/components/student/ContactsCard';
 import { RecipientChooser } from '../../../src/components/student/RecipientChooser';
@@ -31,18 +29,8 @@ import {
   archivedToastMessage,
   ledgerRowHref,
   shouldOfferTopUpReminder,
-  suggestTopUpPackage,
   upcomingOweWarning,
 } from '../../../src/components/student/flowLogic';
-
-function parseTiers(json: string | null | undefined): PackageTier[] {
-  try {
-    const parsed = JSON.parse(json ?? '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
 
 function firstTopic(topicsJson: string | null | undefined): string | null {
   try {
@@ -158,20 +146,12 @@ export default function StudentDetailScreen() {
   async function sendReminder() {
     if (!student) return;
     try {
-      const profile = getOrCreateTutorProfile();
-      const tiers = profile.tier_system_enabled === 1 ? parseTiers(profile.package_tiers) : [];
-      // Multi-subject: remind about the subject that is lowest.
-      const pkg = suggestTopUpPackage(tiers, reminderBalance);
-      const text = buildLowBalanceReminderText({
-        tutorName: profile.full_name,
-        studentName: nameParts[0],
+      // Subject balance(s), suggested package, travel owed, payment details + reference.
+      const text = getLowBalanceReminderText(student.id, {
         recipientName: recipient.name,
         audience: recipient.who,
-        balanceHours: reminderBalance,
-        suggestedPackage: pkg ? { hours: pkg.hours, price: pkg.price } : null,
-        paymentDetails: profile.payment_details,
-        paymentReference: buildPaymentReference(profile.payment_reference_template, student),
       });
+      if (!text) throw new Error('student not found');
       await openWhatsApp(recipient.phone, text);
     } catch {
       showError("Couldn't open WhatsApp");
