@@ -14,8 +14,10 @@ import { ScreenHeader } from '../../src/components/ScreenHeader';
 import { useToast } from '../../src/components/Toast';
 import { useKeyboardOverlap } from '../../src/components/FormScreen';
 import { modeLabel } from '../../src/screens/schedule/labels';
+import { lessonKmBySession } from '../../src/screens/money/moneyQueries';
+import { kmLabel } from '../../src/utils/travelBilling';
 
-type DetailLine = ClaimLine & { studentName: string; endedAt: string | null };
+type DetailLine = ClaimLine & { studentName: string; endedAt: string | null; km: number | null };
 
 function formatFullDate(isoStr: string): string {
   const d = new Date(isoStr);
@@ -47,6 +49,7 @@ export default function ClaimDetailScreen() {
     try {
       setClaim(getClaim(id));
       const rawLines = getClaimLines(id);
+      const kmMap = lessonKmBySession(rawLines.filter(l => l.mode === 'in_person').map(l => l.session_id));
       const enriched: DetailLine[] = rawLines.map(line => {
         const session = getSessionWithStudent(line.session_id);
         return {
@@ -54,6 +57,7 @@ export default function ClaimDetailScreen() {
           studentName: session?.student_name ?? 'Unknown student',
           // Same fallback as billableSessionDateSql: charged no-shows have no ended_at.
           endedAt: session?.ended_at ?? session?.started_at ?? session?.scheduled_for ?? null,
+          km: kmMap.get(line.session_id) ?? null,
         };
       });
       setLines(enriched);
@@ -169,6 +173,12 @@ export default function ClaimDetailScreen() {
                     <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>{modeLabel(line.mode)}</Text>
                     <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>·</Text>
                     <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>{formatHours(line.billed_hours)}</Text>
+                    {kmLabel(line.mode, line.km) ? (
+                      <>
+                        <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>·</Text>
+                        <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>{kmLabel(line.mode, line.km)}</Text>
+                      </>
+                    ) : null}
                   </View>
                 </View>
                 <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.ink }}>{formatRand(lineTotal)}</Text>

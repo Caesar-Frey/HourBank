@@ -12,6 +12,8 @@ import { DateField } from '../../src/components/calendar/DateField';
 import { listClaimablePool, buildClaim, finaliseClaim, ClaimablePoolLine } from '../../src/db/claims';
 import { formatClaimPeriod, formatDayShort, formatHours, formatLedgerDate, formatRand, pluralize } from '../../src/utils/format';
 import { modeLabel } from '../../src/screens/schedule/labels';
+import { lessonKmBySession } from '../../src/screens/money/moneyQueries';
+import { kmLabel } from '../../src/utils/travelBilling';
 import {
   claimRange,
   groupByStudent,
@@ -60,6 +62,7 @@ export default function NewClaimScreen() {
   const [toDate, setToDate] = useState<Date>(() => new Date());
   const [picker, setPicker] = useState<'from' | 'to' | null>(null);
   const [pool, setPool] = useState<ClaimablePoolLine[]>([]);
+  const [kmBySession, setKmBySession] = useState<Map<string, number | null>>(() => new Map());
   const [heldBack, setHeldBack] = useState<Set<string>>(() => new Set());
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -82,6 +85,7 @@ export default function NewClaimScreen() {
     try {
       const lines = listClaimablePool(range);
       setPool(lines);
+      setKmBySession(lessonKmBySession(lines.filter(l => l.mode === 'in_person').map(l => l.session_id)));
       // Keep the tutor's hold-backs across reloads; just forget lessons that left the pool.
       setHeldBack(prev => pruneHoldBacks(prev, lines));
       setLoadError(false);
@@ -286,6 +290,7 @@ export default function NewClaimScreen() {
                 </View>
                 <Text style={{ flex: 1, fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft }}>
                   {modeLabel(line.mode)} · {formatHours(line.billed_hours)}
+                  {kmLabel(line.mode, kmBySession.get(line.session_id)) ? ` · ${kmLabel(line.mode, kmBySession.get(line.session_id))}` : ''}
                   {line.travel_fee > 0 ? ` · travel ${formatRand(line.travel_fee)}` : ''}
                 </Text>
                 <Text style={{ fontFamily: F.mono, fontSize: 13, color: isSelected ? COLORS.ink : COLORS.inkFaint, textDecorationLine: isSelected ? 'none' : 'line-through' }}>
