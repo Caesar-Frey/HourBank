@@ -92,6 +92,8 @@ export function createStudent(data: {
   preferredContact?: PreferredContact;
   /** Further subjects beyond `subject` (blank/duplicate names are skipped). */
   additionalSubjects?: string[];
+  /** Per-subject grade/curriculum overrides, matched by name (case-insensitive); written in the same transaction. */
+  subjectOverrides?: Array<{ subject: string; grade?: number | null; curriculum?: Student['curriculum'] | null }>;
   /** Parent travel charge; defaults to the tutor's travel config (flat fee = travelFlatFee). */
   parentTravelMode?: ParentTravelMode;
   parentTravelFlatFee?: number;
@@ -119,13 +121,17 @@ export function createStudent(data: {
        VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, parentName, parentPhone, studentPhone, preferredContact, parentTravelMode, parentTravelFlatFee, parentTravelPerKm, now]
     );
-    insertSubjectInTx({ studentId: id, subject: data.subject });
+    const override = (name: string) => {
+      const o = data.subjectOverrides?.find(x => x.subject.trim().toLowerCase() === name.trim().toLowerCase());
+      return o ? { grade: o.grade, curriculum: o.curriculum } : {};
+    };
+    insertSubjectInTx({ studentId: id, subject: data.subject, ...override(data.subject) });
     const seen = new Set([data.subject.trim().toLowerCase()]);
     for (const extra of data.additionalSubjects ?? []) {
       const key = extra.trim().toLowerCase();
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      insertSubjectInTx({ studentId: id, subject: extra });
+      insertSubjectInTx({ studentId: id, subject: extra, ...override(extra) });
     }
   });
 

@@ -1,6 +1,8 @@
 import { createMigratedTestDb, resetDbSingleton } from '../../../db/__tests__/testDb';
 import { getStudent } from '../../../db/students';
+import * as subjectsDb from '../../../db/subjects';
 import { listStudentSubjects, getSubjectBalances } from '../../../db/subjects';
+import { listActiveStudents } from '../../../db/students';
 import { createAdjustment } from '../../../db/students';
 import { StudentFormValues } from '../flowLogic';
 import { newSubjectDraft, subjectDraftsFromRows } from '../subjectLogic';
@@ -45,7 +47,7 @@ describe('formValuesToPayload', () => {
 
 describe('studentSave (DB)', () => {
   beforeEach(() => { createMigratedTestDb(); });
-  afterEach(() => resetDbSingleton());
+  afterEach(() => { jest.restoreAllMocks(); resetDbSingleton(); });
 
   it('creates a student with several subjects, overrides and parent travel terms', () => {
     const sci = { ...newSubjectDraft('Physical Sciences'), grade: 11, curriculum: 'IEB' };
@@ -59,6 +61,40 @@ describe('studentSave (DB)', () => {
       ['Physical Sciences', 11, 'IEB'],
     ]);
     expect(getStudent(s.id)).toMatchObject({ subject: 'Maths', parent_travel_mode: 'per_km', parent_travel_per_km: 5 });
+  });
+
+  it('new student is atomic: a subject failure leaves no student behind, so a retry does not duplicate', () => {
+    const sci = { ...newSubjectDraft('Physical Sciences'), grade: 11, curriculum: 'IEB' };
+    const values = form({ subjects: [newSubjectDraft('Maths'), sci] });
+    const real = subjectsDb.insertSubjectInTx;
+    let calls = 0;
+    const spy = jest.spyOn(subjectsDb, 'insertSubjectInTx').mockImplementation(d => {
+      calls += 1;
+      if (calls === 2) throw new Error('disk full');
+      return real(d);
+    });
+    expect(() => createStudentFromForm(values, 'flat')).toThrow('disk full');
+    spy.mockRestore();
+    expect(listActiveStudents().filter(x => x.full_name === 'Ana Botha')).toHaveLength(0);
+
+    const s = createStudentFromForm(values, 'flat');
+    expect(listActiveStudents().filter(x => x.full_name === 'Ana Botha')).toHaveLength(1);
+    expect(listStudentSubjects(s.id).map(x => [x.subject, x.grade, x.curriculum])).toEqual([
+      ['Maths', null, null],
+      ['Physical Sciences', 11, 'IEB'],
+    ]);
+  });
+
+  it('new student: subject overrides are part of the create (a failing follow-up update cannot half-create)', () => {
+    const spy = jest.spyOn(subjectsDb, 'updateStudentSubject').mockImplementation(() => { throw new Error('locked'); });
+    const sci = { ...newSubjectDraft('Physical Sciences'), grade: 11, curriculum: 'IEB' };
+    const s = createStudentFromForm(form({ subjects: [newSubjectDraft('Maths'), sci] }), 'flat');
+    spy.mockRestore();
+    expect(listActiveStudents().filter(x => x.full_name === 'Ana Botha')).toHaveLength(1);
+    expect(listStudentSubjects(s.id).map(x => [x.subject, x.grade, x.curriculum])).toEqual([
+      ['Maths', null, null],
+      ['Physical Sciences', 11, 'IEB'],
+    ]);
   });
 
   it('edit: adds, renames, archives and restores subjects; balances survive', () => {

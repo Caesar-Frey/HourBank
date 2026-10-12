@@ -43,20 +43,18 @@ function overrides(d: Pick<SubjectDraft, 'grade' | 'curriculum'>) {
   return { grade: d.grade, curriculum: (d.curriculum as Curriculum | null) };
 }
 
+/** One transaction: the student, all subjects and their overrides — a failure leaves nothing behind. */
 export function createStudentFromForm(v: StudentFormValues, travelMode: 'flat' | 'distance'): Student {
   const active = activeSubjectDrafts(v.subjects).filter(d => cleanSubjectName(d.name) !== '');
   const [first, ...rest] = active;
-  const student = createStudent({
+  return createStudent({
     ...formValuesToPayload(v, travelMode),
     subject: cleanSubjectName(first.name),
     additionalSubjects: rest.map(d => cleanSubjectName(d.name)),
+    subjectOverrides: active
+      .filter(d => d.grade !== null || d.curriculum !== null)
+      .map(d => ({ subject: cleanSubjectName(d.name), ...overrides(d) })),
   });
-  for (const d of active) {
-    if (d.grade === null && d.curriculum === null) continue;
-    const id = findActiveId(student.id, d.name);
-    if (id) updateStudentSubject(id, overrides(d));
-  }
-  return student;
 }
 
 /**
