@@ -338,6 +338,30 @@ describe('backups made by older app versions', () => {
     expect(readdirSync(join(root, 'cache'))).toEqual([]);
   });
 
+  it('restores a 007-era backup (before 008) and adds student contact + payment reference columns', async () => {
+    const path = join(root, 'picked', 'backup-007.db');
+    const db = openWrapped(path);
+    __setDb(db);
+    initDb();
+    runMigrations(MIGRATIONS.filter(m => m.version !== '008_contacts_reference'));
+    addStudent(db, 's7', 'Seven Sipho');
+    db.closeSync();
+    __setDb(null);
+
+    const pending = await importBackup(pathToFileURL(path).href, MIGRATIONS);
+    expect(pending.summary.migrationVersions).not.toContain('008_contacts_reference');
+    await pending.restore();
+    expect(liveNames()).toEqual(['Seven Sipho']);
+    const applied = getDb().getAllSync<{ version: string }>('SELECT version FROM schema_migrations ORDER BY version').map(r => r.version);
+    expect(applied).toEqual([...VERSIONS].sort());
+    const s = getDb().getFirstSync<{ student_phone: string | null; preferred_contact: string }>(
+      `SELECT student_phone, preferred_contact FROM students WHERE id = 's7'`
+    )!;
+    expect(s).toEqual({ student_phone: null, preferred_contact: 'parent' });
+    const cols = getDb().getAllSync<{ name: string }>(`PRAGMA table_info(tutor_profile)`).map(c => c.name);
+    expect(cols).toContain('payment_reference_template');
+  });
+
   it('names the missing table when an HourBank backup is only partly there', async () => {
     const uri = buildLegacyBackup(MAY);
     const bs = new BetterSQLite(join(root, 'picked', 'hourbank_backup.db'));
