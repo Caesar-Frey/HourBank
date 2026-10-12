@@ -1,6 +1,9 @@
 import {
   activeSubjectDrafts,
+  lessonSubjectName,
+  lowestSubject,
   newSubjectDraft,
+  subjectStatusTip,
   planSubjectChanges,
   subjectArchiveWarning,
   subjectDraftsFromRows,
@@ -109,6 +112,30 @@ describe('planSubjectChanges', () => {
   it('ignores edits on rows that are (still) archived', () => {
     const current = [initial[0], initial[1], { ...initial[2], name: 'Drawing' }];
     expect(planSubjectChanges(initial, current).update).toEqual([]);
+  });
+});
+
+describe('student page helpers', () => {
+  it('subjectStatusTip follows the balance thresholds', () => {
+    expect(subjectStatusTip(-0.5)).toBe('Owes hours — top-up required.');
+    expect(subjectStatusTip(0.5)).toBe('Top-up due.');
+    expect(subjectStatusTip(2)).toBe('Running low.');
+    expect(subjectStatusTip(3)).toBeNull();
+  });
+  it('lowestSubject picks the active subject with the least balance', () => {
+    const list = [
+      { id: 'a', subject: 'Maths', status: 'active' as const, balance_hours: 3 },
+      { id: 'b', subject: 'Science', status: 'active' as const, balance_hours: 0.5 },
+      { id: 'c', subject: 'Art', status: 'archived' as const, balance_hours: -2 },
+    ];
+    expect(lowestSubject(list)?.id).toBe('b');
+    expect(lowestSubject([])).toBeNull();
+  });
+  it('lessonSubjectName resolves null subject ids to the primary', () => {
+    const names = { a: 'Maths', b: 'Science' };
+    expect(lessonSubjectName('b', names, 'a')).toBe('Science');
+    expect(lessonSubjectName(null, names, 'a')).toBe('Maths');
+    expect(lessonSubjectName(undefined, names, null)).toBeNull();
   });
 });
 

@@ -137,6 +137,33 @@ export function subjectsChanged(initial: SubjectDraft[], current: SubjectDraft[]
   return p.add.length + p.update.length + p.archive.length + p.restore.length > 0;
 }
 
+// ─── Student page ────────────────────────────────────────────────────────────
+
+/** Short italic tip under a balance; null when comfortably in credit (≥3h). */
+export function subjectStatusTip(balanceHours: number): string | null {
+  if (Math.round(balanceHours * 60) < 0) return 'Owes hours — top-up required.';
+  if (balanceHours < 1) return 'Top-up due.';
+  if (balanceHours < 3) return 'Running low.';
+  return null;
+}
+
+/** The active subject with the lowest balance (for the top-up reminder). */
+export function lowestSubject<T extends { status: 'active' | 'archived'; balance_hours: number }>(list: T[]): T | null {
+  const active = list.filter(s => s.status === 'active');
+  if (active.length === 0) return null;
+  return active.reduce((w, s) => (s.balance_hours < w.balance_hours ? s : w), active[0]);
+}
+
+/** A lesson's subject name; NULL subject_id = the student's primary subject. */
+export function lessonSubjectName(
+  subjectId: string | null | undefined,
+  names: Record<string, string>,
+  primaryId: string | null,
+): string | null {
+  const id = subjectId ?? primaryId;
+  return id ? names[id] ?? null : null;
+}
+
 /** Confirmation copy before archiving a subject; null when nothing is at stake. */
 export function subjectArchiveWarning(d: Pick<SubjectDraft, 'name' | 'balanceHours' | 'bookedLessons'>): string | null {
   const name = cleanSubjectName(d.name) || 'This subject';
