@@ -26,11 +26,11 @@ import {
   markNoShow,
 } from '../../src/db/sessions';
 import { getStudent } from '../../src/db/students';
-import { currentBalance } from '../../src/db/ledger';
-import { getDb } from '../../src/db/client';
-import { formatDateLong, formatMinutes, formatTimeRange } from '../../src/utils/format';
+import { currentBalance, getSessionDeduction, type LedgerRow } from '../../src/db/ledger';
+import { getPrimarySubjectId, getStudentSubject, getSubjectBalance } from '../../src/db/subjects';
+import { formatDateLong, formatMinutes, formatRand, formatTimeRange } from '../../src/utils/format';
 import { balanceColour, balanceStatus } from '../../src/utils/balance';
-import { Session, LedgerEntry, Student, PreferredContact } from '../../src/db/schema';
+import { Session, Student, PreferredContact } from '../../src/db/schema';
 import { getLessonReceiptText, getSessionReceipt, shareSessionReceipt } from '../../src/utils/receipt';
 import { openWhatsApp } from '../../src/utils/whatsapp';
 import { resolveRecipient } from '../../src/utils/recipient';
@@ -47,7 +47,22 @@ import { balanceTileText, lessonStatusKind, LessonStatusKind } from '../../src/c
 type Loaded =
   | { state: 'loading' }
   | { state: 'not_found' }
-  | { state: 'ready'; session: Session; student: Student | null; entry: LedgerEntry | null; balanceNow: number };
+  | {
+      state: 'ready';
+      session: Session;
+      student: Student | null;
+      entry: LedgerRow | null;
+      /** Current balance of the lesson's subject (student total if it has none). */
+      balanceNow: number;
+      subjectName: string | null;
+    };
+
+/** The lesson's subject (NULL = primary) and its current balance. */
+function lessonSubject(session: Session): { name: string | null; balance: number } {
+  const sid = session.subject_id ?? getPrimarySubjectId(session.student_id);
+  if (!sid) return { name: null, balance: currentBalance(session.student_id) };
+  return { name: getStudentSubject(sid)?.subject ?? null, balance: getSubjectBalance(session.student_id, sid) };
+}
 
 function parseTopics(raw: string): string[] {
   try {
@@ -101,17 +116,16 @@ export default function LessonDetailScreen() {
         setData({ state: 'not_found' });
         return;
       }
-      const entry =
-        getDb().getFirstSync<LedgerEntry>(
-          'SELECT * FROM ledger_entries WHERE related_session_id = ? ORDER BY created_at ASC LIMIT 1',
-          [sessionId],
-        ) ?? null;
+      // Live per-subject balance_after (stored values go stale after edits).
+      const entry = getSessionDeduction(sessionId);
+      const subject = lessonSubject(session);
       setData({
         state: 'ready',
         session,
         student: getStudent(session.student_id),
         entry,
-        balanceNow: currentBalance(session.student_id),
+        balanceNow: subject.balance,
+        subjectName: subject.name,
       });
       const receipt = getSessionReceipt(sessionId);
       setPdfSharedAt(receipt ? (receipt.shared_at ?? receipt.created_at) : null);
@@ -162,7 +176,7 @@ export default function LessonDetailScreen() {
     );
   }
 
-  const { session, student, entry, balanceNow } = data;
+  const { session, student, entry, balanceNow, subjectName } = data;
   const kind = lessonStatusKind(session);
   const badge = eventKindStyle(kind);
   const topics = parseTopics(session.topics);
@@ -261,6 +275,10 @@ export default function LessonDetailScreen() {
     }
   }
 
+  function handleEdit() {
+    router.push(`/lesson/edit/${sessionId}`);
+  }
+
   function handleStart() {
     startLesson(sessionId, {
       studentName,
@@ -268,7 +286,7 @@ export default function LessonDetailScreen() {
     });
   }
 
-  function handleLogAsTaught() {
+  function handleRecord() {
     router.push(`/student/${session.student_id}/log-past?sessionId=${sessionId}&from=lesson`);
   }
 
@@ -347,6 +365,11 @@ export default function LessonDetailScreen() {
         <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, marginBottom: 4 }}>
           {timeText ? `${dateText} · ${timeText}` : dateText}
         </Text>
+        {session.edited_at ? (
+          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginBottom: 4 }}>
+            {`Edited ${formatDateLong(session.edited_at)}`}
+          </Text>
+        ) : null}
         {kind === 'cancelled' && session.cancel_reason === 'discarded' ? (
           <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkFaint }}>Discarded during the lesson — nothing deducted.</Text>
         ) : null}
@@ -357,7 +380,7 @@ export default function LessonDetailScreen() {
         ) : null}
         {kind === 'overdue' ? (
           <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.oxblood }}>
-            This lesson's time has passed and it was never started. What happened?
+            This lesson's time has passed and it hasn't been recorded. What happened?
           </Text>
         ) : null}
 
@@ -380,11 +403,23 @@ export default function LessonDetailScreen() {
           <View style={{ marginBottom: 20 }}>
             <Text style={sectionLabel}>SUBJECT</Text>
             <Text style={{ fontFamily: F.sans, fontSize: 15, color: COLORS.ink }}>
-              {student.subject}
+              {subjectName ?? student.subject}
               <Text style={{ color: COLORS.inkSoft }}>{' · Grade '}{student.grade}</Text>
             </Text>
           </View>
         )}
+
+        {session.mode === 'in_person' && (kind === 'completed' || session.travel_km != null) ? (
+          <View style={{ marginBottom: 20 }}>
+            <Text style={sectionLabel}>TRAVEL</Text>
+            <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.ink }}>
+              {[
+                session.travel_km != null ? `${session.travel_km} km` : kind === 'completed' ? null : 'student default km',
+                kind === 'completed' && (session.parent_travel_fee ?? 0) > 0 ? `${formatRand(session.parent_travel_fee ?? 0)} to parent` : null,
+              ].filter(Boolean).join(' · ') || '—'}
+            </Text>
+          </View>
+        ) : null}
 
         {topics.length > 0 && (
           <View style={{ marginBottom: 20 }}>
@@ -425,6 +460,14 @@ export default function LessonDetailScreen() {
               done={messageSent != null}
             />
             <SecondaryButton label={pdfShareLabel(pdfSharedAt)} onPress={handleSharePdf} busy={busy === 'pdf'} />
+            <TouchableOpacity
+              onPress={handleEdit}
+              accessibilityRole="button"
+              accessibilityLabel="Edit lesson"
+              style={{ minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood }}>Edit lesson</Text>
+            </TouchableOpacity>
             {!recipient.phone ? (
               <TouchableOpacity onPress={() => router.push(`/student/${session.student_id}/edit`)} style={{ minHeight: MIN_TOUCH, justifyContent: 'center' }}>
                 <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkSoft, textAlign: 'center' }}>
@@ -446,17 +489,17 @@ export default function LessonDetailScreen() {
         {/* Scheduled / overdue → action hub */}
         {isUpcoming && (
           <View style={{ marginTop: 8, gap: 10 }}>
-            <PrimaryButton label="▶ Start now" onPress={handleStart} />
-            {hasStarted ? (
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <SecondaryButton label="Log as taught" onPress={handleLogAsTaught} />
-                </View>
+            <PrimaryButton label="Record lesson" onPress={handleRecord} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <SecondaryButton label="▶ Start timer" onPress={handleStart} />
+              </View>
+              {hasStarted ? (
                 <View style={{ flex: 1 }}>
                   <SecondaryButton label="No-show…" onPress={() => setNoShowOpen(true)} />
                 </View>
-              </View>
-            ) : null}
+              ) : null}
+            </View>
             <SecondaryButton label="Reschedule" onPress={handleReschedule} />
             <TouchableOpacity
               onPress={handleCancel}

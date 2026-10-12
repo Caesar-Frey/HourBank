@@ -22,8 +22,12 @@ jest.mock('expo-router', () => {
   };
 });
 jest.mock('../../db/students', () => ({ getStudent: () => mockStudent }));
-jest.mock('../../db/ledger', () => ({ currentBalance: () => 0.5 }));
-jest.mock('../../db/client', () => ({ getDb: () => ({ getFirstSync: () => mockEntry }) }));
+jest.mock('../../db/ledger', () => ({ currentBalance: () => 0.5, getSessionDeduction: () => mockEntry }));
+jest.mock('../../db/subjects', () => ({
+  getPrimarySubjectId: () => 'ss-1',
+  getStudentSubject: (id: string) => ({ id, subject: id === 'ss-2' ? 'Science' : 'Maths' }),
+  getSubjectBalance: () => 0.5,
+}));
 jest.mock('../../utils/receipt', () => ({
   getLessonReceiptText: jest.fn(() => 'Lesson summary text'),
   getSessionReceipt: jest.fn(() => null),
@@ -116,6 +120,24 @@ test('completed: badge, 2×2 tiles with OWES, time range', () => {
   expect(s.getByText(/\d\d:\d\d–\d\d:\d\d/)).toBeTruthy();
 });
 
+test('completed: lesson subject, edited stamp and Edit lesson action', () => {
+  mockSession = base({ subject_id: 'ss-2', edited_at: iso(-10), travel_km: 12, parent_travel_fee: 72 });
+  const s = renderScreen();
+  expect(s.getByText(/Science/)).toBeTruthy();
+  expect(s.getByText(/^Edited /)).toBeTruthy();
+  expect(s.getByText(/12 km · R.72[.]00 to parent/)).toBeTruthy();
+  fireEvent.press(s.getByText('Edit lesson'));
+  expect(mockRouter.push).toHaveBeenCalledWith('/lesson/edit/sess-1');
+});
+
+test('future booking still offers Record lesson as the primary action', () => {
+  mockEntry = null;
+  mockSession = base({ status: 'scheduled', scheduled_for: iso(120), started_at: null, ended_at: null, duration_minutes: null, billed_minutes: null });
+  const s = renderScreen();
+  expect(s.getByText('Record lesson')).toBeTruthy();
+  expect(s.queryByText('No-show…')).toBeNull();
+});
+
 test('Send via WhatsApp uses the parent number and reflects the outcome', async () => {
   mockSession = base();
   const s = renderScreen();
@@ -152,13 +174,13 @@ describe('overdue lesson = action hub', () => {
   test('shows OVERDUE and every action', () => {
     const s = renderScreen();
     expect(s.getByText('OVERDUE')).toBeTruthy();
-    ['▶ Start now', 'Log as taught', 'No-show…', 'Reschedule', 'Cancel lesson'].forEach(l => expect(s.getByText(l)).toBeTruthy());
+    ['Record lesson', '▶ Start timer', 'No-show…', 'Reschedule', 'Cancel lesson'].forEach(l => expect(s.getByText(l)).toBeTruthy());
     expect(s.getByText('After lesson')).toBeTruthy();
   });
 
-  test('Log as taught / Reschedule route per contract', () => {
+  test('Record lesson / Reschedule route per contract', () => {
     const s = renderScreen();
-    fireEvent.press(s.getByText('Log as taught'));
+    fireEvent.press(s.getByText('Record lesson'));
     expect(mockRouter.push).toHaveBeenCalledWith('/student/stu-1/log-past?sessionId=sess-1&from=lesson');
     fireEvent.press(s.getByText('Reschedule'));
     expect(mockRouter.push).toHaveBeenCalledWith('/student/stu-1/schedule?sessionId=sess-1&from=lesson');
@@ -180,7 +202,7 @@ describe('overdue lesson = action hub', () => {
       })
       .mockImplementationOnce(() => ({ id: 'sess-1', student_id: 'stu-1', status: 'active' }));
     const s = renderScreen();
-    fireEvent.press(s.getByText('▶ Start now'));
+    fireEvent.press(s.getByText('▶ Start timer'));
     expect(alertSpy).toHaveBeenLastCalledWith('Start anyway?', expect.stringContaining('owe 30m'), expect.any(Array));
     pressAlertButton('Start anyway');
     expect(startSession).toHaveBeenLastCalledWith('sess-1', { allowOverOwe: true });
@@ -192,7 +214,7 @@ describe('overdue lesson = action hub', () => {
       throw new SessionError('ALREADY_ACTIVE', 'x', { activeSessionId: 'other', activeStudentId: 'stu-9' });
     });
     const s = renderScreen();
-    fireEvent.press(s.getByText('▶ Start now'));
+    fireEvent.press(s.getByText('▶ Start timer'));
     pressAlertButton('Open live lesson');
     expect(mockRouter.push).toHaveBeenCalledWith('/student/stu-9/session?sessionId=other');
   });
