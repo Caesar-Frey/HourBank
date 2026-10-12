@@ -1,6 +1,8 @@
 import { getDb } from './client';
 import { LedgerEntry, CreditPackage } from './schema';
 import { newId } from './uuid';
+import { effectiveSubjectIdSql } from './migrations';
+import { resolveSubjectIdInTx, getSubjectBalance } from './subjects';
 
 export function currentBalance(studentId: string): number {
   const db = getDb();
@@ -18,19 +20,22 @@ type AppendEntryInput = {
   relatedSessionId?: string;
   relatedPackageId?: string;
   reason?: string;
+  /** Subject balance to move; omitted = the student's primary subject. */
+  subjectId?: string | null;
 };
 
 // Use this inside an existing withTransactionSync block to avoid nesting.
+// balance_after = running balance of the row's SUBJECT (migration 009).
 export function appendEntryInTx(entry: AppendEntryInput): LedgerEntry {
   const db = getDb();
-  const currentBal = currentBalance(entry.studentId);
-  const balanceAfter = currentBal + entry.hoursDelta;
+  const subjectId = resolveSubjectIdInTx(entry.studentId, entry.subjectId);
+  const balanceAfter = getSubjectBalance(entry.studentId, subjectId) + entry.hoursDelta;
   const id = newId();
   const createdAt = new Date().toISOString();
 
   db.runSync(
-    `INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_session_id, related_package_id, reason, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_session_id, related_package_id, reason, created_at, subject_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       entry.studentId,
@@ -41,6 +46,7 @@ export function appendEntryInTx(entry: AppendEntryInput): LedgerEntry {
       entry.relatedPackageId ?? null,
       entry.reason ?? null,
       createdAt,
+      subjectId,
     ]
   );
 
@@ -54,6 +60,7 @@ export function appendEntryInTx(entry: AppendEntryInput): LedgerEntry {
     related_package_id: entry.relatedPackageId ?? null,
     reason: entry.reason ?? null,
     created_at: createdAt,
+    subject_id: subjectId,
   };
 }
 
@@ -74,17 +81,68 @@ export function getBalanceAt(studentId: string, isoTimestamp: string): number {
   return row?.balance ?? 0;
 }
 
-export function lastNEntries(studentId: string, n: number): LedgerEntry[] {
+/**
+ * Ledger read columns. `balance_after` is recomputed LIVE as the running
+ * balance of the row's subject (insert order), so it stays correct after a past
+ * lesson's deduction is edited — the stored column is only an insert-time snapshot.
+ * `subject_id` is the effective subject (legacy NULL → primary).
+ */
+function ledgerSelectSql(alias: string): string {
+  const eff = effectiveSubjectIdSql(alias);
+  return `${alias}.id, ${alias}.student_id, ${alias}.type, ${alias}.hours_delta,
+    ${alias}.related_session_id, ${alias}.related_package_id, ${alias}.reason, ${alias}.created_at,
+    ${eff} AS subject_id,
+    (SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${eff}) AS subject_name,
+    (SELECT COALESCE(SUM(l2.hours_delta), 0) FROM ledger_entries l2
+      WHERE l2.student_id = ${alias}.student_id AND l2.rowid <= ${alias}.rowid
+        AND ${effectiveSubjectIdSql('l2')} IS ${eff}) AS balance_after`;
+}
+
+export type LedgerRow = LedgerEntry & { subject_name: string | null };
+
+function roundRow<T extends { balance_after: number }>(r: T): T {
+  return { ...r, balance_after: Math.round(r.balance_after * 1e6) / 1e6 };
+}
+
+/** Most recent N entries (all subjects, or one with `subjectId`), newest first. */
+export function lastNEntries(studentId: string, n: number, subjectId?: string): LedgerRow[] {
+  return listLedger(studentId, { limit: n, subjectId });
+}
+
+/** A student's ledger, newest first, optionally filtered to one subject. */
+export function listLedger(studentId: string, opts: { subjectId?: string; limit?: number } = {}): LedgerRow[] {
   const db = getDb();
-  return db.getAllSync<LedgerEntry>(
-    'SELECT * FROM ledger_entries WHERE student_id = ? ORDER BY created_at DESC LIMIT ?',
-    [studentId, n]
+  const params: (string | number)[] = [studentId];
+  let where = 'l.student_id = ?';
+  if (opts.subjectId) {
+    where += ` AND ${effectiveSubjectIdSql('l')} = ?`;
+    params.push(opts.subjectId);
+  }
+  let limit = '';
+  if (opts.limit !== undefined) {
+    limit = 'LIMIT ?';
+    params.push(opts.limit);
+  }
+  return db.getAllSync<LedgerRow>(
+    `SELECT ${ledgerSelectSql('l')} FROM ledger_entries l WHERE ${where} ORDER BY l.created_at DESC, l.rowid DESC ${limit}`,
+    params
+  ).map(roundRow);
+}
+
+/** The deduction row for a lesson (completed or charged no-show), or null. */
+export function getSessionDeduction(sessionId: string): LedgerRow | null {
+  const row = getDb().getFirstSync<LedgerRow>(
+    `SELECT ${ledgerSelectSql('l')} FROM ledger_entries l
+     WHERE l.related_session_id = ? AND l.type = 'session_deduction' ORDER BY l.rowid ASC LIMIT 1`,
+    [sessionId]
   );
+  return row ? roundRow(row) : null;
 }
 
 export type LedgerEntryDetail = LedgerEntry & {
   package?: CreditPackage;
   studentName?: string;
+  subject_name?: string | null;
 };
 
 export function getLedgerEntryById(id: string): LedgerEntryDetail | null {
@@ -100,6 +158,8 @@ export function getLedgerEntryById(id: string): LedgerEntryDetail | null {
     l_related_package_id: string | null;
     l_reason: string | null;
     l_created_at: string;
+    l_subject_id: string | null;
+    l_subject_name: string | null;
     // credit_packages columns (nullable when no package)
     p_id: string | null;
     p_student_id: string | null;
@@ -120,7 +180,11 @@ export function getLedgerEntryById(id: string): LedgerEntryDetail | null {
        l.student_id    AS l_student_id,
        l.type          AS l_type,
        l.hours_delta   AS l_hours_delta,
-       l.balance_after AS l_balance_after,
+       (SELECT COALESCE(SUM(l2.hours_delta), 0) FROM ledger_entries l2
+         WHERE l2.student_id = l.student_id AND l2.rowid <= l.rowid
+           AND ${effectiveSubjectIdSql('l2')} IS ${effectiveSubjectIdSql('l')}) AS l_balance_after,
+       ${effectiveSubjectIdSql('l')} AS l_subject_id,
+       (SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${effectiveSubjectIdSql('l')}) AS l_subject_name,
        l.related_session_id AS l_related_session_id,
        l.related_package_id AS l_related_package_id,
        l.reason        AS l_reason,
@@ -149,11 +213,13 @@ export function getLedgerEntryById(id: string): LedgerEntryDetail | null {
     student_id: row.l_student_id,
     type: row.l_type,
     hours_delta: row.l_hours_delta,
-    balance_after: row.l_balance_after,
+    balance_after: Math.round(row.l_balance_after * 1e6) / 1e6,
     related_session_id: row.l_related_session_id,
     related_package_id: row.l_related_package_id,
     reason: row.l_reason,
     created_at: row.l_created_at,
+    subject_id: row.l_subject_id,
+    subject_name: row.l_subject_name,
     studentName: row.student_name ?? undefined,
   };
 

@@ -9,7 +9,7 @@
  *   5. archiveStudent changes status to 'archived'
  */
 
-import { createTestDb, resetDbSingleton } from './testDb';
+import { createMigratedTestDb as createTestDb, resetDbSingleton } from './testDb';
 import type { TestDb } from './testDb';
 import {
   listActiveStudents,

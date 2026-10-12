@@ -2,6 +2,7 @@ import { getDb } from './client';
 import { CreditPackage, LedgerEntry } from './schema';
 import { appendEntryInTx } from './ledger';
 import { newId } from './uuid';
+import { resolveSubjectIdInTx } from './subjects';
 
 /**
  * Record a top-up: credit package + ledger entry in one transaction.
@@ -13,6 +14,8 @@ import { newId } from './uuid';
 export function createPackage(data: {
   id?: string;
   studentId: string;
+  /** Subject the hours are for; omitted = the student's primary subject. */
+  subjectId?: string | null;
   hoursAdded: number;
   amountPaid: number;
   paymentMethod: CreditPackage['payment_method'];
@@ -44,9 +47,10 @@ export function createPackage(data: {
       }
     }
 
+    const subjectId = resolveSubjectIdInTx(data.studentId, data.subjectId);
     db.runSync(
-      `INSERT INTO credit_packages (id, student_id, hours_added, amount_paid, payment_method, payment_ref, proof_image_uri, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO credit_packages (id, student_id, hours_added, amount_paid, payment_method, payment_ref, proof_image_uri, notes, created_at, subject_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         data.studentId,
@@ -57,6 +61,7 @@ export function createPackage(data: {
         data.proofImageUri ?? null,
         data.notes ?? null,
         now,
+        subjectId,
       ]
     );
 
@@ -70,6 +75,7 @@ export function createPackage(data: {
       proof_image_uri: data.proofImageUri ?? null,
       notes: data.notes ?? null,
       created_at: now,
+      subject_id: subjectId,
     };
 
     entry = appendEntryInTx({
@@ -77,6 +83,7 @@ export function createPackage(data: {
       type: 'top_up',
       hoursDelta: data.hoursAdded,
       relatedPackageId: id,
+      subjectId,
     });
   });
 

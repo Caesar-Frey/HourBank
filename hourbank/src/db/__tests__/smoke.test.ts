@@ -2,13 +2,13 @@
  * smoke.test.ts — verifies the in-memory test harness works end-to-end.
  *
  * Confirms:
- *   1. createTestDb() opens an in-memory DB with the full schema (via initDb())
+ *   1. the migrated test DB (initDb + ALL_MIGRATIONS, as at app boot) opens in memory
  *   2. Basic CRUD works through the wrapped bridge
  *   3. withTransactionSync works via appendEntry() and createPackage()
  *   4. runSync returns { changes: number }
  */
 
-import { createTestDb, mockGetDb, resetDbSingleton } from './testDb';
+import { createMigratedTestDb as createTestDb, mockGetDb, resetDbSingleton } from './testDb';
 import type { TestDb } from './testDb';
 import type { Student } from '../schema';
 import { appendEntry } from '../ledger';

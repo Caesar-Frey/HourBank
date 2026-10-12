@@ -1,7 +1,18 @@
 import { getDb } from './client';
-import { Student, Session, LedgerEntry, PreferredContact } from './schema';
-import { appendEntry } from './ledger';
+import { Student, Session, LedgerEntry, PreferredContact, ParentTravelMode } from './schema';
+import { appendEntryInTx } from './ledger';
 import { newId } from './uuid';
+import { insertSubjectInTx, resolveSubjectIdInTx, getPrimarySubjectId, updateStudentSubjectInTx } from './subjects';
+
+/** Active subject + balance, as carried on student list rows. */
+export type StudentSubjectBalanceSummary = { subject_id: string; subject: string; balance_hours: number };
+
+export type StudentListRow = Student & {
+  current_balance: number;
+  next_session: Session | null;
+  /** Active subjects in display order with their balances (migration 009). */
+  subject_balances: StudentSubjectBalanceSummary[];
+};
 
 // ── Shared query helpers ──────────────────────────────────────────────────────
 
@@ -27,16 +38,42 @@ const STUDENT_SELECT_FIELDS = `
       AND datetime(se.scheduled_for) >= datetime('now')
     ORDER BY se.scheduled_for ASC
     LIMIT 1
-  ) AS next_session_json
+  ) AS next_session_json,
+  (
+    SELECT json_group_array(json_object('subject_id', b.subject_id, 'subject', b.subject, 'balance_hours', b.balance_hours))
+    FROM (
+      SELECT subject_id, subject, balance_hours FROM student_subject_balances
+      WHERE student_id = s.id AND status = 'active'
+      ORDER BY sort_order
+    ) b
+  ) AS subject_balances_json
 `;
 
-function mapRows(
-  rows: Array<Student & { current_balance: number; next_session_json: string | null }>,
-): Array<Student & { current_balance: number; next_session: Session | null }> {
-  return rows.map(row => ({
+type RawListRow = Student & {
+  current_balance: number;
+  next_session_json: string | null;
+  subject_balances_json: string | null;
+};
+
+function mapRows(rows: RawListRow[]): StudentListRow[] {
+  return rows.map(({ next_session_json, subject_balances_json, ...row }) => ({
     ...row,
-    next_session: row.next_session_json ? JSON.parse(row.next_session_json) as Session : null,
+    next_session: next_session_json ? JSON.parse(next_session_json) as Session : null,
+    subject_balances: subject_balances_json
+      ? (JSON.parse(subject_balances_json) as StudentSubjectBalanceSummary[]).map(b => ({
+          ...b,
+          balance_hours: Math.round(b.balance_hours * 1e6) / 1e6,
+        }))
+      : [],
   }));
+}
+
+/** Parent travel defaults for a new student: the tutor's travel config. */
+function defaultParentTravel(): { mode: ParentTravelMode; perKm: number } {
+  const p = getDb().getFirstSync<{ travel_mode: string | null; per_km_rate: number | null }>(
+    'SELECT travel_mode, per_km_rate FROM tutor_profile LIMIT 1'
+  );
+  return { mode: p?.travel_mode === 'distance' ? 'per_km' : 'flat', perKm: p?.per_km_rate ?? 0 };
 }
 
 // ── CRUD ──────────────────────────────────────────────────────────────────────
@@ -53,6 +90,12 @@ export function createStudent(data: {
   parentPhone?: string | null;
   studentPhone?: string | null;
   preferredContact?: PreferredContact;
+  /** Further subjects beyond `subject` (blank/duplicate names are skipped). */
+  additionalSubjects?: string[];
+  /** Parent travel charge; defaults to the tutor's travel config (flat fee = travelFlatFee). */
+  parentTravelMode?: ParentTravelMode;
+  parentTravelFlatFee?: number;
+  parentTravelPerKm?: number;
 }): Student {
   const db = getDb();
   const id = newId();
@@ -65,11 +108,26 @@ export function createStudent(data: {
   const studentPhone = blankToNull(data.studentPhone);
   const preferredContact: PreferredContact = data.preferredContact === 'student' ? 'student' : 'parent';
 
-  db.runSync(
-    `INSERT INTO students (id, full_name, grade, subject, curriculum, status, travel_flat_fee, travel_distance_km, payout_rate_override, parent_name, parent_phone, student_phone, preferred_contact, created_at)
-     VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, parentName, parentPhone, studentPhone, preferredContact, now]
-  );
+  const travelDefaults = defaultParentTravel();
+  const parentTravelMode: ParentTravelMode = data.parentTravelMode ?? travelDefaults.mode;
+  const parentTravelFlatFee = data.parentTravelFlatFee ?? travelFlatFee;
+  const parentTravelPerKm = data.parentTravelPerKm ?? travelDefaults.perKm;
+
+  db.withTransactionSync(() => {
+    db.runSync(
+      `INSERT INTO students (id, full_name, grade, subject, curriculum, status, travel_flat_fee, travel_distance_km, payout_rate_override, parent_name, parent_phone, student_phone, preferred_contact, parent_travel_mode, parent_travel_flat_fee, parent_travel_per_km, created_at)
+       VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, parentName, parentPhone, studentPhone, preferredContact, parentTravelMode, parentTravelFlatFee, parentTravelPerKm, now]
+    );
+    insertSubjectInTx({ studentId: id, subject: data.subject });
+    const seen = new Set([data.subject.trim().toLowerCase()]);
+    for (const extra of data.additionalSubjects ?? []) {
+      const key = extra.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      insertSubjectInTx({ studentId: id, subject: extra });
+    }
+  });
 
   return {
     id,
@@ -86,6 +144,9 @@ export function createStudent(data: {
     parent_phone: parentPhone,
     student_phone: studentPhone,
     preferred_contact: preferredContact,
+    parent_travel_mode: parentTravelMode,
+    parent_travel_flat_fee: parentTravelFlatFee,
+    parent_travel_per_km: parentTravelPerKm,
   };
 }
 
@@ -95,9 +156,9 @@ function blankToNull(v: string | null | undefined): string | null {
   return t.length > 0 ? t : null;
 }
 
-export function listActiveStudents(): Array<Student & { current_balance: number; next_session: Session | null }> {
+export function listActiveStudents(): StudentListRow[] {
   const db = getDb();
-  const rows = db.getAllSync<Student & { current_balance: number; next_session_json: string | null }>(`
+  const rows = db.getAllSync<RawListRow>(`
     SELECT ${STUDENT_SELECT_FIELDS}
     FROM students s
     WHERE s.status = 'active'
@@ -106,9 +167,9 @@ export function listActiveStudents(): Array<Student & { current_balance: number;
   return mapRows(rows);
 }
 
-export function listPausedStudents(): Array<Student & { current_balance: number; next_session: Session | null }> {
+export function listPausedStudents(): StudentListRow[] {
   const db = getDb();
-  const rows = db.getAllSync<Student & { current_balance: number; next_session_json: string | null }>(`
+  const rows = db.getAllSync<RawListRow>(`
     SELECT ${STUDENT_SELECT_FIELDS}
     FROM students s
     WHERE s.status = 'paused'
@@ -138,6 +199,10 @@ export function updateStudent(id: string, data: {
   studentPhone?: string | null;
   /** undefined = keep existing. */
   preferredContact?: PreferredContact;
+  /** undefined = keep existing. Rate changes never reprice recorded lessons. */
+  parentTravelMode?: ParentTravelMode;
+  parentTravelFlatFee?: number;
+  parentTravelPerKm?: number;
 }): void {
   const db = getDb();
   // Preserve existing travel/override/parent values when a caller omits them, so editing
@@ -163,10 +228,27 @@ export function updateStudent(id: string, data: {
   const preferredContact: PreferredContact =
     (data.preferredContact ?? existing?.preferred_contact) === 'student' ? 'student' : 'parent';
 
-  db.runSync(
-    'UPDATE students SET full_name=?, grade=?, subject=?, curriculum=?, travel_flat_fee=?, travel_distance_km=?, payout_rate_override=?, parent_name=?, parent_phone=?, student_phone=?, preferred_contact=? WHERE id=?',
-    [data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, parentName, parentPhone, studentPhone, preferredContact, id]
-  );
+  db.withTransactionSync(() => {
+    db.runSync(
+      `UPDATE students SET full_name=?, grade=?, subject=?, curriculum=?, travel_flat_fee=?, travel_distance_km=?, payout_rate_override=?, parent_name=?, parent_phone=?, student_phone=?, preferred_contact=?,
+         parent_travel_mode = COALESCE(?, parent_travel_mode),
+         parent_travel_flat_fee = COALESCE(?, parent_travel_flat_fee),
+         parent_travel_per_km = COALESCE(?, parent_travel_per_km)
+       WHERE id=?`,
+      [data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, parentName, parentPhone, studentPhone, preferredContact,
+        data.parentTravelMode ?? null, data.parentTravelFlatFee ?? null, data.parentTravelPerKm ?? null, id]
+    );
+    // Legacy single-subject form: `subject` names the PRIMARY subject → rename it in place.
+    const primary = getPrimarySubjectId(id);
+    if (primary) {
+      const current = db.getFirstSync<{ subject: string }>('SELECT subject FROM student_subjects WHERE id = ?', [primary]);
+      if (current && data.subject.trim() && current.subject !== data.subject.trim()) {
+        updateStudentSubjectInTx(primary, { subject: data.subject });
+      }
+    } else {
+      resolveSubjectIdInTx(id);
+    }
+  });
 }
 
 export function pauseStudent(id: string): void {
@@ -246,7 +328,13 @@ export function restoreStudent(id: string): void {
  * Append a balance correction to the ledger (append-only — never edits rows).
  * `hoursDelta` may be positive (credit) or negative (debit); `reason` is required.
  */
-export function createAdjustment(data: { studentId: string; hoursDelta: number; reason: string }): LedgerEntry {
+export function createAdjustment(data: {
+  studentId: string;
+  hoursDelta: number;
+  reason: string;
+  /** Subject balance to correct; omitted = the student's primary subject. */
+  subjectId?: string | null;
+}): LedgerEntry {
   const reason = data.reason.trim();
   if (!Number.isFinite(data.hoursDelta) || data.hoursDelta === 0) {
     throw new Error('Adjustment hours must be a non-zero number');
@@ -254,5 +342,15 @@ export function createAdjustment(data: { studentId: string; hoursDelta: number; 
   if (reason.length === 0) throw new Error('Adjustment requires a reason');
   const exists = getDb().getFirstSync<{ id: string }>('SELECT id FROM students WHERE id = ?', [data.studentId]);
   if (!exists) throw new Error(`Student ${data.studentId} not found`);
-  return appendEntry({ studentId: data.studentId, type: 'adjustment', hoursDelta: data.hoursDelta, reason });
+  let entry: LedgerEntry | null = null;
+  getDb().withTransactionSync(() => {
+    entry = appendEntryInTx({
+      studentId: data.studentId,
+      type: 'adjustment',
+      hoursDelta: data.hoursDelta,
+      reason,
+      subjectId: data.subjectId,
+    });
+  });
+  return entry!;
 }

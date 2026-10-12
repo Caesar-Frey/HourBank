@@ -19,9 +19,43 @@ export type Student = {
   student_phone?: string | null;
   /** Who receives outgoing messages by default when both numbers exist. Migration 008. */
   preferred_contact?: PreferredContact;
+  /** How the PARENT is charged for travel (migration 009). Distinct from the tutor's payout travel. */
+  parent_travel_mode?: ParentTravelMode;
+  /** Parent travel charge per in-person lesson when mode is 'flat' (rand). Migration 009. */
+  parent_travel_flat_fee?: number;
+  /** Parent travel charge per km when mode is 'per_km' (rand/km). Migration 009. */
+  parent_travel_per_km?: number;
 };
 
 export type PreferredContact = 'parent' | 'student';
+
+/** How a family is charged for the tutor's travel (per student; legacy agreements differ). */
+export type ParentTravelMode = 'flat' | 'per_km' | 'none';
+
+/** A subject a student takes; each has its own hours balance (migration 009). */
+export type StudentSubject = {
+  id: string;
+  student_id: string;
+  subject: string;
+  /** NULL = inherit the student's grade. */
+  grade: number | null;
+  /** NULL = inherit the student's curriculum. */
+  curriculum: Student['curriculum'] | null;
+  status: 'active' | 'archived';
+  sort_order: number;
+  created_at: string;
+};
+
+/** Rand payment against a student's travel owed (with a top-up or on its own). */
+export type TravelSettlement = {
+  id: string;
+  student_id: string;
+  amount: number;
+  payment_method: CreditPackage['payment_method'];
+  package_id: string | null;
+  note: string | null;
+  created_at: string;
+};
 
 export type CreditPackage = {
   id: string;
@@ -33,6 +67,8 @@ export type CreditPackage = {
   proof_image_uri: string | null;
   notes: string | null;
   created_at: string;
+  /** Subject the hours were bought for (migration 009). */
+  subject_id?: string | null;
 };
 
 /**
@@ -65,6 +101,14 @@ export type Session = {
   updated_at: string | null;
   tutor_id: string | null;
   created_at: string;
+  /** Subject taught (migration 009). NULL on rows written before subjects = student's primary subject. */
+  subject_id?: string | null;
+  /** Km travelled for this lesson; NULL = student's default (students.travel_distance_km). */
+  travel_km?: number | null;
+  /** Parent travel charge (rand) snapshotted when the lesson was recorded; NULL = none. */
+  parent_travel_fee?: number | null;
+  /** Set when a past lesson is edited in place. */
+  edited_at?: string | null;
 };
 
 export type LedgerEntry = {
@@ -77,6 +121,8 @@ export type LedgerEntry = {
   related_package_id: string | null;
   reason: string | null;
   created_at: string;
+  /** Subject balance this row moves (migration 009). */
+  subject_id?: string | null;
 };
 
 export type Claim = {
