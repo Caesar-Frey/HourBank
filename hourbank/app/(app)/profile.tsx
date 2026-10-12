@@ -19,6 +19,9 @@ import {
   HELP_TEXT,
 } from '../../src/components/settings/SettingsParts';
 import { RestoreBackupModal } from '../../src/components/settings/RestoreBackupModal';
+import { PaymentReferenceField } from '../../src/components/settings/PaymentReferenceField';
+import { DEFAULT_PAYMENT_REFERENCE_TEMPLATE } from '../../src/utils/paymentReference';
+import { listActiveStudents } from '../../src/db/students';
 import { useKeyboardOverlap } from '../../src/components/FormScreen';
 import {
   BILLING_ROUND_OPTIONS,
@@ -43,6 +46,9 @@ import { SHOW_ALL_GRADES_KEY } from '../../src/config';
 
 type AmountField = 'parentPrice' | 'payoutRate' | 'maxOwe' | 'perKm';
 type PendingRestore = Awaited<ReturnType<typeof importBackup>>;
+
+/** Used for the payment reference preview until the tutor has a student. */
+const SAMPLE_REFERENCE_STUDENT = { id: 'sample-student', full_name: 'Amahle Dlamini' };
 
 let tierKeySeq = 0;
 const nextTierKey = () => `tier-${++tierKeySeq}`;
@@ -75,6 +81,8 @@ export default function SettingsScreen() {
   });
   const [errors, setErrors] = useState<Partial<Record<AmountField, string | null>>>({});
   const [paymentDetails, setPaymentDetails] = useState('');
+  const [referenceTemplate, setReferenceTemplate] = useState(DEFAULT_PAYMENT_REFERENCE_TEMPLATE);
+  const [referenceSample, setReferenceSample] = useState(SAMPLE_REFERENCE_STUDENT);
   const [roundMinutes, setRoundMinutes] = useState(15);
   const [travelMode, setTravelMode] = useState<'flat' | 'distance'>('flat');
   const [tierEnabled, setTierEnabled] = useState(true);
@@ -106,6 +114,13 @@ export default function SettingsScreen() {
       });
       setErrors({});
       setPaymentDetails(p.payment_details ?? '');
+      setReferenceTemplate(p.payment_reference_template || DEFAULT_PAYMENT_REFERENCE_TEMPLATE);
+      try {
+        const first = listActiveStudents()[0];
+        setReferenceSample(first ? { id: first.id, full_name: first.full_name } : SAMPLE_REFERENCE_STUDENT);
+      } catch {
+        setReferenceSample(SAMPLE_REFERENCE_STUDENT);
+      }
       setRoundMinutes(p.billing_round_minutes || 15);
       setTravelMode(p.travel_mode === 'distance' ? 'distance' : 'flat');
       setTierEnabled(p.tier_system_enabled === 1);
@@ -152,6 +167,13 @@ export default function SettingsScreen() {
     },
     [toast]
   );
+
+  /** Blank resets to the default so reminders always carry a usable reference. */
+  function commitReferenceTemplate(v: string) {
+    const next = v.trim() || DEFAULT_PAYMENT_REFERENCE_TEMPLATE;
+    if (next !== v) setReferenceTemplate(next);
+    save({ payment_reference_template: next });
+  }
 
   // ── Amount fields ──────────────────────────────────────────────────────
   const AMOUNT_COLUMN: Record<AmountField, keyof TutorProfile> = {
@@ -418,8 +440,14 @@ export default function SettingsScreen() {
         onChangeText={setPaymentDetails}
         onBlur={() => save({ payment_details: paymentDetails.trim() || null })}
         multiline
-        placeholder={'e.g. FNB · Acc 62000000000 · Branch 250655\nRef: student name'}
+        placeholder={'e.g. FNB · Acc 62000000000 · Branch 250655'}
         help="Added to WhatsApp top-up reminders so parents know where to pay."
+      />
+      <PaymentReferenceField
+        value={referenceTemplate}
+        onChangeText={setReferenceTemplate}
+        onCommit={commitReferenceTemplate}
+        sampleStudent={referenceSample}
       />
 
       {/* ── Packages ──────────────────────────────────────────────────── */}

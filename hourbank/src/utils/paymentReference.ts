@@ -88,6 +88,22 @@ export function previewPaymentReference(
   };
 }
 
+/**
+ * Insert a token chip into the template at the cursor (replacing any selection),
+ * or append when the cursor is unknown. Adds a separating space after a word.
+ */
+export function insertReferenceToken(
+  value: string,
+  token: string,
+  selection?: { start: number; end: number } | null
+): { value: string; cursor: number } {
+  const start = selection ? Math.max(0, Math.min(selection.start, value.length)) : value.length;
+  const end = selection ? Math.max(start, Math.min(selection.end, value.length)) : value.length;
+  const before = value.slice(0, start);
+  const insert = before.length > 0 && !/\s$/.test(before) ? ` ${token}` : token;
+  return { value: before + insert + value.slice(end), cursor: before.length + insert.length };
+}
+
 export function buildPaymentReference(
   template: string | null | undefined,
   student: RefStudent,

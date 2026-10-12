@@ -5,6 +5,7 @@ import {
   DEFAULT_PAYMENT_REFERENCE_TEMPLATE,
   PAYMENT_REFERENCE_MAX,
   PAYMENT_REFERENCE_TOKENS,
+  insertReferenceToken,
 } from '../paymentReference';
 
 const amahle = { id: '3f2a9c10-7b4e-4d2a-9c1e-0a1b2c3d4e5f', full_name: 'Amahle Dlamini' };
@@ -71,6 +72,20 @@ describe('previewPaymentReference', () => {
     const longer = previewPaymentReference('{first} {surname} {month} {id}', amahle, OCT);
     expect(longer.tooLong).toBe(true);
     expect(longer.reference).toHaveLength(20);
+  });
+});
+
+describe('insertReferenceToken', () => {
+  it('inserts at the cursor / replaces the selection', () => {
+    expect(insertReferenceToken('{first}', '{month}', { start: 7, end: 7 })).toEqual({ value: '{first} {month}', cursor: 15 });
+    expect(insertReferenceToken('{first} X', '{surname}', { start: 8, end: 9 })).toEqual({ value: '{first} {surname}', cursor: 17 });
+  });
+  it('appends with a space when no selection is known', () => {
+    expect(insertReferenceToken('{first}', '{id}')).toEqual({ value: '{first} {id}', cursor: 12 });
+    expect(insertReferenceToken('', '{id}')).toEqual({ value: '{id}', cursor: 4 });
+  });
+  it('does not double a space', () => {
+    expect(insertReferenceToken('{first} ', '{id}')).toEqual({ value: '{first} {id}', cursor: 12 });
   });
 });
 
