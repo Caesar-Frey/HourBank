@@ -34,6 +34,12 @@ jest.mock('../../db/students', () => ({
 }));
 jest.mock('../../db/ledger', () => ({ currentBalance: () => 5 }));
 jest.mock('../../db/catalog', () => ({ listTopicsForStudentSubject: () => [{ name: 'Algebra' }] }));
+jest.mock('../../db/subjects', () => ({
+  getPrimarySubjectId: () => 'ss-1',
+  getSubjectBalances: () => [{ id: 'ss-1', balance_hours: 5 }, { id: 'ss-2', balance_hours: 2 }],
+  listStudentSubjects: () => [{ id: 'ss-1', subject: 'Maths' }, { id: 'ss-2', subject: 'Science' }],
+  isSubjectError: () => false,
+}));
 jest.mock('../../db/tutorProfile', () => ({ getOrCreateTutorProfile: () => ({ billing_round_minutes: 15 }) }));
 jest.mock('../../db/sessions', () => {
   const actual = jest.requireActual('../../db/sessions');
@@ -41,6 +47,7 @@ jest.mock('../../db/sessions', () => {
     ...actual,
     getSession: () => mockSession,
     endSession: jest.fn(),
+    recordLesson: jest.fn(),
     saveLiveTopics: jest.fn(() => true),
   };
 });
@@ -50,7 +57,7 @@ jest.mock('../../contexts/SessionTimerContext', () => ({
 }));
 
 import EndSessionScreen from '../../../app/student/[id]/end-session';
-import { endSession, saveLiveTopics, SessionError } from '../../db/sessions';
+import { endSession, recordLesson, saveLiveTopics, SessionError } from '../../db/sessions';
 import { lessonDraftStore } from '../../contexts/SessionTimerContext.helpers';
 
 function session(overrides: Record<string, unknown> = {}) {
@@ -65,6 +72,9 @@ function session(overrides: Record<string, unknown> = {}) {
     estimated_duration_minutes: 60,
     scheduled_for: minsBefore(60),
     topics: '[]',
+    subject_id: 'ss-1',
+    mode: 'online',
+    travel_km: null,
     ...overrides,
   };
 }
@@ -260,4 +270,31 @@ test('save from a lesson started on the student page: back to that page, then pu
   );
   expect(mockPush).toHaveBeenCalledWith('/lesson/session-1?justSaved=1');
   expect(mockReplace).not.toHaveBeenCalled();
+});
+
+test('picking another subject saves via recordLesson on that subject (timer start kept)', () => {
+  const screen = renderScreen();
+  fireEvent.press(screen.getByLabelText(/^Science/));
+  fireEvent.press(screen.getByText(/Save lesson/));
+  expect(endSession).not.toHaveBeenCalled();
+  expect(recordLesson).toHaveBeenCalledWith(expect.objectContaining({
+    sessionId: 'session-1', studentId: 'student-1', subjectId: 'ss-2', startedAt: minsBefore(60), billedMinutes: 60, mode: 'online', travelKm: null,
+  }));
+  expect(mockEndTimer).toHaveBeenCalled();
+});
+
+test('untouched subject keeps the timer save path (endSession)', () => {
+  const screen = renderScreen();
+  expect(screen.getByText('Maths balance 5h → 4h')).toBeTruthy();
+  fireEvent.press(screen.getByText(/Save lesson/));
+  expect(endSession).toHaveBeenCalled();
+  expect(recordLesson).not.toHaveBeenCalled();
+});
+
+test('in-person: editing km saves via recordLesson with that km', () => {
+  mockSession = session({ mode: 'in_person' });
+  const screen = renderScreen();
+  fireEvent.changeText(screen.getByLabelText('Travel kilometres'), '15');
+  fireEvent.press(screen.getByText(/Save lesson/));
+  expect(recordLesson).toHaveBeenCalledWith(expect.objectContaining({ subjectId: 'ss-1', mode: 'in_person', travelKm: 15 }));
 });
