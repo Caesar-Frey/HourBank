@@ -180,4 +180,29 @@ describe('edit', () => {
     const s = renderForm({ kind: 'edit', sessionId: 'sess-1' });
     expect(s.getByText('Only recorded lessons can be edited.')).toBeTruthy();
   });
+
+  test('charged no-show: no date/mode/travel/topics; saves billed + subject + notes only', () => {
+    mockSession = {
+      id: 'sess-1', student_id: 'stu-1', status: 'cancelled', cancel_reason: 'no_show', scheduled_for: iso(-120),
+      started_at: null, ended_at: null, billed_minutes: 60, mode: 'in_person', subject_id: 'ss-1', travel_km: null,
+      parent_travel_fee: null, topics: '[]', session_notes: null,
+    };
+    const s = renderForm({ kind: 'edit', sessionId: 'sess-1' });
+    expect(s.getByText('★ EDIT NO-SHOW')).toBeTruthy();
+    expect(s.queryByLabelText('Lesson date')).toBeNull();
+    expect(s.queryByLabelText('Online')).toBeNull();
+    expect(s.queryByLabelText('Travel kilometres')).toBeNull();
+    expect(s.queryByText(/Travel R/)).toBeNull();
+    fireEvent.press(s.getByLabelText('Bill 15 minutes less'));
+    fireEvent.press(s.getByLabelText(/^Science/));
+    fireEvent.changeText(s.getByLabelText('Lesson notes'), 'Parent forgot');
+    fireEvent.press(s.getByText('Save changes'));
+    expect(editLesson).toHaveBeenCalledWith('sess-1', { billedMinutes: 45, subjectId: 'ss-2', notes: 'Parent forgot' });
+  });
+
+  test('uncharged no-show → cannot edit', () => {
+    mockSession = { ...completed, status: 'cancelled', cancel_reason: 'no_show', billed_minutes: null };
+    const s = renderForm({ kind: 'edit', sessionId: 'sess-1' });
+    expect(s.getByText('Only recorded lessons can be edited.')).toBeTruthy();
+  });
 });

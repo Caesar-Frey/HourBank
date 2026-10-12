@@ -17,6 +17,7 @@ import {
   getSession,
   getSessionWithStudent,
   isSessionError,
+  isEditableLesson,
 } from '../sessions';
 import { createStudent, updateStudent } from '../students';
 import { addStudentSubject, getPrimarySubjectId, getSubjectBalance, isSubjectError } from '../subjects';
@@ -257,6 +258,49 @@ describe('lesson recording + editing (Phase A)', () => {
       expect(() => editLesson(id, { billedMinutes: -5 })).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
       expect(() => editLesson(id, { startedAt: '2027-01-01T00:00:00.000Z', now: NOW })).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
       expect(isSessionError(new Error('x'))).toBe(false);
+    });
+
+    describe('charged no-shows', () => {
+      function noShow(db2: TestDb, charge = true) {
+        const ctx = setup(db2);
+        const sch = createScheduled({ studentId: ctx.s.id, subjectId: ctx.maths, scheduledFor: '2026-10-12T08:00:00.000Z', estimatedDurationMinutes: 60, mode: 'in_person', session_type: 'general' });
+        markNoShow(sch.id, { charge });
+        return { ...ctx, id: sch.id };
+      }
+
+      it('isEditableLesson: completed and charged no-shows only', () => {
+        const { id } = noShow(db);
+        expect(isEditableLesson(getSession(id)!)).toBe(true);
+        const s2 = createStudent({ ...base, fullName: 'Zed' });
+        const free = createScheduled({ studentId: s2.id, scheduledFor: '2026-10-12T08:00:00.000Z', estimatedDurationMinutes: 60, mode: 'in_person', session_type: 'general' });
+        expect(isEditableLesson(getSession(free.id)!)).toBe(false);
+        markNoShow(free.id, { charge: false });
+        expect(isEditableLesson(getSession(free.id)!)).toBe(false);
+      });
+
+      it('edits billed minutes, subject and notes in place; stays a no-show with no travel', () => {
+        const { s, maths, sci, id } = noShow(db);
+        const ledgerCount = db.getFirstSync<{ n: number }>('SELECT COUNT(*) AS n FROM ledger_entries')!.n;
+        const res = editLesson(id, { billedMinutes: 30, subjectId: sci, notes: 'Parent forgot', now: NOW });
+        expect(res.session).toMatchObject({
+          status: 'cancelled', cancel_reason: 'no_show', billed_minutes: 30, subject_id: sci,
+          session_notes: 'Parent forgot', edited_at: NOW.toISOString(), parent_travel_fee: null,
+        });
+        expect(getSessionDeduction(id)).toMatchObject({ hours_delta: -0.5, subject_id: sci, reason: 'No-show' });
+        expect(db.getFirstSync<{ n: number }>('SELECT COUNT(*) AS n FROM ledger_entries')!.n).toBe(ledgerCount);
+        expect(getSubjectBalance(s.id, maths)).toBe(10);
+        expect(getSubjectBalance(s.id, sci)).toBe(1.5);
+      });
+
+      it('rejects travel/mode/time changes and uncharged no-shows', () => {
+        const { id, s } = noShow(db);
+        expect(() => editLesson(id, { travelKm: 5 })).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
+        expect(() => editLesson(id, { mode: 'online' })).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
+        expect(() => editLesson(id, { startedAt: '2026-10-12T08:00:00.000Z', now: NOW })).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
+        const free = createScheduled({ studentId: s.id, scheduledFor: '2026-10-12T09:00:00.000Z', estimatedDurationMinutes: 60, mode: 'in_person', session_type: 'general' });
+        markNoShow(free.id, { charge: false });
+        expect(() => editLesson(free.id, { billedMinutes: 30 })).toThrow(expect.objectContaining({ code: 'INVALID_STATE' }));
+      });
     });
 
     it('lesson reads expose the lesson subject name', () => {

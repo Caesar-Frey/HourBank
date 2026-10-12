@@ -24,6 +24,7 @@ import {
   DEFAULT_LESSON_MINUTES,
   getSession,
   markNoShow,
+  isChargedNoShow,
 } from '../../src/db/sessions';
 import { getStudent } from '../../src/db/students';
 import { currentBalance, getSessionDeduction, type LedgerRow } from '../../src/db/ledger';
@@ -477,6 +478,18 @@ export default function LessonDetailScreen() {
             ) : null}
           </View>
         )}
+
+        {/* Charged no-show → fix the charge (billed time, subject, notes) */}
+        {kind === 'no_show' && isChargedNoShow(session) ? (
+          <TouchableOpacity
+            onPress={handleEdit}
+            accessibilityRole="button"
+            accessibilityLabel="Edit lesson"
+            style={{ minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center', marginTop: 8 }}
+          >
+            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood }}>Edit lesson</Text>
+          </TouchableOpacity>
+        ) : null}
 
         {/* In flight → back to the timer */}
         {(kind === 'active' || kind === 'paused') && (

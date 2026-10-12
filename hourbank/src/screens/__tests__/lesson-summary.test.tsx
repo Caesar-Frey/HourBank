@@ -163,6 +163,15 @@ test('no-show / cancelled badges', () => {
   const s = renderScreen();
   expect(s.getByText('NO-SHOW')).toBeTruthy();
   expect(s.getByText(/not charged/)).toBeTruthy();
+  expect(s.queryByText('Edit lesson')).toBeNull();
+});
+
+test('charged no-show offers Edit lesson', () => {
+  mockSession = base({ status: 'cancelled', cancel_reason: 'no_show', billed_minutes: 60 });
+  const s = renderScreen();
+  expect(s.getByText(/— charged/)).toBeTruthy();
+  fireEvent.press(s.getByText('Edit lesson'));
+  expect(mockRouter.push).toHaveBeenCalledWith('/lesson/edit/sess-1');
 });
 
 describe('overdue lesson = action hub', () => {

@@ -668,12 +668,47 @@ export type EditLessonPatch = {
   now?: Date;
 };
 
+/** Rewrites a lesson's session_deduction (hours + subject), or appends one if missing. Call inside a transaction. */
+function updateDeductionInTx(studentId: string, sessionId: string, billed: number, subjectId: string, now: Date): void {
+  const db = getDb();
+  const deduction = db.getFirstSync<{ id: string }>(
+    `SELECT id FROM ledger_entries WHERE related_session_id = ? AND type = 'session_deduction' ORDER BY rowid ASC LIMIT 1`,
+    [sessionId]
+  );
+  if (deduction) {
+    db.runSync(
+      'UPDATE ledger_entries SET hours_delta = ?, subject_id = ?, updated_at = ? WHERE id = ?',
+      [-(billed / 60), subjectId, now.toISOString(), deduction.id]
+    );
+  } else {
+    appendEntryInTx({
+      studentId,
+      type: 'session_deduction',
+      hoursDelta: -(billed / 60),
+      relatedSessionId: sessionId,
+      subjectId,
+    });
+  }
+}
+
+/** A charged no-show: cancelled as no_show with billed minutes (a deduction exists). */
+export function isChargedNoShow(s: Pick<Session, 'status' | 'cancel_reason' | 'billed_minutes'>): boolean {
+  return s.status === 'cancelled' && s.cancel_reason === 'no_show' && (s.billed_minutes ?? 0) > 0;
+}
+
+/** Lessons the tutor can edit: recorded (completed) lessons and charged no-shows. */
+export function isEditableLesson(s: Pick<Session, 'status' | 'cancel_reason' | 'billed_minutes'>): boolean {
+  return s.status === 'completed' || isChargedNoShow(s);
+}
+
 /**
- * Edit a recorded (completed) lesson in place — one transaction:
+ * Edit a recorded (completed) lesson — or a charged no-show — in place; one transaction:
  * updates the session, UPDATES its session_deduction row (hours/subject; the
  * migration-009 guard allows only that), stamps edited_at. The parent travel
  * charge is recomputed only when km or mode change. Claim snapshots never change;
  * `inClaim` tells the UI to warn ("already in claim …") — a nudge, not a block.
+ * Charged no-show: only billed minutes, subject, topics and notes (no time,
+ * mode or travel — nobody travelled); it stays cancelled/no_show.
  */
 export function editLesson(sessionId: string, patch: EditLessonPatch): { session: Session; inClaim: boolean } {
   const db = getDb();
@@ -690,8 +725,25 @@ export function editLesson(sessionId: string, patch: EditLessonPatch): { session
 
   db.withTransactionSync(() => {
     const existing = mustGet(sessionId);
-    if (existing.status !== 'completed') {
+    if (!isEditableLesson(existing)) {
       throw new SessionError('INVALID_STATE', `Only recorded lessons can be edited (status: ${existing.status})`);
+    }
+    if (isChargedNoShow(existing)) {
+      if (patch.travelKm !== undefined || patch.mode !== undefined || patch.startedAt !== undefined || patch.minutes !== undefined) {
+        throw new SessionError('INVALID_INPUT', 'A no-show only takes billed time, subject and notes');
+      }
+      const billed = patch.billedMinutes ?? existing.billed_minutes!;
+      const subjectId = resolveSubjectIdInTx(existing.student_id, patch.subjectId ?? existing.subject_id);
+      db.runSync(
+        `UPDATE sessions SET billed_minutes = ?, subject_id = ?, topics = COALESCE(?, topics),
+           session_notes = CASE WHEN ? THEN ? ELSE session_notes END, edited_at = ?
+         WHERE id = ? AND status = 'cancelled' AND cancel_reason = 'no_show'`,
+        [billed, subjectId, patch.topics !== undefined ? JSON.stringify(patch.topics) : null,
+          patch.notes !== undefined ? 1 : 0, patch.notes ?? null, now.toISOString(), sessionId]
+      );
+      updateDeductionInTx(existing.student_id, sessionId, billed, subjectId, now);
+      session = mustGet(sessionId);
+      return;
     }
 
     let startedAt = existing.started_at;
@@ -733,24 +785,7 @@ export function editLesson(sessionId: string, patch: EditLessonPatch): { session
         now.toISOString(), sessionId]
     );
 
-    const deduction = db.getFirstSync<{ id: string }>(
-      `SELECT id FROM ledger_entries WHERE related_session_id = ? AND type = 'session_deduction' ORDER BY rowid ASC LIMIT 1`,
-      [sessionId]
-    );
-    if (deduction) {
-      db.runSync(
-        'UPDATE ledger_entries SET hours_delta = ?, subject_id = ?, updated_at = ? WHERE id = ?',
-        [-(billed / 60), subjectId, now.toISOString(), deduction.id]
-      );
-    } else {
-      appendEntryInTx({
-        studentId: existing.student_id,
-        type: 'session_deduction',
-        hoursDelta: -(billed / 60),
-        relatedSessionId: sessionId,
-        subjectId,
-      });
-    }
+    updateDeductionInTx(existing.student_id, sessionId, billed, subjectId, now);
     session = mustGet(sessionId);
   });
 

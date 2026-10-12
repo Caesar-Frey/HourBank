@@ -20,7 +20,7 @@ import { DateTimeField } from '../student/DateTimeField';
 import { Banner, Button, ChoicePills, FieldError, LoadingState, NotFoundState, PageHeading, SectionLabel } from '../student/ui';
 import { getStudent } from '../../db/students';
 import {
-  checkOweLimit, editLesson, getSession, isSessionError, isSessionInClaim, parseSessionTopics, recordLesson,
+  checkOweLimit, editLesson, getSession, isChargedNoShow, isEditableLesson, isSessionError, isSessionInClaim, parseSessionTopics, recordLesson,
 } from '../../db/sessions';
 import { getSubjectBalance, isSubjectError } from '../../db/subjects';
 import { isTravelError } from '../../db/travel';
@@ -120,7 +120,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
           setLoadError('That lesson could not be found.');
           return;
         }
-        if (session.status !== 'completed') {
+        if (!isEditableLesson(session)) {
           setLoadError('Only recorded lessons can be edited.');
           return;
         }
@@ -158,7 +158,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
       let startDate: Date;
       let movedFromBooking = false;
       if (isEdit) {
-        startDate = new Date(session!.started_at ?? session!.ended_at ?? Date.now());
+        startDate = new Date(session!.started_at ?? session!.ended_at ?? session!.scheduled_for ?? Date.now());
       } else {
         const r = defaultRecordStart({ bookedStart: session?.scheduled_for, explicitStart: startedAtProp, minutes, now: new Date() });
         startDate = r.start;
@@ -219,6 +219,8 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
   if (loadError || !ctx) return <NotFoundState title={loadError ?? 'Lesson not found'} onBack={() => router.back()} />;
 
   const { student, session, original } = ctx;
+  // Charged no-show: only billed time, subject and notes are editable (nobody travelled).
+  const noShow = isEdit && !!session && isChargedNoShow(session);
   const firstName = student.full_name.trim().split(/\s+/)[0];
   const subjectBalance =
     ctx.options.find(o => o.id === subjectId)?.balance ?? (ctx.fallbackSubject?.id === subjectId ? ctx.fallbackSubject.balance : 0);
@@ -231,7 +233,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
     subjectId,
     original: original ? { subjectId: original.subjectId, billedMinutes: original.billedMinutes } : null,
   });
-  const travel = travelPreview({
+  const travel = noShow ? null : travelPreview({
     lessonMode: mode,
     km: kmValue,
     ...parentTravelTerms(student),
@@ -315,6 +317,8 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
     if (!original || !session) return;
     const patch = buildEditPatch(original, {
       subjectId, start, billedMinutes: billed, mode, travelKm: kmValue, topics: selectedTopics, notes,
+      // No-show: time/mode/travel aren't editable — never send them.
+      ...(noShow ? { start: original.start, mode: original.mode, travelKm: original.travelKm, topics: original.topics } : {}),
     });
     if (Object.keys(patch).length === 0) {
       release();
@@ -365,7 +369,9 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
     commit();
   }
 
-  const heading = isEdit
+  const heading = noShow
+    ? { eyebrow: '★ EDIT NO-SHOW', line1: 'Fix the', line2: 'charge.' }
+    : isEdit
     ? { eyebrow: '★ EDIT LESSON', line1: 'Fix the', line2: 'details.' }
     : session
       ? { eyebrow: '★ RECORD LESSON', line1: 'Booked lesson,', line2: 'now taught.' }
@@ -401,6 +407,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
       />
       <FieldError message={visibleErrors.subject} />
 
+      {!noShow ? (
       <View style={{ flexDirection: 'row', gap: 16, marginTop: 24 }}>
         <View style={{ flex: 3 }}>
           <SectionLabel>DATE</SectionLabel>
@@ -426,6 +433,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
           />
         </View>
       </View>
+      ) : null}
       <FieldError message={visibleErrors.start} />
       {ctx.movedFromBooking && session?.scheduled_for ? (
         <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkSoft, marginTop: 6 }}>
@@ -448,6 +456,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
         />
       </View>
 
+      {!noShow ? (
       <View style={{ marginTop: 24 }}>
         <SectionLabel>MODE</SectionLabel>
         <ChoicePills
@@ -458,7 +467,9 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
         />
       </View>
 
-      {mode === 'in_person' ? (
+      ) : null}
+
+      {mode === 'in_person' && !noShow ? (
         <View style={{ marginTop: 20 }}>
           <SectionLabel>TRAVEL</SectionLabel>
           <TravelKmField text={km} onChangeText={setKm} error={visibleErrors.km} defaultKm={student.travel_distance_km} />
@@ -477,10 +488,12 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
         </View>
       ) : null}
 
-      <View style={{ marginTop: 24 }}>
-        <SectionLabel>TOPICS</SectionLabel>
-        <TopicsField topics={topics} selected={selectedTopics} onToggle={toggleTopic} onAdd={addTopic} />
-      </View>
+      {!noShow ? (
+        <View style={{ marginTop: 24 }}>
+          <SectionLabel>TOPICS</SectionLabel>
+          <TopicsField topics={topics} selected={selectedTopics} onToggle={toggleTopic} onAdd={addTopic} />
+        </View>
+      ) : null}
 
       <View style={{ marginTop: 24 }}>
         <SectionLabel>NOTES (OPTIONAL)</SectionLabel>
