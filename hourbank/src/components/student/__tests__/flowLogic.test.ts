@@ -194,18 +194,32 @@ describe('phone', () => {
 
 describe('student form', () => {
   const base: StudentFormValues = {
-    fullName: 'Ana B', grade: 10, subject: 'Maths', curriculum: 'CAPS',
+    fullName: 'Ana B', grade: 10, curriculum: 'CAPS',
+    subjects: [{ key: 'k1', id: 'ss1', name: 'Maths', grade: null, curriculum: null, archived: false, initiallyArchived: false, balanceHours: 0, bookedLessons: 0 }],
     parentName: '', parentPhone: '', studentPhone: '', preferredContact: 'parent', travelFlatFee: '', travelDistanceKm: '',
+    parentTravelMode: 'flat', parentTravelFlatFee: '', parentTravelPerKm: '',
   };
 
   it('validates required fields, phone and travel', () => {
     expect(validateStudentForm(base, 'flat')).toEqual({});
     const e = validateStudentForm(
-      { ...base, fullName: ' ', grade: null, subject: '', parentPhone: '1', studentPhone: '12', travelFlatFee: 'x' },
+      { ...base, fullName: ' ', grade: null, subjects: [], parentPhone: '1', studentPhone: '12', travelFlatFee: 'x' },
       'flat'
     );
-    expect(Object.keys(e).sort()).toEqual(['fullName', 'grade', 'parentPhone', 'studentPhone', 'subject', 'travel']);
+    expect(Object.keys(e).sort()).toEqual(['fullName', 'grade', 'parentPhone', 'studentPhone', 'subjects', 'travel']);
     expect(validateStudentForm({ ...base, travelFlatFee: 'x' }, 'distance')).toEqual({});
+    expect(validateStudentForm({ ...base, travelDistanceKm: '-3' }, 'distance')).toEqual({ travelKm: 'Enter a distance, e.g. 12,5' });
+  });
+
+  it('validates parent travel terms for the chosen mode only', () => {
+    expect(validateStudentForm({ ...base, parentTravelMode: 'flat', parentTravelFlatFee: 'abc' }, 'flat').parentTravel)
+      .toBe('Enter an amount, e.g. 50');
+    expect(validateStudentForm({ ...base, parentTravelMode: 'per_km', parentTravelPerKm: '' }, 'flat').parentTravel)
+      .toBe('Enter a rate per km, e.g. 4,50');
+    expect(validateStudentForm({ ...base, parentTravelMode: 'per_km', parentTravelPerKm: '4,5', parentTravelFlatFee: 'x' }, 'flat'))
+      .toEqual({});
+    expect(validateStudentForm({ ...base, parentTravelMode: 'none', parentTravelFlatFee: 'x', parentTravelPerKm: 'y' }, 'flat'))
+      .toEqual({});
   });
 
   it('contact payload: normalises both numbers and derives who to message', () => {
@@ -236,6 +250,10 @@ describe('student form', () => {
     expect(isStudentFormDirty(base, { ...base, fullName: 'Ana B ' })).toBe(false);
     expect(isStudentFormDirty(base, { ...base, grade: 11 })).toBe(true);
     expect(isStudentFormDirty(base, { ...base, parentPhone: '082' })).toBe(true);
+    expect(isStudentFormDirty(base, { ...base, subjects: [...base.subjects] })).toBe(false);
+    expect(isStudentFormDirty(base, { ...base, subjects: [{ ...base.subjects[0], name: 'Maths ' }] })).toBe(false);
+    expect(isStudentFormDirty(base, { ...base, subjects: [{ ...base.subjects[0], name: 'Maths Lit' }] })).toBe(true);
+    expect(isStudentFormDirty(base, { ...base, parentTravelMode: 'none' })).toBe(true);
   });
 });
 

@@ -11,6 +11,11 @@ import {
   overOweMessage,
   backupNudge,
   lessonEndIso,
+  rosterSubjectBalances,
+  worstSubjectBalance,
+  rosterBalanceLine,
+  rosterHoursTotals,
+  rosterMatchesSearch,
   type RosterStudent,
 } from '../homeLogic';
 import type { Agenda, AgendaItem } from '../../../db/sessions';
@@ -218,5 +223,70 @@ describe('backupNudge', () => {
     expect(backupNudge({ daysSince: 20, hasStudents: true, dismissedTier: 14 }).show).toBe(false);
     expect(backupNudge({ daysSince: 31, hasStudents: true, dismissedTier: 14 }).show).toBe(true);
     expect(backupNudge({ daysSince: null, hasStudents: true, dismissedTier: 120 }).show).toBe(false);
+  });
+});
+
+// ─── Multi-subject roster (B2) ──────────────────────────────────────────────
+
+function multi(id: string, balances: Array<[string, number]>, extra: Partial<RosterStudent> = {}): RosterStudent {
+  const subject_balances = balances.map(([subject, balance_hours]) => ({ subject_id: `${id}-${subject}`, subject, balance_hours }));
+  return student(id, balances.reduce((t, [, b]) => t + b, 0), { subject: balances[0][0], subject_balances, ...extra });
+}
+
+describe('multi-subject roster helpers', () => {
+  test('rosterSubjectBalances falls back to the total when no subject rows are loaded', () => {
+    expect(rosterSubjectBalances(student('a', 2))).toEqual([{ subject_id: '', subject: 'Maths', balance_hours: 2 }]);
+    expect(rosterSubjectBalances(multi('b', [['Maths', 3], ['Science', 0.75]])).map(b => b.subject)).toEqual(['Maths', 'Science']);
+  });
+
+  test('worst subject balance drives status', () => {
+    expect(worstSubjectBalance(multi('b', [['Maths', 3], ['Science', 0.75]]))).toBe(0.75);
+    expect(worstSubjectBalance(student('a', 2))).toBe(2);
+  });
+
+  test('balance line only for several subjects, compact and owing-aware', () => {
+    expect(rosterBalanceLine(student('a', 2))).toBeNull();
+    expect(rosterBalanceLine(multi('b', [['Maths', 3], ['Science', 0.75]]))).toBe('Maths 3h · Science 45m');
+    expect(rosterBalanceLine(multi('c', [['Maths', 3], ['Science', -0.5]]))).toBe('Maths 3h · Science owes 30m');
+  });
+
+  test('hours banked / owed are summed per subject (credit in one does not hide owing in another)', () => {
+    expect(rosterHoursTotals([multi('b', [['Maths', 5], ['Science', -1]]), student('a', -2)])).toEqual({ banked: 5, owed: 3 });
+  });
+
+  test('sort by balance uses the lowest subject balance', () => {
+    const a = multi('a', [['Maths', 10], ['Science', 0.5]]);
+    const b = student('b', 2);
+    expect(sortRoster([b, a], 'balance').map(s => s.id)).toEqual(['a', 'b']);
+  });
+
+  test('search matches name or any subject', () => {
+    const a = multi('a', [['Maths', 1], ['Physical Sciences', 1]]);
+    expect(rosterMatchesSearch(a, 'phys')).toBe(true);
+    expect(rosterMatchesSearch(a, 'student a')).toBe(true);
+    expect(rosterMatchesSearch(a, 'english')).toBe(false);
+  });
+
+  test('needs attention: owing and low are per subject', () => {
+    const s = multi('m', [['Maths', 4], ['Science', -1], ['English', 0.5]]);
+    const agenda: Agenda = {
+      ...emptyAgenda,
+      upcoming: [lesson('l', 'm', '2026-10-12T10:00:00', { subject_id: 'm-English', subject_name: 'English' })],
+    };
+    const items = buildNeedsAttention({ agenda, students: [s] });
+    expect(items.map(i => [i.kind, i.detail])).toEqual([
+      ['owing', 'Science · owes 1h'],
+      ['low', 'English · 30m left · lesson booked'],
+    ]);
+    expect(new Set(items.map(i => i.key)).size).toBe(2);
+  });
+
+  test('needs attention: low subject without a booking for that subject is skipped', () => {
+    const s = multi('m', [['Maths', 0.5], ['Science', 0.5]]);
+    const agenda: Agenda = {
+      ...emptyAgenda,
+      upcoming: [lesson('l', 'm', '2026-10-12T10:00:00', { subject_id: 'm-Science' })],
+    };
+    expect(buildNeedsAttention({ agenda, students: [s] }).map(i => i.detail)).toEqual(['Science · 30m left · lesson booked']);
   });
 });

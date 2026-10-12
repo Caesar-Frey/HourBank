@@ -4,10 +4,11 @@ import { FormScreen } from '../../src/components/FormScreen';
 import { ScreenHeader } from '../../src/components/ScreenHeader';
 import { useToast } from '../../src/components/Toast';
 import { useUnsavedChangesGuard } from '../../src/hooks/useUnsavedChangesGuard';
-import { createStudent } from '../../src/db/students';
+import { isSubjectError } from '../../src/db/subjects';
+import { createStudentFromForm } from '../../src/components/student/studentSave';
 import { Button, PageHeading } from '../../src/components/student/ui';
 import {
-  EMPTY_STUDENT_FORM, formValuesToPayload, StudentFormFields, useStudentFormOptions,
+  emptyStudentForm, StudentFormFields, useStudentFormOptions,
 } from '../../src/components/student/StudentForm';
 import {
   hasErrors, isStudentFormDirty, StudentFormValues, validateStudentForm,
@@ -18,14 +19,15 @@ export default function NewStudentScreen() {
   const toast = useToast();
   const options = useStudentFormOptions();
   const savingRef = useRef(false);
-  const [values, setValues] = useState<StudentFormValues>(EMPTY_STUDENT_FORM);
+  const [initial] = useState<StudentFormValues>(() => emptyStudentForm(options));
+  const [values, setValues] = useState<StudentFormValues>(initial);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const errors = submitted ? validateStudentForm(values, options.travelMode) : {};
 
   // Unsaved-changes guard (header back, Android back, swipe) — same as Edit.
-  const { allowLeave } = useUnsavedChangesGuard(isStudentFormDirty(EMPTY_STUDENT_FORM, values), {
+  const { allowLeave } = useUnsavedChangesGuard(isStudentFormDirty(initial, values), {
     message: "This student hasn't been added yet. Leave and lose what you've typed?",
   });
 
@@ -36,7 +38,7 @@ export default function NewStudentScreen() {
     savingRef.current = true;
     setSaving(true);
     try {
-      const s = createStudent(formValuesToPayload(values));
+      const s = createStudentFromForm(values, options.travelMode);
       allowLeave();
       toast.show({
         kind: 'success',
@@ -46,10 +48,11 @@ export default function NewStudentScreen() {
         durationMs: 8000,
       });
       router.replace(`/student/${s.id}`);
-    } catch {
+    } catch (e) {
       savingRef.current = false;
       setSaving(false);
-      toast.show({ kind: 'error', message: "Couldn't save student — please try again" });
+      const message = isSubjectError(e, 'DUPLICATE') ? 'Two subjects have the same name — rename one' : "Couldn't save student — please try again";
+      toast.show({ kind: 'error', message });
     }
   }
 

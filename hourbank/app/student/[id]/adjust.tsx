@@ -7,7 +7,7 @@ import { FormScreen } from '../../../src/components/FormScreen';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
 import { useToast } from '../../../src/components/Toast';
 import { createAdjustment, getStudent } from '../../../src/db/students';
-import { currentBalance } from '../../../src/db/ledger';
+import { getPrimarySubjectId, getSubjectBalances, isSubjectError, SubjectBalance } from '../../../src/db/subjects';
 import { Student } from '../../../src/db/schema';
 import {
   Banner, Button, ChoicePills, FieldError, FieldHint, LoadingState, NotFoundState, PageHeading, SectionLabel,
@@ -24,13 +24,15 @@ const INPUT = {
 } as const;
 
 export default function AdjustBalanceScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, subjectId: subjectParam } = useLocalSearchParams<{ id: string; subjectId?: string }>();
   const router = useRouter();
   const toast = useToast();
   const savingRef = useRef(false);
 
   const [student, setStudent] = useState<Student | null>(null);
-  const [balance, setBalance] = useState(0);
+  /** Active subjects (+ archived with a balance) — each has its own balance. */
+  const [subjects, setSubjects] = useState<SubjectBalance[]>([]);
+  const [subjectId, setSubjectId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [direction, setDirection] = useState<AdjustDirection>('add');
   const [amount, setAmount] = useState('');
@@ -42,17 +44,25 @@ export default function AdjustBalanceScreen() {
     try {
       const s = getStudent(id);
       setStudent(s);
-      if (s) setBalance(currentBalance(id));
+      if (s) {
+        const list = getSubjectBalances(id);
+        setSubjects(list);
+        const fromParam = subjectParam && list.some(x => x.id === subjectParam) ? subjectParam : null;
+        setSubjectId(fromParam ?? getPrimarySubjectId(id) ?? list[0]?.id ?? null);
+      }
     } catch {
       setStudent(null);
     } finally {
       setLoaded(true);
     }
-  }, [id]);
+  }, [id, subjectParam]);
 
   if (!loaded) return <LoadingState />;
   if (!student) return <NotFoundState title="Student not found" onBack={() => router.back()} />;
 
+  const selected = subjects.find(x => x.id === subjectId) ?? null;
+  const balance = selected?.balance_hours ?? 0;
+  const multiSubject = subjects.length > 1;
   const preview = adjustmentPreview(direction, amount, balance);
   const reasonError = submitted && reason.trim() === '' ? 'Say why — this note is shown on the ledger.' : null;
   const amountError = preview.error ?? (submitted && preview.hoursDelta === null ? 'Enter how many hours.' : null);
@@ -64,13 +74,20 @@ export default function AdjustBalanceScreen() {
     savingRef.current = true;
     setSaving(true);
     try {
-      createAdjustment({ studentId: id, hoursDelta: preview.hoursDelta, reason: reason.trim() });
-      toast.show({ kind: 'success', message: `Balance corrected · now ${formatBalance(preview.balanceAfter ?? balance)}` });
+      createAdjustment({ studentId: id, hoursDelta: preview.hoursDelta, reason: reason.trim(), subjectId });
+      const now = formatBalance(preview.balanceAfter ?? balance);
+      const message = multiSubject && selected
+        ? `${selected.subject} balance corrected · now ${now}`
+        : `Balance corrected · now ${now}`;
+      toast.show({ kind: 'success', message });
       router.back();
-    } catch {
+    } catch (e) {
       savingRef.current = false;
       setSaving(false);
-      toast.show({ kind: 'error', message: "Couldn't save the correction — please try again" });
+      toast.show({
+        kind: 'error',
+        message: isSubjectError(e) ? "That subject isn't available — pick another" : "Couldn't save the correction — please try again",
+      });
     }
   }
 
@@ -79,7 +96,7 @@ export default function AdjustBalanceScreen() {
     if (!canSave || preview.hoursDelta === null) return;
     Alert.alert(
       `${direction === 'add' ? 'Add' : 'Remove'} ${preview.deltaLabel.replace(/^[+−]/, '')}?`,
-      `${preview.reviewLine}\n\nReason: ${reason.trim()}\n\nThis adds a permanent line to ${firstName}'s ledger.`,
+      `${multiSubject && selected ? `${selected.subject}: ` : ''}${preview.reviewLine}\n\nReason: ${reason.trim()}\n\nThis adds a permanent line to ${firstName}'s ledger.`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Save correction', onPress: save },
@@ -107,8 +124,19 @@ export default function AdjustBalanceScreen() {
         or deleted. Use this for mistakes; use Top up for payments.
       </Banner>
 
+      {multiSubject ? (
+        <View style={{ marginTop: 20 }}>
+          <SectionLabel>SUBJECT</SectionLabel>
+          <ChoicePills
+            options={subjects.map(x => ({ value: x.id, label: x.status === 'archived' ? `${x.subject} (archived)` : x.subject }))}
+            value={subjectId}
+            onChange={setSubjectId}
+          />
+        </View>
+      ) : null}
+
       <View style={{ marginTop: 20 }}>
-        <SectionLabel>CURRENT BALANCE</SectionLabel>
+        <SectionLabel>{multiSubject && selected ? `${selected.subject.toUpperCase()} BALANCE` : 'CURRENT BALANCE'}</SectionLabel>
         <Text style={{ fontFamily: F.monoMed, fontSize: 20, color: COLORS.ink }}>{formatBalance(balance)}</Text>
       </View>
 

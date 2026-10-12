@@ -9,11 +9,29 @@ import { ScreenHeader } from '../../src/components/ScreenHeader';
 import { useToast } from '../../src/components/Toast';
 import { listArchivedStudents, restoreStudent } from '../../src/db/students';
 import { Student } from '../../src/db/schema';
+import { getSubjectBalances } from '../../src/db/subjects';
 import { formatHours } from '../../src/utils/format';
 import { balanceColour, balanceStatus } from '../../src/utils/balance';
 import { LoadingState } from '../../src/components/student/ui';
 
-type ArchivedRow = Student & { current_balance: number };
+type ArchivedRow = Student & { current_balance: number; subjects: Array<{ name: string; balance: number }> };
+
+function withSubjects(rows: Array<Student & { current_balance: number }>): ArchivedRow[] {
+  return rows.map(r => {
+    let subjects: ArchivedRow['subjects'] = [];
+    try {
+      subjects = getSubjectBalances(r.id).map(b => ({ name: b.subject, balance: b.balance_hours }));
+    } catch { /* fall back to students.subject */ }
+    return { ...r, subjects: subjects.length > 0 ? subjects : [{ name: r.subject, balance: r.current_balance }] };
+  });
+}
+
+/** "Maths 2h · Science owes 30m" for several subjects; plain balance line for one. */
+function balanceSummary(row: ArchivedRow): string {
+  const fmt = (h: number) => (Math.round(h * 60) < 0 ? `owes ${formatHours(-h)}` : `${formatHours(h)} left`);
+  if (row.subjects.length < 2) return fmt(row.current_balance);
+  return row.subjects.map(s => `${s.name} ${Math.round(s.balance * 60) < 0 ? `owes ${formatHours(-s.balance)}` : formatHours(s.balance)}`).join(' · ');
+}
 
 export default function ArchivedStudentsScreen() {
   const router = useRouter();
@@ -24,7 +42,7 @@ export default function ArchivedStudentsScreen() {
 
   const load = useCallback(() => {
     try {
-      setRows(listArchivedStudents());
+      setRows(withSubjects(listArchivedStudents()));
       setError(null);
     } catch {
       setRows(r => r ?? []);
@@ -105,10 +123,10 @@ export default function ArchivedStudentsScreen() {
               >
                 <Text style={{ fontFamily: F.serif, fontSize: 17, color: COLORS.ink }}>{item.full_name}</Text>
                 <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginTop: 2 }}>
-                  {`GR ${item.grade} · ${item.subject}`}
+                  {`GR ${item.grade} · ${item.subjects.map(x => x.name).join(', ')}`}
                 </Text>
-                <Text style={{ fontFamily: F.mono, fontSize: 12, color: balanceColour(balanceStatus(item.current_balance)), marginTop: 4 }}>
-                  {owes ? `owes ${formatHours(-item.current_balance)}` : `${formatHours(item.current_balance)} left`}
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: balanceColour(balanceStatus(Math.min(...item.subjects.map(x => x.balance)))), marginTop: 4 }}>
+                  {balanceSummary(item)}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity

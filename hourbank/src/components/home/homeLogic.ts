@@ -4,10 +4,61 @@
 import type { Agenda, AgendaItem, OweCheck } from '../../db/sessions';
 import { DEFAULT_LESSON_MINUTES } from '../../db/sessions';
 import type { Session, Student } from '../../db/schema';
+import type { StudentSubjectBalanceSummary } from '../../db/students';
 import { formatDayShort, formatHours, formatMinutes, formatTime, pluralize } from '../../utils/format';
 import { getCurrentNudgeTier, shouldShowNudge } from '../../utils/backup';
 
-export type RosterStudent = Student & { current_balance: number; next_session: Session | null };
+export type RosterStudent = Student & {
+  current_balance: number;
+  next_session: Session | null;
+  /** Active subjects with their own balances (listActiveStudents / listPausedStudents). */
+  subject_balances?: StudentSubjectBalanceSummary[];
+};
+
+// ─── Subjects (each has its own balance) ─────────────────────────────────────
+
+/** Subject balances for a roster row; falls back to one row = the total. */
+export function rosterSubjectBalances(s: RosterStudent): StudentSubjectBalanceSummary[] {
+  if (s.subject_balances && s.subject_balances.length > 0) return s.subject_balances;
+  return [{ subject_id: '', subject: s.subject, balance_hours: s.current_balance }];
+}
+
+/** Lowest subject balance — drives the status stripe and "lowest balance" sort. */
+export function worstSubjectBalance(s: RosterStudent): number {
+  return Math.min(...rosterSubjectBalances(s).map(b => b.balance_hours));
+}
+
+function compactBalance(h: number): string {
+  return Math.round(h * 60) < 0 ? `owes ${formatHours(-h)}` : formatHours(h);
+}
+
+/** "Maths 3h · Science 45m" — null for single-subject students (card stays as before). */
+export function rosterBalanceLine(s: RosterStudent): string | null {
+  const list = rosterSubjectBalances(s);
+  if (list.length < 2) return null;
+  return list.map(b => `${b.subject} ${compactBalance(b.balance_hours)}`).join(' · ');
+}
+
+/** Hours banked / owed across students, summed per subject. */
+export function rosterHoursTotals(students: RosterStudent[]): { banked: number; owed: number } {
+  let banked = 0;
+  let owed = 0;
+  for (const s of students) {
+    for (const b of rosterSubjectBalances(s)) {
+      if (b.balance_hours > 0) banked += b.balance_hours;
+      else owed += -b.balance_hours;
+    }
+  }
+  return { banked, owed };
+}
+
+/** Search on name or any subject name (case-insensitive). */
+export function rosterMatchesSearch(s: RosterStudent, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (s.full_name.toLowerCase().includes(q) || s.subject.toLowerCase().includes(q)) return true;
+  return rosterSubjectBalances(s).some(b => b.subject.toLowerCase().includes(q));
+}
 
 // ─── Today ───────────────────────────────────────────────────────────────────
 
@@ -55,6 +106,22 @@ export function bookedStudentIds(agenda: Agenda, students: RosterStudent[]): Set
 }
 
 /**
+ * "studentId:subjectId" for every booked lesson. Lessons without a subject id
+ * (legacy rows, roster next_session) count for the student's first subject.
+ */
+export function bookedSubjectKeys(agenda: Agenda, students: RosterStudent[]): Set<string> {
+  const first = new Map(students.map(s => [s.id, rosterSubjectBalances(s)[0]?.subject_id ?? '']));
+  const keys = new Set<string>();
+  for (const l of [...agenda.today, ...agenda.upcoming, ...agenda.overdue]) {
+    keys.add(`${l.student_id}:${l.subject_id ?? first.get(l.student_id) ?? ''}`);
+  }
+  for (const s of students) {
+    if (s.next_session) keys.add(`${s.id}:${s.next_session.subject_id ?? first.get(s.id) ?? ''}`);
+  }
+  return keys;
+}
+
+/**
  * Overdue lessons (→ lesson action screen), students owing (→ student), and
  * students under 1h with a lesson booked (→ student). Order: overdue (oldest
  * first), owing (most owed first), low (lowest first).
@@ -74,28 +141,42 @@ export function buildNeedsAttention(input: { agenda: Agenda; students: RosterStu
     });
   }
 
-  const owing = students.filter(s => s.current_balance < 0).sort((a, b) => a.current_balance - b.current_balance);
-  for (const s of owing) {
+  // Per subject: each subject has its own balance. Single-subject students keep the short copy.
+  type Row = { student: RosterStudent; subjectId: string; subject: string; balance: number; multi: boolean };
+  const rows: Row[] = [];
+  for (const s of students) {
+    const list = rosterSubjectBalances(s);
+    for (const b of list) {
+      rows.push({ student: s, subjectId: b.subject_id, subject: b.subject, balance: b.balance_hours, multi: list.length > 1 });
+    }
+  }
+  const key = (kind: string, r: Row) => (r.multi ? `${kind}:${r.student.id}:${r.subjectId}` : `${kind}:${r.student.id}`);
+
+  const owing = rows.filter(r => r.balance < 0).sort((a, b) => a.balance - b.balance);
+  for (const r of owing) {
     items.push({
-      key: `owing:${s.id}`,
+      key: key('owing', r),
       kind: 'owing',
-      title: s.full_name,
-      detail: `Owes ${formatHours(-s.current_balance)}`,
-      href: `/student/${s.id}`,
+      title: r.student.full_name,
+      detail: r.multi ? `${r.subject} · owes ${formatHours(-r.balance)}` : `Owes ${formatHours(-r.balance)}`,
+      href: `/student/${r.student.id}`,
     });
   }
 
   const booked = bookedStudentIds(agenda, students);
-  const low = students
-    .filter(s => s.current_balance >= 0 && s.current_balance < 1 && booked.has(s.id))
-    .sort((a, b) => a.current_balance - b.current_balance);
-  for (const s of low) {
+  const bookedSubjects = bookedSubjectKeys(agenda, students);
+  const low = rows
+    .filter(r => r.balance >= 0 && r.balance < 1)
+    .filter(r => (r.multi ? bookedSubjects.has(`${r.student.id}:${r.subjectId}`) : booked.has(r.student.id)))
+    .sort((a, b) => a.balance - b.balance);
+  for (const r of low) {
+    const left = `${formatHours(r.balance)} left · lesson booked`;
     items.push({
-      key: `low:${s.id}`,
+      key: key('low', r),
       kind: 'low',
-      title: s.full_name,
-      detail: `${formatHours(s.current_balance)} left · lesson booked`,
-      href: `/student/${s.id}`,
+      title: r.student.full_name,
+      detail: r.multi ? `${r.subject} · ${left}` : left,
+      href: `/student/${r.student.id}`,
     });
   }
   return items;
@@ -120,7 +201,7 @@ export function sortRoster<T extends RosterStudent>(students: T[], mode: SortMod
   const arr = [...students];
   switch (mode) {
     case 'balance':
-      return arr.sort((a, b) => a.current_balance - b.current_balance);
+      return arr.sort((a, b) => worstSubjectBalance(a) - worstSubjectBalance(b));
     case 'next_session': {
       const t = (s: T) => (s.next_session?.scheduled_for ? new Date(s.next_session.scheduled_for).getTime() : Infinity);
       return arr.sort((a, b) => t(a) - t(b));

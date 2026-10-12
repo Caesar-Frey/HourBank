@@ -5,7 +5,8 @@
 import { formatHours, formatHoursSigned, formatRand, parseDecimal } from '../../utils/format';
 import { normaliseSaPhone } from '../../utils/whatsapp';
 import { defaultPreferredContact } from '../../utils/recipient';
-import type { PreferredContact } from '../../db/schema';
+import type { ParentTravelMode, PreferredContact } from '../../db/schema';
+import { SubjectDraft, subjectsChanged, validateSubjectDrafts } from './subjectLogic';
 
 const MINUS = '−';
 const MONTHS_LONG = [
@@ -235,35 +236,52 @@ export function telUri(phone: string | null | undefined): string | null {
 export type StudentFormValues = {
   fullName: string;
   grade: number | null;
-  subject: string;
   curriculum: string;
+  /** Subjects editor rows (each subject has its own balance). */
+  subjects: SubjectDraft[];
   parentName: string;
   parentPhone: string;
   /** Student's own WhatsApp number (optional). */
   studentPhone: string;
   /** Who gets messages when both numbers exist. */
   preferredContact: PreferredContact;
+  /** Tutor PAYOUT flat travel fee (claims) — shown when the tutor bills travel flat. */
   travelFlatFee: string;
+  /** Default km per in-person lesson (payout claims + parent per-km charge). */
   travelDistanceKm: string;
+  /** How the PARENT is charged for travel (in arrears, per in-person lesson). */
+  parentTravelMode: ParentTravelMode;
+  parentTravelFlatFee: string;
+  parentTravelPerKm: string;
 };
 
 export type StudentFormErrors = Partial<
-  Record<'fullName' | 'grade' | 'subject' | 'parentPhone' | 'studentPhone' | 'travel', string>
+  Record<'fullName' | 'grade' | 'subjects' | 'parentPhone' | 'studentPhone' | 'travel' | 'travelKm' | 'parentTravel', string>
 >;
+
+function badAmount(raw: string, required: boolean): boolean {
+  if (raw.trim() === '') return required;
+  const t = parseDecimal(raw);
+  return t === null || t < 0;
+}
 
 export function validateStudentForm(v: StudentFormValues, travelMode: 'flat' | 'distance'): StudentFormErrors {
   const e: StudentFormErrors = {};
   if (!v.fullName.trim()) e.fullName = "Enter the student's full name.";
   if (v.grade === null) e.grade = 'Pick a grade.';
-  if (!v.subject.trim()) e.subject = 'Enter a subject.';
+  const subjects = validateSubjectDrafts(v.subjects);
+  if (subjects) e.subjects = subjects;
   const phone = phoneFieldState(v.parentPhone);
   if (phone.error) e.parentPhone = phone.error;
   const studentPhone = phoneFieldState(v.studentPhone);
   if (studentPhone.error) e.studentPhone = studentPhone.error;
-  const travelRaw = travelMode === 'flat' ? v.travelFlatFee : v.travelDistanceKm;
-  if (travelRaw.trim() !== '') {
-    const t = parseDecimal(travelRaw);
-    if (t === null || t < 0) e.travel = travelMode === 'flat' ? 'Enter an amount, e.g. 50' : 'Enter a distance, e.g. 12,5';
+  if (travelMode === 'flat' && badAmount(v.travelFlatFee, false)) e.travel = 'Enter an amount, e.g. 50';
+  if (badAmount(v.travelDistanceKm, false)) e.travelKm = 'Enter a distance, e.g. 12,5';
+  if (v.parentTravelMode === 'flat' && badAmount(v.parentTravelFlatFee, false)) {
+    e.parentTravel = 'Enter an amount, e.g. 50';
+  }
+  if (v.parentTravelMode === 'per_km' && badAmount(v.parentTravelPerKm, true)) {
+    e.parentTravel = 'Enter a rate per km, e.g. 4,50';
   }
   return e;
 }
@@ -296,7 +314,8 @@ export function hasErrors(e: StudentFormErrors): boolean {
 
 /** Field-by-field dirty check (trim-insensitive for text). */
 export function isStudentFormDirty(initial: StudentFormValues, current: StudentFormValues): boolean {
-  const keys = Object.keys(initial) as Array<keyof StudentFormValues>;
+  if (subjectsChanged(initial.subjects, current.subjects)) return true;
+  const keys = (Object.keys(initial) as Array<keyof StudentFormValues>).filter(k => k !== 'subjects');
   return keys.some(k => {
     const a = initial[k];
     const b = current[k];

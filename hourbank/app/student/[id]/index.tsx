@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { F, MIN_TOUCH, hitSlopFor } from '../../../src/theme/fonts';
 import { COLORS } from '../../../src/theme/colors';
@@ -12,6 +12,11 @@ import { formatHours, formatScheduledTime } from '../../../src/utils/format';
 import { balanceColour, balanceStatus } from '../../../src/utils/balance';
 import { LedgerEntry, PreferredContact } from '../../../src/db/schema';
 import { reactivateStudent } from '../../../src/db/students';
+import { getPrimarySubjectId, getSubjectBalances, listStudentSubjects, SubjectBalance } from '../../../src/db/subjects';
+import type { LedgerRow } from '../../../src/db/ledger';
+import { SubjectBalanceCard } from '../../../src/components/student/SubjectBalanceCard';
+import { TravelOwedCard } from '../../../src/components/student/TravelOwedCard';
+import { lessonSubjectName, lowestSubject } from '../../../src/components/student/subjectLogic';
 import { getOrCreateTutorProfile, PackageTier } from '../../../src/db/tutorProfile';
 import { buildLowBalanceReminderText } from '../../../src/utils/parentMessages';
 import { openWhatsApp } from '../../../src/utils/whatsapp';
@@ -55,6 +60,28 @@ export default function StudentDetailScreen() {
   const { student, balance, ledger, upcomingProjected, pastSessions, loading, reload } = useStudent(id);
   const [showMenu, setShowMenu] = useState(false);
   const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
+  // Each subject has its own balance (migration 009).
+  const [subjects, setSubjects] = useState<SubjectBalance[]>([]);
+  const [subjectNames, setSubjectNames] = useState<Record<string, string>>({});
+  const [primaryId, setPrimaryId] = useState<string | null>(null);
+
+  const loadSubjects = useCallback(() => {
+    try {
+      setSubjects(getSubjectBalances(id));
+      const names: Record<string, string> = {};
+      for (const s of listStudentSubjects(id, { includeArchived: true })) names[s.id] = s.subject;
+      setSubjectNames(names);
+      setPrimaryId(getPrimarySubjectId(id));
+    } catch {
+      setSubjects([]);
+    }
+  }, [id]);
+  useFocusEffect(loadSubjects);
+
+  const reloadAll = useCallback(() => {
+    reload();
+    loadSubjects();
+  }, [reload, loadSubjects]);
 
   if (loading) return <LoadingState />;
   if (!student) return <NotFoundState title="Student not found" onBack={() => router.back()} />;
@@ -64,7 +91,14 @@ export default function StudentDetailScreen() {
   const statusColour = balanceColour(balanceStatus(balance));
   const nextLesson = upcomingProjected[0];
   const modeLabel = nextLesson ? (nextLesson.mode === 'online' ? 'Online' : 'In-person') : null;
-  const showReminder = shouldOfferTopUpReminder(balance);
+  const activeSubjects = subjects.filter(s => s.status === 'active');
+  // Single-subject students look exactly like before (no per-subject clutter).
+  const multiSubject = subjects.length > 1;
+  const lowest = lowestSubject(subjects);
+  const reminderBalance = multiSubject && lowest ? lowest.balance_hours : balance;
+  const showReminder = shouldOfferTopUpReminder(reminderBalance);
+  const subjectLine = activeSubjects.length > 0 ? activeSubjects.map(s => s.subject).join(' · ') : student.subject;
+  const subjectQuery = (subjectId: string) => `subjectId=${encodeURIComponent(subjectId)}`;
 
   let statusTip: string | null = null;
   if (isOwes) statusTip = 'Owes hours — top-up required.';
@@ -103,7 +137,7 @@ export default function StudentDetailScreen() {
       name,
       onPaused: () => {
         toast.show({ kind: 'success', message: `${nameParts[0]} paused` });
-        reload();
+        reloadAll();
       },
       onError: showError,
     });
@@ -113,7 +147,7 @@ export default function StudentDetailScreen() {
     try {
       reactivateStudent(id);
       toast.show({ kind: 'success', message: `${nameParts[0]} is active again` });
-      reload();
+      reloadAll();
     } catch {
       showError("Couldn't reactivate — please try again");
     }
@@ -126,13 +160,14 @@ export default function StudentDetailScreen() {
     try {
       const profile = getOrCreateTutorProfile();
       const tiers = profile.tier_system_enabled === 1 ? parseTiers(profile.package_tiers) : [];
-      const pkg = suggestTopUpPackage(tiers, balance);
+      // Multi-subject: remind about the subject that is lowest.
+      const pkg = suggestTopUpPackage(tiers, reminderBalance);
       const text = buildLowBalanceReminderText({
         tutorName: profile.full_name,
         studentName: nameParts[0],
         recipientName: recipient.name,
         audience: recipient.who,
-        balanceHours: balance,
+        balanceHours: reminderBalance,
         suggestedPackage: pkg ? { hours: pkg.hours, price: pkg.price } : null,
         paymentDetails: profile.payment_details,
         paymentReference: buildPaymentReference(profile.payment_reference_template, student),
@@ -193,43 +228,69 @@ export default function StudentDetailScreen() {
             {lastName ? `\n${lastName}` : ''}
           </Text>
           <Text style={{ fontFamily: F.serifItalic, fontSize: 15, color: COLORS.inkSoft, marginTop: 4 }}>
-            {modeLabel ? `${student.subject} · ${modeLabel}` : student.subject}
+            {modeLabel ? `${subjectLine} · ${modeLabel}` : subjectLine}
           </Text>
         </View>
 
-        {/* Balance hero */}
-        <View
-          accessible
-          accessibilityLabel={`${isOwes ? 'Owes' : 'Balance'} ${formatHours(Math.abs(balance))}`}
-          style={{ borderWidth: 1.5, borderColor: COLORS.ink, borderRadius: 16, padding: 20, backgroundColor: COLORS.paperDeep }}
-        >
+        {multiSubject ? (
+          <View style={{ gap: 10 }}>
+            {subjects.map(sub => (
+              <SubjectBalanceCard
+                key={sub.id}
+                subject={sub.subject}
+                balanceHours={sub.balance_hours}
+                archived={sub.status === 'archived'}
+                onTopUp={() => router.push(`/student/${id}/top-up?${subjectQuery(sub.id)}`)}
+                onRecord={() => router.push(`/student/${id}/log-past?${subjectQuery(sub.id)}`)}
+                onBook={() => router.push(`/student/${id}/schedule?${subjectQuery(sub.id)}`)}
+              />
+            ))}
+            {nextLesson?.scheduled_for ? (
+              <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint }}>
+                {`Next: ${formatScheduledTime(nextLesson.scheduled_for)} · ${lessonSubjectName(nextLesson.subject_id, subjectNames, primaryId) ?? ''} · ${modeLabel}`}
+              </Text>
+            ) : null}
+          </View>
+        ) : (
+          <>
+          {/* Balance hero */}
           <View
-            pointerEvents="none"
-            style={{ position: 'absolute', top: 12, left: 12, right: 12, bottom: 12, borderWidth: 0.5, borderColor: COLORS.inkHairline, borderRadius: 12 }}
-          />
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: isOwes ? COLORS.oxblood : COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
-            {isOwes ? '★ HOURS OWED' : '★ REMAINING BALANCE'}
-          </Text>
-          <Text style={{ fontFamily: F.monoMed, fontSize: 44, color: statusColour, lineHeight: 52 }}>
-            {formatHours(Math.abs(balance))}
-          </Text>
-          {statusTip ? (
-            <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: COLORS.inkSoft, marginTop: 4 }}>{statusTip}</Text>
-          ) : null}
-          {nextLesson?.scheduled_for ? (
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginTop: 6 }}>
-              {`Next: ${formatScheduledTime(nextLesson.scheduled_for)} · ${modeLabel}`}
+            accessible
+            accessibilityLabel={`${isOwes ? 'Owes' : 'Balance'} ${formatHours(Math.abs(balance))}`}
+            style={{ borderWidth: 1.5, borderColor: COLORS.ink, borderRadius: 16, padding: 20, backgroundColor: COLORS.paperDeep }}
+          >
+            <View
+              pointerEvents="none"
+              style={{ position: 'absolute', top: 12, left: 12, right: 12, bottom: 12, borderWidth: 0.5, borderColor: COLORS.inkHairline, borderRadius: 12 }}
+            />
+            <Text style={{ fontFamily: F.mono, fontSize: 11, color: isOwes ? COLORS.oxblood : COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+              {isOwes ? '★ HOURS OWED' : '★ REMAINING BALANCE'}
             </Text>
-          ) : null}
-        </View>
+            <Text style={{ fontFamily: F.monoMed, fontSize: 44, color: statusColour, lineHeight: 52 }}>
+              {formatHours(Math.abs(balance))}
+            </Text>
+            {statusTip ? (
+              <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: COLORS.inkSoft, marginTop: 4 }}>{statusTip}</Text>
+            ) : null}
+            {nextLesson?.scheduled_for ? (
+              <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginTop: 6 }}>
+                {`Next: ${formatScheduledTime(nextLesson.scheduled_for)} · ${modeLabel}`}
+              </Text>
+            ) : null}
+          </View>
+
+          </>
+        )}
 
         {/* Primary actions */}
         <View style={{ marginTop: 16, gap: 10 }}>
           <Button label="Start lesson now" icon="play" onPress={() => router.push(`/start-lesson?studentId=${id}`)} />
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <Button label="Book lesson" icon="calendar" variant="secondary" style={{ flex: 1 }} onPress={() => router.push(`/student/${id}/schedule`)} />
-            <Button label="Top up" icon="plus" variant="secondary" style={{ flex: 1 }} onPress={() => router.push(`/student/${id}/top-up`)} />
-          </View>
+          {multiSubject ? null : (
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Button label="Book lesson" icon="calendar" variant="secondary" style={{ flex: 1 }} onPress={() => router.push(`/student/${id}/schedule`)} />
+              <Button label="Top up" icon="plus" variant="secondary" style={{ flex: 1 }} onPress={() => router.push(`/student/${id}/top-up`)} />
+            </View>
+          )}
           {showReminder ? (
             <View style={{ gap: 8 }}>
               <RecipientChooser student={student} value={recipient.who} onChange={setSendTo} />
@@ -240,8 +301,18 @@ export default function StudentDetailScreen() {
                 onPress={sendReminder}
                 accessibilityHint={`Opens WhatsApp with a reminder for the ${recipient.who}`}
               />
+              {multiSubject && lowest ? (
+                <Text style={{ fontFamily: F.serifItalic, fontSize: 12, color: COLORS.inkSoft, textAlign: 'center' }}>
+                  {`About ${lowest.subject} — the lowest balance.`}
+                </Text>
+              ) : null}
             </View>
           ) : null}
+        </View>
+
+        {/* Parent travel owed (B3) */}
+        <View style={{ marginTop: 16 }}>
+          <TravelOwedCard studentId={id} onChanged={reloadAll} />
         </View>
 
         {/* Contacts */}
@@ -283,6 +354,7 @@ export default function StudentDetailScreen() {
                     </Text>
                     <Text numberOfLines={1} style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkSoft, marginTop: 2 }}>
                       {session.mode === 'online' ? 'Online' : 'In-person'}
+                      {multiSubject ? ` · ${lessonSubjectName(session.subject_id, subjectNames, primaryId) ?? ''}` : ''}
                       {topic ? ` · ${topic}` : ''}
                     </Text>
                     {warn ? (
@@ -330,6 +402,7 @@ export default function StudentDetailScreen() {
                 key={entry.id}
                 entry={entry}
                 sessionTopics={pastSessions.find(s => s.id === entry.related_session_id)?.topics}
+                subjectName={multiSubject ? (entry as LedgerRow).subject_name : null}
                 onPress={() => openLedgerEntry(entry)}
               />
             ))
