@@ -1,5 +1,5 @@
 import { getDb } from './client';
-import { Student, Session, LedgerEntry } from './schema';
+import { Student, Session, LedgerEntry, PreferredContact } from './schema';
 import { appendEntry } from './ledger';
 import { newId } from './uuid';
 
@@ -51,6 +51,8 @@ export function createStudent(data: {
   payoutRateOverride?: number | null;
   parentName?: string | null;
   parentPhone?: string | null;
+  studentPhone?: string | null;
+  preferredContact?: PreferredContact;
 }): Student {
   const db = getDb();
   const id = newId();
@@ -60,11 +62,13 @@ export function createStudent(data: {
   const payoutRateOverride = data.payoutRateOverride ?? null;
   const parentName = blankToNull(data.parentName);
   const parentPhone = blankToNull(data.parentPhone);
+  const studentPhone = blankToNull(data.studentPhone);
+  const preferredContact: PreferredContact = data.preferredContact === 'student' ? 'student' : 'parent';
 
   db.runSync(
-    `INSERT INTO students (id, full_name, grade, subject, curriculum, status, travel_flat_fee, travel_distance_km, payout_rate_override, parent_name, parent_phone, created_at)
-     VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
-    [id, data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, parentName, parentPhone, now]
+    `INSERT INTO students (id, full_name, grade, subject, curriculum, status, travel_flat_fee, travel_distance_km, payout_rate_override, parent_name, parent_phone, student_phone, preferred_contact, created_at)
+     VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, parentName, parentPhone, studentPhone, preferredContact, now]
   );
 
   return {
@@ -80,6 +84,8 @@ export function createStudent(data: {
     payout_rate_override: payoutRateOverride,
     parent_name: parentName,
     parent_phone: parentPhone,
+    student_phone: studentPhone,
+    preferred_contact: preferredContact,
   };
 }
 
@@ -128,6 +134,10 @@ export function updateStudent(id: string, data: {
   parentName?: string | null;
   /** undefined = keep existing; null/'' = clear. */
   parentPhone?: string | null;
+  /** undefined = keep existing; null/'' = clear. */
+  studentPhone?: string | null;
+  /** undefined = keep existing. */
+  preferredContact?: PreferredContact;
 }): void {
   const db = getDb();
   // Preserve existing travel/override/parent values when a caller omits them, so editing
@@ -138,7 +148,9 @@ export function updateStudent(id: string, data: {
     payout_rate_override: number | null;
     parent_name: string | null;
     parent_phone: string | null;
-  }>('SELECT travel_flat_fee, travel_distance_km, payout_rate_override, parent_name, parent_phone FROM students WHERE id = ?', [id]);
+    student_phone: string | null;
+    preferred_contact: PreferredContact | null;
+  }>('SELECT travel_flat_fee, travel_distance_km, payout_rate_override, parent_name, parent_phone, student_phone, preferred_contact FROM students WHERE id = ?', [id]);
 
   const travelFlatFee = data.travelFlatFee ?? existing?.travel_flat_fee ?? 0;
   const travelDistanceKm = data.travelDistanceKm ?? existing?.travel_distance_km ?? 0;
@@ -147,9 +159,13 @@ export function updateStudent(id: string, data: {
   const parentName = data.parentName !== undefined ? blankToNull(data.parentName) : existing?.parent_name ?? null;
   const parentPhone = data.parentPhone !== undefined ? blankToNull(data.parentPhone) : existing?.parent_phone ?? null;
 
+  const studentPhone = data.studentPhone !== undefined ? blankToNull(data.studentPhone) : existing?.student_phone ?? null;
+  const preferredContact: PreferredContact =
+    (data.preferredContact ?? existing?.preferred_contact) === 'student' ? 'student' : 'parent';
+
   db.runSync(
-    'UPDATE students SET full_name=?, grade=?, subject=?, curriculum=?, travel_flat_fee=?, travel_distance_km=?, payout_rate_override=?, parent_name=?, parent_phone=? WHERE id=?',
-    [data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, parentName, parentPhone, id]
+    'UPDATE students SET full_name=?, grade=?, subject=?, curriculum=?, travel_flat_fee=?, travel_distance_km=?, payout_rate_override=?, parent_name=?, parent_phone=?, student_phone=?, preferred_contact=? WHERE id=?',
+    [data.fullName, data.grade, data.subject, data.curriculum, travelFlatFee, travelDistanceKm, payoutRateOverride, parentName, parentPhone, studentPhone, preferredContact, id]
   );
 }
 

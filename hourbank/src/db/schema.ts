@@ -15,7 +15,13 @@ export type Student = {
   parent_name?: string | null;
   /** WhatsApp/phone number as typed by the tutor (normalise at send time). Migration 007. */
   parent_phone?: string | null;
+  /** Student's own WhatsApp number (some students handle payments themselves). Migration 008. */
+  student_phone?: string | null;
+  /** Who receives outgoing messages by default when both numbers exist. Migration 008. */
+  preferred_contact?: PreferredContact;
 };
+
+export type PreferredContact = 'parent' | 'student';
 
 export type CreditPackage = {
   id: string;

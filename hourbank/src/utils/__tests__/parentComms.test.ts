@@ -153,6 +153,66 @@ describe('parent message builders', () => {
   });
 });
 
+describe('message wording for parent vs student recipient', () => {
+  const lesson = {
+    studentName: 'Amahle Dlamini',
+    startedAt: '2026-10-09T07:30:00.000Z',
+    billedMinutes: 60,
+    balanceAfter: 3,
+  };
+
+  it('lesson receipt: parent recipient', () => {
+    const text = buildLessonReceiptText({ ...lesson, recipientName: 'Thandi Dlamini', audience: 'parent' });
+    expect(text).toContain('Hi Thandi,');
+    expect(text).toContain('Lesson summary for Amahle Dlamini');
+  });
+
+  it('lesson receipt: student recipient', () => {
+    const text = buildLessonReceiptText({ ...lesson, recipientName: 'Amahle', audience: 'student' });
+    expect(text).toContain('Hi Amahle,');
+    expect(text).toContain('Your lesson summary');
+    expect(text).not.toContain('for Amahle Dlamini');
+    expect(text).toContain('Your balance remaining: 3h');
+  });
+
+  it('top-up: student recipient', () => {
+    const text = buildTopUpText({
+      studentName: 'Amahle Dlamini',
+      recipientName: 'Amahle',
+      audience: 'student',
+      hoursAdded: 5,
+      amountPaid: 3000,
+      newBalance: 6,
+      paidAt: '2026-10-09T07:30:00.000Z',
+    });
+    expect(text).toContain('Hi Amahle,');
+    expect(text).toContain('Payment received for your lessons on Fri 9 Oct 2026.');
+    expect(text).toContain('Your new balance: 6h');
+  });
+
+  it('reminder: parent says "Amahle\'s", student says "your"', () => {
+    const base = { studentName: 'Amahle Dlamini', balanceHours: 0.5 };
+    expect(buildLowBalanceReminderText({ ...base, recipientName: 'Thandi', audience: 'parent' })).toContain(
+      "Amahle Dlamini's lesson balance is low: 30m remaining."
+    );
+    const s = buildLowBalanceReminderText({ ...base, recipientName: 'Amahle', audience: 'student' });
+    expect(s).toContain('Hi Amahle,');
+    expect(s).toContain('your lesson balance is low: 30m remaining.');
+    const owing = buildLowBalanceReminderText({ ...base, balanceHours: -1, audience: 'student' });
+    expect(owing).toContain('your lesson account is owing 1h.');
+  });
+
+  it('reminder uses the supplied payment reference only with payment details', () => {
+    const base = { studentName: 'Amahle Dlamini', balanceHours: 0.5, paymentReference: 'DLAMINIA' };
+    expect(buildLowBalanceReminderText({ ...base, paymentDetails: 'FNB 1' })).toContain('Reference: DLAMINIA');
+    expect(buildLowBalanceReminderText(base)).not.toContain('Reference');
+  });
+
+  it('parentName still works as the greeting name (back-compat)', () => {
+    expect(buildLessonReceiptText({ ...lesson, parentName: 'Thandi' })).toContain('Hi Thandi,');
+  });
+});
+
 describe('notifications (no side effects, return text)', () => {
   it('returns built text without logging', async () => {
     const spy = jest.spyOn(console, 'log').mockImplementation(() => {});

@@ -46,6 +46,9 @@ jest.mock('../../../utils/backup', () => ({
   importBackup: jest.fn(),
 }));
 jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn() }));
+jest.mock('../../../db/students', () => ({
+  listActiveStudents: jest.fn(() => [{ id: 'stu-1', full_name: 'Sipho Ndlovu' }]),
+}));
 
 import SettingsScreen from '../../../../app/(app)/profile';
 import { upsertTutorProfile } from '../../../db/tutorProfile';
@@ -66,6 +69,32 @@ test('parent price autosaves on blur with SA decimal input and a Saved toast', (
   fireEvent(field, 'blur');
   expect(upsertTutorProfile).toHaveBeenCalledWith({ parent_hourly_price: 450.5 });
   expect(mockToast).toHaveBeenCalledWith({ kind: 'success', message: 'Saved' });
+});
+
+test('payment reference: live preview from first student, chips insert + autosave, long warning', () => {
+  const screen = render(<SettingsScreen />);
+  const field = screen.getByTestId('payment-reference-template');
+  expect(screen.getByText('Preview: Sipho Ndlovu')).toBeTruthy();
+
+  fireEvent.changeText(field, '{SURNAME}{initial}');
+  expect(screen.getByText('Preview: NDLOVUS')).toBeTruthy();
+  fireEvent(field, 'blur');
+  expect(upsertTutorProfile).toHaveBeenCalledWith({ payment_reference_template: '{SURNAME}{initial}' });
+  expect(mockToast).toHaveBeenCalledWith({ kind: 'success', message: 'Saved' });
+
+  fireEvent.press(screen.getByLabelText('Insert Month'));
+  expect(upsertTutorProfile).toHaveBeenLastCalledWith({ payment_reference_template: '{SURNAME}{initial} {month}' });
+
+  fireEvent.changeText(field, '{first} {surname} {month} {id}');
+  expect(screen.getByText(/Most banks allow/)).toBeTruthy();
+});
+
+test('payment reference: blank resets to the default', () => {
+  const screen = render(<SettingsScreen />);
+  const field = screen.getByTestId('payment-reference-template');
+  fireEvent.changeText(field, '   ');
+  fireEvent(field, 'blur');
+  expect(upsertTutorProfile).toHaveBeenCalledWith({ payment_reference_template: '{first} {surname}' });
 });
 
 test('payout rate is a separate column', () => {

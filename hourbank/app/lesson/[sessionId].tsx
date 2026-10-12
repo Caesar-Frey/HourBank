@@ -30,9 +30,11 @@ import { currentBalance } from '../../src/db/ledger';
 import { getDb } from '../../src/db/client';
 import { formatDateLong, formatMinutes, formatTimeRange } from '../../src/utils/format';
 import { balanceColour, balanceStatus } from '../../src/utils/balance';
-import { Session, LedgerEntry, Student } from '../../src/db/schema';
+import { Session, LedgerEntry, Student, PreferredContact } from '../../src/db/schema';
 import { getLessonReceiptText, getSessionReceipt, shareSessionReceipt } from '../../src/utils/receipt';
-import { normaliseSaPhone, openWhatsApp } from '../../src/utils/whatsapp';
+import { openWhatsApp } from '../../src/utils/whatsapp';
+import { resolveRecipient } from '../../src/utils/recipient';
+import { RecipientChooser } from '../../src/components/student/RecipientChooser';
 import {
   PDF_SHARE_SHEET_OPENED_TOAST,
   SHARE_SHEET_OPENED_TOAST,
@@ -90,6 +92,7 @@ export default function LessonDetailScreen() {
   const [messageSent, setMessageSent] = useState<ShareStamp>(null);
   const [busy, setBusy] = useState<null | 'pdf' | 'whatsapp'>(null);
   const [noShowOpen, setNoShowOpen] = useState(false);
+  const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
 
   const load = useCallback(() => {
     try {
@@ -167,7 +170,9 @@ export default function LessonDetailScreen() {
   const isUpcoming = kind === 'scheduled' || kind === 'overdue';
   const hasStarted = session.scheduled_for ? new Date(session.scheduled_for).getTime() <= Date.now() : true;
   const studentName = student?.full_name ?? 'Student';
-  const parentPhone = normaliseSaPhone(student?.parent_phone);
+  const recipient = student
+    ? resolveRecipient(student, sendTo)
+    : { phone: null, name: null, who: 'parent' as const };
 
   // ── When ──
   const whenStart = session.started_at ?? session.scheduled_for;
@@ -213,15 +218,15 @@ export default function LessonDetailScreen() {
   // ── Actions ──
   async function handleWhatsApp() {
     if (busy) return;
-    const text = getLessonReceiptText(sessionId, { parentName: student?.parent_name });
+    const text = getLessonReceiptText(sessionId, { recipientName: recipient.name, audience: recipient.who });
     if (!text) {
       toast.show({ kind: 'error', message: "Couldn't build the lesson summary" });
       return;
     }
     setBusy('whatsapp');
     try {
-      if (parentPhone) {
-        const result = await openWhatsApp(parentPhone, text);
+      if (recipient.phone) {
+        const result = await openWhatsApp(recipient.phone, text);
         if (result === 'dismissed') return;
         setMessageSent({ via: result === 'whatsapp' ? 'whatsapp' : 'sheet', at: new Date().toISOString() });
         toast.show({ kind: 'success', message: result === 'whatsapp' ? 'Opened in WhatsApp — tap send there' : SHARE_SHEET_OPENED_TOAST });
@@ -408,19 +413,22 @@ export default function LessonDetailScreen() {
         {kind === 'completed' && (
           <View style={{ marginTop: 8, gap: 10 }}>
             {justSaved ? (
-              <Text style={{ fontFamily: F.serifItalic, fontSize: 18, color: COLORS.ink, marginBottom: 2 }}>Let the parent know.</Text>
+              <Text style={{ fontFamily: F.serifItalic, fontSize: 18, color: COLORS.ink, marginBottom: 2 }}>
+                {recipient.who === 'student' ? `Let ${recipient.name ?? 'the student'} know.` : 'Let the parent know.'}
+              </Text>
             ) : null}
+            <RecipientChooser student={student} value={recipient.who} onChange={setSendTo} />
             <PrimaryButton
-              label={summaryShareLabel(messageSent, { parentPhone: !!parentPhone, parentName: student?.parent_name })}
+              label={summaryShareLabel(messageSent, { parentPhone: !!recipient.phone, parentName: recipient.name })}
               onPress={handleWhatsApp}
               busy={busy === 'whatsapp'}
               done={messageSent != null}
             />
             <SecondaryButton label={pdfShareLabel(pdfSharedAt)} onPress={handleSharePdf} busy={busy === 'pdf'} />
-            {!parentPhone ? (
+            {!recipient.phone ? (
               <TouchableOpacity onPress={() => router.push(`/student/${session.student_id}/edit`)} style={{ minHeight: MIN_TOUCH, justifyContent: 'center' }}>
                 <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkSoft, textAlign: 'center' }}>
-                  Add a parent WhatsApp number to send directly →
+                  Add a parent or student WhatsApp number to send directly →
                 </Text>
               </TouchableOpacity>
             ) : null}

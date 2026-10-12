@@ -4,6 +4,8 @@
  */
 import { formatHours, formatHoursSigned, formatRand, parseDecimal } from '../../utils/format';
 import { normaliseSaPhone } from '../../utils/whatsapp';
+import { defaultPreferredContact } from '../../utils/recipient';
+import type { PreferredContact } from '../../db/schema';
 
 const MINUS = '−';
 const MONTHS_LONG = [
@@ -237,11 +239,17 @@ export type StudentFormValues = {
   curriculum: string;
   parentName: string;
   parentPhone: string;
+  /** Student's own WhatsApp number (optional). */
+  studentPhone: string;
+  /** Who gets messages when both numbers exist. */
+  preferredContact: PreferredContact;
   travelFlatFee: string;
   travelDistanceKm: string;
 };
 
-export type StudentFormErrors = Partial<Record<'fullName' | 'grade' | 'subject' | 'parentPhone' | 'travel', string>>;
+export type StudentFormErrors = Partial<
+  Record<'fullName' | 'grade' | 'subject' | 'parentPhone' | 'studentPhone' | 'travel', string>
+>;
 
 export function validateStudentForm(v: StudentFormValues, travelMode: 'flat' | 'distance'): StudentFormErrors {
   const e: StudentFormErrors = {};
@@ -250,12 +258,36 @@ export function validateStudentForm(v: StudentFormValues, travelMode: 'flat' | '
   if (!v.subject.trim()) e.subject = 'Enter a subject.';
   const phone = phoneFieldState(v.parentPhone);
   if (phone.error) e.parentPhone = phone.error;
+  const studentPhone = phoneFieldState(v.studentPhone);
+  if (studentPhone.error) e.studentPhone = studentPhone.error;
   const travelRaw = travelMode === 'flat' ? v.travelFlatFee : v.travelDistanceKm;
   if (travelRaw.trim() !== '') {
     const t = parseDecimal(travelRaw);
     if (t === null || t < 0) e.travel = travelMode === 'flat' ? 'Enter an amount, e.g. 50' : 'Enter a distance, e.g. 12,5';
   }
   return e;
+}
+
+/** "Send messages to" is only a real choice when both numbers are usable. */
+export function showPreferredContactChoice(v: Pick<StudentFormValues, 'parentPhone' | 'studentPhone'>): boolean {
+  return !!phoneFieldState(v.parentPhone).stored && !!phoneFieldState(v.studentPhone).stored;
+}
+
+/** Contact part of the createStudent/updateStudent payload (assumes validation passed). */
+export function studentContactPayload(v: StudentFormValues): {
+  parentName: string | null;
+  parentPhone: string | null;
+  studentPhone: string | null;
+  preferredContact: PreferredContact;
+} {
+  const parentPhone = phoneFieldState(v.parentPhone).stored;
+  const studentPhone = phoneFieldState(v.studentPhone).stored;
+  return {
+    parentName: v.parentName.trim() || null,
+    parentPhone,
+    studentPhone,
+    preferredContact: defaultPreferredContact(parentPhone, studentPhone, v.preferredContact),
+  };
 }
 
 export function hasErrors(e: StudentFormErrors): boolean {

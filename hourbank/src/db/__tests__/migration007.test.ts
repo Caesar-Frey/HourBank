@@ -34,8 +34,8 @@ function insertLedger(db: TestDb, id: string, type: string, delta: number, reaso
 }
 
 describe('ALL_MIGRATIONS', () => {
-  it('ends with migration 007', () => {
-    expect(ALL_MIGRATIONS[ALL_MIGRATIONS.length - 1]).toBe(MIGRATION_007_AUDIT_REMEDIATION);
+  it('includes migration 007', () => {
+    expect(ALL_MIGRATIONS).toContain(MIGRATION_007_AUDIT_REMEDIATION);
     expect(MIGRATION_007_AUDIT_REMEDIATION.version).toBe('007_audit_remediation');
   });
 });

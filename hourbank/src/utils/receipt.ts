@@ -6,6 +6,7 @@ import { newId } from '../db/uuid';
 import { escapeHtml, escapeHtmlMultiline } from './html';
 import { formatDateLong, formatHours, formatMinutes, formatRand, formatTime } from './format';
 import { buildLessonReceiptText, buildTopUpText } from './parentMessages';
+import type { MessageAudience } from './parentMessages';
 
 export {
   buildLessonReceiptText,
@@ -249,14 +250,24 @@ function loadTopUpReceiptData(packageId: string): TopUpReceiptData | null {
 
 // ─── Plain-text (WhatsApp) receipts from stored data ─────────────────────────
 
+/** Who the WhatsApp text is addressed to (see utils/recipient). */
+export type ReceiptTextOpts = {
+  /** @deprecated use recipientName */
+  parentName?: string | null;
+  recipientName?: string | null;
+  audience?: MessageAudience;
+};
+
 /** Lesson summary text for WhatsApp; null if the session doesn't exist. */
-export function getLessonReceiptText(sessionId: string, opts: { parentName?: string | null } = {}): string | null {
+export function getLessonReceiptText(sessionId: string, opts: ReceiptTextOpts = {}): string | null {
   const d = loadSessionReceiptData(sessionId);
   if (!d) return null;
   return buildLessonReceiptText({
     tutorName: d.tutorName,
     studentName: d.studentName,
     parentName: opts.parentName,
+    recipientName: opts.recipientName,
+    audience: opts.audience,
     startedAt: d.startedAt ?? d.endedAt ?? new Date().toISOString(),
     endedAt: d.startedAt ? d.endedAt : null,
     billedMinutes: d.billedMinutes,
@@ -267,10 +278,10 @@ export function getLessonReceiptText(sessionId: string, opts: { parentName?: str
 }
 
 /** Top-up confirmation text for WhatsApp; null if the package doesn't exist. */
-export function getTopUpReceiptText(packageId: string, opts: { parentName?: string | null } = {}): string | null {
+export function getTopUpReceiptText(packageId: string, opts: ReceiptTextOpts = {}): string | null {
   const d = loadTopUpReceiptData(packageId);
   if (!d) return null;
-  return buildTopUpText({ ...d, parentName: opts.parentName });
+  return buildTopUpText({ ...d, parentName: opts.parentName, recipientName: opts.recipientName, audience: opts.audience });
 }
 
 // ─── PDF share ────────────────────────────────────────────────────────────────

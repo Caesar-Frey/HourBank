@@ -13,7 +13,15 @@ import { SHOW_ALL_GRADES_KEY, SUBJECT_SUGGESTIONS } from '../../config';
 import { Student } from '../../db/schema';
 import { parseDecimal } from '../../utils/format';
 import { FieldError, FieldHint, SectionLabel } from './ui';
-import { phoneFieldState, StudentFormErrors, StudentFormValues } from './flowLogic';
+import {
+  phoneFieldState,
+  showPreferredContactChoice,
+  studentContactPayload,
+  StudentFormErrors,
+  StudentFormValues,
+} from './flowLogic';
+import { SegmentedControl } from '../calendar/SegmentedControl';
+import type { PreferredContact } from '../../db/schema';
 
 
 const ALL_GRADES =Array.from({ length: 12 }, (_, i) => i + 1);
@@ -27,6 +35,8 @@ export const EMPTY_STUDENT_FORM: StudentFormValues = {
   curriculum: 'CAPS',
   parentName: '',
   parentPhone: '',
+  studentPhone: '',
+  preferredContact: 'parent',
   travelFlatFee: '',
   travelDistanceKm: '',
 };
@@ -39,6 +49,8 @@ export function studentToFormValues(s: Student): StudentFormValues {
     curriculum: s.curriculum,
     parentName: s.parent_name ?? '',
     parentPhone: s.parent_phone ?? '',
+    studentPhone: s.student_phone ?? '',
+    preferredContact: s.preferred_contact === 'student' ? 'student' : 'parent',
     travelFlatFee: s.travel_flat_fee ? String(s.travel_flat_fee) : '',
     travelDistanceKm: s.travel_distance_km ? String(s.travel_distance_km) : '',
   };
@@ -53,8 +65,7 @@ export function formValuesToPayload(v: StudentFormValues) {
     curriculum: v.curriculum as Student['curriculum'],
     travelFlatFee: parseDecimal(v.travelFlatFee) ?? 0,
     travelDistanceKm: parseDecimal(v.travelDistanceKm) ?? 0,
-    parentName: v.parentName.trim() || null,
-    parentPhone: phoneFieldState(v.parentPhone).stored,
+    ...studentContactPayload(v),
   };
 }
 
@@ -132,6 +143,14 @@ export function StudentFormFields({ values, onChange, errors, options }: Props) 
     .filter(s => s.toLowerCase().includes(values.subject.trim().toLowerCase()) && s !== values.subject)
     .slice(0, 6);
   const phone = phoneFieldState(values.parentPhone);
+  const studentPhone = phoneFieldState(values.studentPhone);
+  const showContactChoice = showPreferredContactChoice(values);
+  const parentFirst = values.parentName.trim().split(/\s+/)[0];
+  const studentFirst = values.fullName.trim().split(/\s+/)[0];
+  const contactOptions: Array<{ value: PreferredContact; label: string }> = [
+    { value: 'parent', label: parentFirst ? `Parent (${parentFirst})` : 'Parent' },
+    { value: 'student', label: studentFirst ? `Student (${studentFirst})` : 'Student' },
+  ];
   const curricula = options.curricula.includes(values.curriculum as Student['curriculum'])
     ? options.curricula
     : [...options.curricula, values.curriculum as Student['curriculum']];
@@ -230,7 +249,7 @@ export function StudentFormFields({ values, onChange, errors, options }: Props) 
         </View>
       </Field>
 
-      <Text style={{ fontFamily: F.serifItalic, fontSize: 18, color: COLORS.ink, marginTop: 8, marginBottom: 12 }}>Parent</Text>
+      <Text style={{ fontFamily: F.serifItalic, fontSize: 18, color: COLORS.ink, marginTop: 8, marginBottom: 12 }}>Contacts</Text>
 
       <Field label="Parent name (optional)">
         <TextInput
@@ -262,6 +281,35 @@ export function StudentFormFields({ values, onChange, errors, options }: Props) 
           <FieldHint>Used for lesson receipts and top-up reminders.</FieldHint>
         ) : null}
       </Field>
+
+      <Field label="Student's WhatsApp number (optional)" error={errors.studentPhone}>
+        <TextInput
+          value={values.studentPhone}
+          onChangeText={v => onChange({ studentPhone: v })}
+          placeholder="e.g. 083 111 2222"
+          placeholderTextColor={COLORS.inkFaint}
+          keyboardType="phone-pad"
+          autoComplete="off"
+          accessibilityLabel="Student's WhatsApp number"
+          style={{ ...INPUT, fontFamily: F.mono, borderBottomColor: errors.studentPhone ? COLORS.crimson : COLORS.paperEdge }}
+        />
+        {!errors.studentPhone && studentPhone.preview ? <FieldHint tone="good">{studentPhone.preview}</FieldHint> : null}
+        {!errors.studentPhone && !studentPhone.preview ? (
+          <FieldHint>For students who handle payments or messages themselves.</FieldHint>
+        ) : null}
+      </Field>
+
+      {showContactChoice ? (
+        <Field label="Send messages to">
+          <SegmentedControl
+            options={contactOptions}
+            value={values.preferredContact}
+            onChange={v => onChange({ preferredContact: v })}
+            accessibilityLabel="Send messages to"
+          />
+          <FieldHint>Receipts and reminders default to this person. You can switch per message.</FieldHint>
+        </Field>
+      ) : null}
 
       <Text style={{ fontFamily: F.serifItalic, fontSize: 18, color: COLORS.ink, marginTop: 8, marginBottom: 12 }}>Travel</Text>
       {options.travelMode === 'flat' ? (

@@ -40,5 +40,9 @@ Approved features deferred from current build. Pick up in future sessions.
 - Filter Reports screen by session_type and calendar event category.
 - Export session + financial data to CSV.
 
+## Billing / documents
+
+- Invoice PDF for clients who need one — needs a design session first: invoice numbering, VAT vs no-VAT, business details shown, which charges appear (lessons, travel, top-ups), and per-period statement vs per-top-up invoice.
+
 ---
-*Updated by build: 2026-10-10*
+*Updated by build: 2026-10-12*

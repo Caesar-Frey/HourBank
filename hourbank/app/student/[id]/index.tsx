@@ -10,13 +10,16 @@ import { ActionSheet, ActionSheetItem } from '../../../src/components/ActionShee
 import { useToast } from '../../../src/components/Toast';
 import { formatHours, formatScheduledTime } from '../../../src/utils/format';
 import { balanceColour, balanceStatus } from '../../../src/utils/balance';
-import { LedgerEntry } from '../../../src/db/schema';
+import { LedgerEntry, PreferredContact } from '../../../src/db/schema';
 import { reactivateStudent } from '../../../src/db/students';
 import { getOrCreateTutorProfile, PackageTier } from '../../../src/db/tutorProfile';
 import { buildLowBalanceReminderText } from '../../../src/utils/parentMessages';
 import { openWhatsApp } from '../../../src/utils/whatsapp';
+import { resolveRecipient } from '../../../src/utils/recipient';
+import { buildPaymentReference } from '../../../src/utils/paymentReference';
 import { StudentLedgerRow } from '../../../src/components/student/StudentLedgerRow';
-import { ParentContactCard } from '../../../src/components/student/ParentContactCard';
+import { ContactsCard } from '../../../src/components/student/ContactsCard';
+import { RecipientChooser } from '../../../src/components/student/RecipientChooser';
 import { Button, LoadingState, NotFoundState, SectionLabel } from '../../../src/components/student/ui';
 import { confirmArchiveStudent, confirmPauseStudent } from '../../../src/components/student/studentActions';
 import {
@@ -51,6 +54,7 @@ export default function StudentDetailScreen() {
   const toast = useToast();
   const { student, balance, ledger, upcomingProjected, pastSessions, loading, reload } = useStudent(id);
   const [showMenu, setShowMenu] = useState(false);
+  const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
 
   if (loading) return <LoadingState />;
   if (!student) return <NotFoundState title="Student not found" onBack={() => router.back()} />;
@@ -115,7 +119,10 @@ export default function StudentDetailScreen() {
     }
   }
 
+  const recipient = resolveRecipient(student, sendTo);
+
   async function sendReminder() {
+    if (!student) return;
     try {
       const profile = getOrCreateTutorProfile();
       const tiers = profile.tier_system_enabled === 1 ? parseTiers(profile.package_tiers) : [];
@@ -123,12 +130,14 @@ export default function StudentDetailScreen() {
       const text = buildLowBalanceReminderText({
         tutorName: profile.full_name,
         studentName: nameParts[0],
-        parentName: student?.parent_name,
+        recipientName: recipient.name,
+        audience: recipient.who,
         balanceHours: balance,
         suggestedPackage: pkg ? { hours: pkg.hours, price: pkg.price } : null,
         paymentDetails: profile.payment_details,
+        paymentReference: buildPaymentReference(profile.payment_reference_template, student),
       });
-      await openWhatsApp(student?.parent_phone, text);
+      await openWhatsApp(recipient.phone, text);
     } catch {
       showError("Couldn't open WhatsApp");
     }
@@ -222,22 +231,24 @@ export default function StudentDetailScreen() {
             <Button label="Top up" icon="plus" variant="secondary" style={{ flex: 1 }} onPress={() => router.push(`/student/${id}/top-up`)} />
           </View>
           {showReminder ? (
-            <Button
-              label="Send top-up reminder"
-              icon="message-circle"
-              variant="quiet"
-              onPress={sendReminder}
-              accessibilityHint="Opens WhatsApp with a reminder for the parent"
-            />
+            <View style={{ gap: 8 }}>
+              <RecipientChooser student={student} value={recipient.who} onChange={setSendTo} />
+              <Button
+                label="Send top-up reminder"
+                icon="message-circle"
+                variant="quiet"
+                onPress={sendReminder}
+                accessibilityHint={`Opens WhatsApp with a reminder for the ${recipient.who}`}
+              />
+            </View>
           ) : null}
         </View>
 
-        {/* Parent */}
+        {/* Contacts */}
         <View style={{ marginTop: 28 }}>
-          <SectionLabel>PARENT</SectionLabel>
-          <ParentContactCard
-            parentName={student.parent_name}
-            parentPhone={student.parent_phone}
+          <SectionLabel>CONTACTS</SectionLabel>
+          <ContactsCard
+            student={student}
             onAddContact={() => router.push(`/student/${id}/edit`)}
             onError={showError}
           />
