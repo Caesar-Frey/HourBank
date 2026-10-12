@@ -1,5 +1,6 @@
 import { getDb } from './client';
 import { newId } from './uuid';
+import { DEFAULT_PAYMENT_REFERENCE_TEMPLATE } from '../utils/paymentReference';
 
 export type TutorProfile = {
   id: string;
@@ -19,6 +20,8 @@ export type TutorProfile = {
   payment_details: string | null;
   /** Billing rounding unit in minutes (default 15). Migration 007. */
   billing_round_minutes: number;
+  /** Payment reference template, e.g. "{first} {surname}" (utils/paymentReference). Migration 008. */
+  payment_reference_template: string;
   created_at: string;
   updated_at: string;
 };
@@ -68,6 +71,7 @@ export function upsertTutorProfile(data: Partial<TutorProfile>): TutorProfile {
         parent_hourly_price = ?,
         payment_details = ?,
         billing_round_minutes = ?,
+        payment_reference_template = ?,
         updated_at = ?
        WHERE id = ?`,
       [
@@ -84,6 +88,7 @@ export function upsertTutorProfile(data: Partial<TutorProfile>): TutorProfile {
         merged.parent_hourly_price ?? merged.hourly_rate,
         merged.payment_details ?? null,
         merged.billing_round_minutes ?? 15,
+        merged.payment_reference_template?.trim() || DEFAULT_PAYMENT_REFERENCE_TEMPLATE,
         merged.updated_at,
         merged.id,
       ]
@@ -108,13 +113,14 @@ export function upsertTutorProfile(data: Partial<TutorProfile>): TutorProfile {
     parent_hourly_price: data.parent_hourly_price ?? data.hourly_rate ?? 600,
     payment_details: data.payment_details ?? null,
     billing_round_minutes: data.billing_round_minutes ?? 15,
+    payment_reference_template: data.payment_reference_template?.trim() || DEFAULT_PAYMENT_REFERENCE_TEMPLATE,
     created_at: data.created_at ?? now,
     updated_at: now,
   };
 
   db.runSync(
-    `INSERT INTO tutor_profile (id, full_name, hourly_rate, currency, max_owe_hours, tier_system_enabled, package_tiers, selected_subject_ids, last_backup_at, travel_mode, per_km_rate, parent_hourly_price, payment_details, billing_round_minutes, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO tutor_profile (id, full_name, hourly_rate, currency, max_owe_hours, tier_system_enabled, package_tiers, selected_subject_ids, last_backup_at, travel_mode, per_km_rate, parent_hourly_price, payment_details, billing_round_minutes, payment_reference_template, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       row.id,
       row.full_name,
@@ -130,6 +136,7 @@ export function upsertTutorProfile(data: Partial<TutorProfile>): TutorProfile {
       row.parent_hourly_price,
       row.payment_details,
       row.billing_round_minutes,
+      row.payment_reference_template,
       row.created_at,
       row.updated_at,
     ]

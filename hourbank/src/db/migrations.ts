@@ -428,6 +428,30 @@ export const MIGRATION_007_AUDIT_REMEDIATION: Migration = {
   },
 };
 
+/**
+ * 008 — student's own WhatsApp number + who receives messages by default, and
+ * the configurable payment reference template. Additive and idempotent.
+ */
+export const MIGRATION_008_CONTACTS_REFERENCE: Migration = {
+  version: '008_contacts_reference',
+  run: (db) => {
+    if (!hasColumn(db, 'students', 'student_phone')) {
+      db.runSync(`ALTER TABLE students ADD COLUMN student_phone TEXT`);
+    }
+    if (!hasColumn(db, 'students', 'preferred_contact')) {
+      db.runSync(
+        `ALTER TABLE students ADD COLUMN preferred_contact TEXT NOT NULL DEFAULT 'parent'
+           CHECK (preferred_contact IN ('parent','student'))`
+      );
+    }
+    if (!hasColumn(db, 'tutor_profile', 'payment_reference_template')) {
+      db.runSync(
+        `ALTER TABLE tutor_profile ADD COLUMN payment_reference_template TEXT NOT NULL DEFAULT '{first} {surname}'`
+      );
+    }
+  },
+};
+
 /** Ordered migration chain run at app boot (app/_layout.tsx) and by test DBs. */
 export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_002,
@@ -436,4 +460,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_005_LEDGER_CONSTRAINTS,
   MIGRATION_006_CLAIMS,
   MIGRATION_007_AUDIT_REMEDIATION,
+  MIGRATION_008_CONTACTS_REFERENCE,
 ];
