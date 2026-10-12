@@ -5,14 +5,32 @@ import { getDb } from '../db/client';
 import { newId } from '../db/uuid';
 import { escapeHtml, escapeHtmlMultiline } from './html';
 import { formatDateLong, formatHours, formatMinutes, formatRand, formatTime } from './format';
-import { buildLessonReceiptText, buildTopUpText } from './parentMessages';
+import { buildLessonReceiptText, buildLowBalanceReminderText, buildTopUpText, buildTravelPaymentText } from './parentMessages';
 import type { MessageAudience } from './parentMessages';
+import { getLedgerEntryById, getSessionDeduction, currentBalance } from '../db/ledger';
+import { getSubjectBalances, listStudentSubjects } from '../db/subjects';
+import { getTravelOwed, getTravelSettlement, listTravelSettlementsForPackage } from '../db/travel';
+import { getOrCreateTutorProfile, PackageTier } from '../db/tutorProfile';
+import { getStudent } from '../db/students';
+import { suggestTopUpPackage } from '../components/student/flowLogic';
+import { buildPaymentReference } from './paymentReference';
+import { kmLabel } from './travelBilling';
 
 export {
   buildLessonReceiptText,
   buildTopUpText,
   buildLowBalanceReminderText,
+  buildTravelPaymentText,
 } from './parentMessages';
+
+/** Subject names appear in messages only when the student has 2+ active subjects. */
+function isMultiSubject(studentId: string): boolean {
+  try {
+    return listStudentSubjects(studentId).length > 1;
+  } catch {
+    return false;
+  }
+}
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -126,7 +144,16 @@ export type SessionReceiptData = {
   notes?: string | null;
   creditsUsedHours: number;
   balanceAfter: number;
+  /** Set for multi-subject students; balanceAfter is then that subject's balance. */
+  subjectName?: string | null;
+  travelCharge?: number | null;
+  travelKm?: number | null;
 };
+
+function travelChargeLabel(charge: number, km: number | null | undefined): string {
+  const k = kmLabel('in_person', km);
+  return `${formatRand(charge)}${k ? ` (${k})` : ''}`;
+}
 
 export function buildSessionReceiptHtml(d: SessionReceiptData): string {
   const when = d.startedAt ?? d.endedAt;
@@ -141,13 +168,15 @@ export function buildSessionReceiptHtml(d: SessionReceiptData): string {
       ${header('Lesson receipt', d.tutorName)}
       <table style="border-collapse: collapse;">
         ${row('Student', escapeHtml(d.studentName), false)}
+        ${d.subjectName ? row('Subject', escapeHtml(d.subjectName), false) : ''}
         ${row('Date', escapeHtml(date))}
         ${row('Time', escapeHtml(time))}
         ${row('Billed', escapeHtml(formatMinutes(d.billedMinutes)))}
         ${topics.length ? row('Topics', topics.map(escapeHtml).join(', '), false) : ''}
         ${d.notes?.trim() ? row('Notes', escapeHtmlMultiline(d.notes.trim()), false) : ''}
         ${row('Credits used', escapeHtml(formatHours(d.creditsUsedHours)))}
-        ${row('Balance after', balanceHtml(d.balanceAfter))}
+        ${d.travelCharge && d.travelCharge > 0 ? row('Travel', escapeHtml(travelChargeLabel(d.travelCharge, d.travelKm))) : ''}
+        ${row(d.subjectName ? `${escapeHtml(d.subjectName)} balance` : 'Balance after', balanceHtml(d.balanceAfter))}
       </table>
     </body>
     </html>
@@ -164,9 +193,14 @@ export type TopUpReceiptData = {
   paidAt: string;
   paymentMethod?: string | null;
   newBalance: number;
+  subjectName?: string | null;
+  /** Travel settled with this payment (rand). */
+  travelSettled?: number | null;
+  travelStillOwed?: number | null;
 };
 
 export function buildTopUpReceiptHtml(d: TopUpReceiptData): string {
+  const travel = d.travelSettled && d.travelSettled > 0 ? d.travelSettled : 0;
   return `
     <html>
     <body style="${PAGE_STYLE}">
@@ -174,10 +208,14 @@ export function buildTopUpReceiptHtml(d: TopUpReceiptData): string {
       <table style="border-collapse: collapse;">
         ${row('Student', escapeHtml(d.studentName), false)}
         ${row('Date', escapeHtml(formatDateLong(d.paidAt)))}
+        ${d.subjectName ? row('Subject', escapeHtml(d.subjectName), false) : ''}
         ${row('Hours added', escapeHtml(formatHours(d.hoursAdded)))}
-        ${row('Amount paid', escapeHtml(formatRand(d.amountPaid)))}
+        ${row(travel > 0 ? 'Lessons' : 'Amount paid', escapeHtml(formatRand(d.amountPaid)))}
+        ${travel > 0 ? row('Travel settled', escapeHtml(formatRand(travel))) : ''}
+        ${travel > 0 ? row('Total paid', escapeHtml(formatRand(d.amountPaid + travel))) : ''}
         ${d.paymentMethod ? row('Method', escapeHtml(PAYMENT_LABEL[d.paymentMethod] ?? d.paymentMethod), false) : ''}
-        ${row('New balance', balanceHtml(d.newBalance))}
+        ${row(d.subjectName ? `${escapeHtml(d.subjectName)} balance` : 'New balance', balanceHtml(d.newBalance))}
+        ${d.travelStillOwed && d.travelStillOwed > 0 ? row('Travel still owed', escapeHtml(formatRand(d.travelStillOwed))) : ''}
       </table>
     </body>
     </html>
@@ -191,10 +229,11 @@ function loadSessionReceiptData(sessionId: string): (SessionReceiptData & { stud
   const s = db.getFirstSync<{
     student_id: string; student_name: string; started_at: string | null; ended_at: string | null;
     duration_minutes: number | null; billed_minutes: number | null; topics: string | null;
-    session_notes: string | null;
+    session_notes: string | null; travel_km: number | null; parent_travel_fee: number | null;
   }>(
     `SELECT s.student_id, st.full_name AS student_name, s.started_at, s.ended_at,
-            s.duration_minutes, s.billed_minutes, s.topics, s.session_notes
+            s.duration_minutes, s.billed_minutes, s.topics, s.session_notes,
+            s.travel_km, s.parent_travel_fee
      FROM sessions s JOIN students st ON st.id = s.student_id
      WHERE s.id = ?`,
     [sessionId]
@@ -206,8 +245,12 @@ function loadSessionReceiptData(sessionId: string): (SessionReceiptData & { stud
      ORDER BY rowid ASC LIMIT 1`,
     [sessionId]
   );
+  const deduction = isMultiSubject(s.student_id) ? getSessionDeduction(sessionId) : null;
   return {
     studentId: s.student_id,
+    subjectName: deduction?.subject_name ?? null,
+    travelCharge: s.parent_travel_fee,
+    travelKm: s.travel_km,
     tutorName: tutorName(),
     studentName: s.student_name,
     startedAt: s.started_at,
@@ -216,7 +259,7 @@ function loadSessionReceiptData(sessionId: string): (SessionReceiptData & { stud
     topics: parseTopics(s.topics),
     notes: s.session_notes,
     creditsUsedHours: entry ? Math.abs(entry.hours_delta) : 0,
-    balanceAfter: balanceThroughEntry(s.student_id, entry?.id ?? null),
+    balanceAfter: deduction ? deduction.balance_after : balanceThroughEntry(s.student_id, entry?.id ?? null),
   };
 }
 
@@ -237,14 +280,19 @@ function loadTopUpReceiptData(packageId: string): TopUpReceiptData | null {
     `SELECT id FROM ledger_entries WHERE related_package_id = ? AND type = 'top_up' ORDER BY rowid ASC LIMIT 1`,
     [packageId]
   );
+  const detail = entry && isMultiSubject(p.student_id) ? getLedgerEntryById(entry.id) : null;
+  const travelSettled = listTravelSettlementsForPackage(packageId).reduce((a, t) => a + t.amount, 0);
   return {
+    subjectName: detail?.subject_name ?? null,
+    travelSettled,
+    travelStillOwed: travelSettled > 0 ? getTravelOwed(p.student_id).amount : null,
     tutorName: tutorName(),
     studentName: p.student_name,
     hoursAdded: p.hours_added,
     amountPaid: p.amount_paid,
     paidAt: p.created_at,
     paymentMethod: p.payment_method,
-    newBalance: balanceThroughEntry(p.student_id, entry?.id ?? null),
+    newBalance: detail ? detail.balance_after : balanceThroughEntry(p.student_id, entry?.id ?? null),
   };
 }
 
@@ -274,6 +322,9 @@ export function getLessonReceiptText(sessionId: string, opts: ReceiptTextOpts = 
     topics: d.topics,
     notes: d.notes,
     balanceAfter: d.balanceAfter,
+    subjectName: d.subjectName,
+    travelCharge: d.travelCharge,
+    travelKm: d.travelKm,
   });
 }
 
@@ -282,6 +333,109 @@ export function getTopUpReceiptText(packageId: string, opts: ReceiptTextOpts = {
   const d = loadTopUpReceiptData(packageId);
   if (!d) return null;
   return buildTopUpText({ ...d, parentName: opts.parentName, recipientName: opts.recipientName, audience: opts.audience });
+}
+
+function parseTiers(json: string | null | undefined): PackageTier[] {
+  try {
+    const parsed = JSON.parse(json ?? '[]');
+    return Array.isArray(parsed) ? (parsed as PackageTier[]).filter(t => t.hours > 0 && t.price >= 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Top-up reminder text from stored data: per-subject balances, suggested
+ * package (for the lowest subject), travel owed, payment details + reference.
+ * Null if the student doesn't exist.
+ */
+export function getLowBalanceReminderText(studentId: string, opts: ReceiptTextOpts = {}): string | null {
+  const student = getStudent(studentId);
+  if (!student) return null;
+  const profile = getOrCreateTutorProfile();
+  const subjects = getSubjectBalances(studentId).filter(b => b.status === 'active');
+  const total = currentBalance(studentId);
+  const lowest = subjects.length > 0 ? Math.min(...subjects.map(b => b.balance_hours)) : total;
+  const tiers = profile.tier_system_enabled === 1 ? parseTiers(profile.package_tiers) : [];
+  const pkg = suggestTopUpPackage(tiers, lowest);
+  const owed = getTravelOwed(studentId);
+  return buildLowBalanceReminderText({
+    tutorName: profile.full_name,
+    studentName: student.full_name.trim().split(/\s+/)[0],
+    parentName: opts.parentName,
+    recipientName: opts.recipientName,
+    audience: opts.audience,
+    balanceHours: subjects.length === 1 ? subjects[0].balance_hours : total,
+    subjectBalances: subjects.length > 1
+      ? subjects.map(b => ({ subject: b.subject, balanceHours: b.balance_hours }))
+      : null,
+    suggestedPackage: pkg ? { hours: pkg.hours, price: pkg.price } : null,
+    paymentDetails: profile.payment_details,
+    paymentReference: buildPaymentReference(profile.payment_reference_template, student),
+    travelOwed: owed.amount > 0 ? { amount: owed.amount, lessonCount: owed.lessonCount } : null,
+  });
+}
+
+// ─── Travel payments ─────────────────────────────────────────────────────────
+
+export type TravelPaymentReceiptData = {
+  tutorName?: string | null;
+  studentName: string;
+  amount: number;
+  paidAt: string;
+  paymentMethod?: string | null;
+  note?: string | null;
+  stillOwed: number;
+};
+
+export function buildTravelPaymentHtml(d: TravelPaymentReceiptData): string {
+  return `
+    <html>
+    <body style="${PAGE_STYLE}">
+      ${header('Travel payment receipt', d.tutorName)}
+      <table style="border-collapse: collapse;">
+        ${row('Student', escapeHtml(d.studentName), false)}
+        ${row('Date', escapeHtml(formatDateLong(d.paidAt)))}
+        ${row('Travel paid', escapeHtml(formatRand(d.amount)))}
+        ${d.paymentMethod ? row('Method', escapeHtml(PAYMENT_LABEL[d.paymentMethod] ?? d.paymentMethod), false) : ''}
+        ${d.note?.trim() ? row('Note', escapeHtmlMultiline(d.note.trim()), false) : ''}
+        ${row('Travel still owed', escapeHtml(formatRand(d.stillOwed)))}
+      </table>
+    </body>
+    </html>
+  `;
+}
+
+function loadTravelPaymentData(settlementId: string): TravelPaymentReceiptData | null {
+  const t = getTravelSettlement(settlementId);
+  if (!t) return null;
+  const student = getStudent(t.student_id);
+  if (!student) return null;
+  return {
+    tutorName: tutorName(),
+    studentName: student.full_name,
+    amount: t.amount,
+    paidAt: t.created_at,
+    paymentMethod: t.payment_method,
+    note: t.note,
+    stillOwed: getTravelOwed(t.student_id).amount,
+  };
+}
+
+/** WhatsApp confirmation for a travel payment; null if it doesn't exist. */
+export function getTravelPaymentText(settlementId: string, opts: ReceiptTextOpts = {}): string | null {
+  const d = loadTravelPaymentData(settlementId);
+  if (!d) return null;
+  return buildTravelPaymentText({
+    tutorName: d.tutorName,
+    studentName: d.studentName,
+    parentName: opts.parentName,
+    recipientName: opts.recipientName,
+    audience: opts.audience,
+    amount: d.amount,
+    paidAt: d.paidAt,
+    stillOwed: d.stillOwed,
+  });
 }
 
 // ─── PDF share ────────────────────────────────────────────────────────────────
@@ -319,6 +473,17 @@ export async function shareTopUpReceipt(packageId: string): Promise<ShareReceipt
     receiptFilename('Payment', data.studentName, new Date(data.paidAt))
   );
   upsertReceiptRow('top_up', { packageId }, uri);
+  return { shared: true, uri };
+}
+
+/** Render + share a travel payment PDF (no receipts row: that table covers lessons/top-ups only). */
+export async function shareTravelPaymentReceipt(settlementId: string): Promise<ShareReceiptResult> {
+  const data = loadTravelPaymentData(settlementId);
+  if (!data) return { shared: false, uri: null };
+  const uri = await renderAndShare(
+    buildTravelPaymentHtml(data),
+    receiptFilename('Travel', data.studentName, new Date(data.paidAt))
+  );
   return { shared: true, uri };
 }
 
