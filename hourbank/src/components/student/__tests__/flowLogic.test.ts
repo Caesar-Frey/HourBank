@@ -17,7 +17,9 @@ import {
   projectedBalanceWithBookings,
   shortRef,
   shouldOfferTopUpReminder,
+  showPreferredContactChoice,
   stepMinutes,
+  studentContactPayload,
   StudentFormValues,
   suggestTopUpPackage,
   telUri,
@@ -193,14 +195,41 @@ describe('phone', () => {
 describe('student form', () => {
   const base: StudentFormValues = {
     fullName: 'Ana B', grade: 10, subject: 'Maths', curriculum: 'CAPS',
-    parentName: '', parentPhone: '', travelFlatFee: '', travelDistanceKm: '',
+    parentName: '', parentPhone: '', studentPhone: '', preferredContact: 'parent', travelFlatFee: '', travelDistanceKm: '',
   };
 
   it('validates required fields, phone and travel', () => {
     expect(validateStudentForm(base, 'flat')).toEqual({});
-    const e = validateStudentForm({ ...base, fullName: ' ', grade: null, subject: '', parentPhone: '1', travelFlatFee: 'x' }, 'flat');
-    expect(Object.keys(e).sort()).toEqual(['fullName', 'grade', 'parentPhone', 'subject', 'travel']);
+    const e = validateStudentForm(
+      { ...base, fullName: ' ', grade: null, subject: '', parentPhone: '1', studentPhone: '12', travelFlatFee: 'x' },
+      'flat'
+    );
+    expect(Object.keys(e).sort()).toEqual(['fullName', 'grade', 'parentPhone', 'studentPhone', 'subject', 'travel']);
     expect(validateStudentForm({ ...base, travelFlatFee: 'x' }, 'distance')).toEqual({});
+  });
+
+  it('contact payload: normalises both numbers and derives who to message', () => {
+    expect(studentContactPayload({ ...base, parentName: ' Thandi ', parentPhone: '082 123 4567' })).toEqual({
+      parentName: 'Thandi',
+      parentPhone: '+27821234567',
+      studentPhone: null,
+      preferredContact: 'parent',
+    });
+    // only a student number → student, even if the (hidden) toggle says parent
+    expect(studentContactPayload({ ...base, studentPhone: '083 111 2222' })).toMatchObject({
+      studentPhone: '+27831112222',
+      preferredContact: 'student',
+    });
+    // both → tutor's choice
+    expect(
+      studentContactPayload({ ...base, parentPhone: '0821234567', studentPhone: '0831112222', preferredContact: 'student' })
+        .preferredContact
+    ).toBe('student');
+  });
+
+  it('shows the "Send messages to" choice only when both numbers are valid', () => {
+    expect(showPreferredContactChoice({ ...base, parentPhone: '0821234567', studentPhone: '0831112222' })).toBe(true);
+    expect(showPreferredContactChoice({ ...base, parentPhone: '0821234567', studentPhone: '083' })).toBe(false);
   });
 
   it('detects dirty state ignoring surrounding whitespace', () => {
