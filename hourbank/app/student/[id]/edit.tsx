@@ -7,11 +7,15 @@ import { FormScreen } from '../../../src/components/FormScreen';
 import { ScreenHeader } from '../../../src/components/ScreenHeader';
 import { useToast } from '../../../src/components/Toast';
 import { useUnsavedChangesGuard } from '../../../src/hooks/useUnsavedChangesGuard';
-import { getStudent, updateStudent } from '../../../src/db/students';
+import { getStudent } from '../../../src/db/students';
 import { currentBalance } from '../../../src/db/ledger';
+import { getPrimarySubjectId, getSubjectBalances, isSubjectError, listStudentSubjects } from '../../../src/db/subjects';
+import { listUpcomingWithProjection } from '../../../src/db/sessions';
+import { updateStudentFromForm } from '../../../src/components/student/studentSave';
+import { subjectDraftsFromRows } from '../../../src/components/student/subjectLogic';
 import { Button, LoadingState, NotFoundState, PageHeading } from '../../../src/components/student/ui';
 import {
-  formValuesToPayload, studentToFormValues, StudentFormFields, useStudentFormOptions,
+  studentToFormValues, StudentFormFields, useStudentFormOptions,
 } from '../../../src/components/student/StudentForm';
 import { confirmArchiveStudent } from '../../../src/components/student/studentActions';
 import {
@@ -35,7 +39,16 @@ export default function EditStudentScreen() {
     try {
       const s = getStudent(id);
       if (s) {
-        const v = studentToFormValues(s);
+        const balances: Record<string, number> = {};
+        for (const b of getSubjectBalances(id)) balances[b.id] = b.balance_hours;
+        const primary = getPrimarySubjectId(id);
+        const booked: Record<string, number> = {};
+        for (const l of listUpcomingWithProjection(id)) {
+          const key = l.subject_id ?? primary;
+          if (key) booked[key] = (booked[key] ?? 0) + 1;
+        }
+        const drafts = subjectDraftsFromRows(listStudentSubjects(id, { includeArchived: true }), balances, booked);
+        const v = studentToFormValues(s, drafts);
         setInitial(v);
         setValues(v);
       }
@@ -71,14 +84,19 @@ export default function EditStudentScreen() {
     savingRef.current = true;
     setSaving(true);
     try {
-      updateStudent(id, formValuesToPayload(formValues));
+      updateStudentFromForm(id, initial!, formValues, options.travelMode);
       allowLeave();
       toast.show({ kind: 'success', message: 'Changes saved' });
       router.back();
-    } catch {
+    } catch (e) {
       savingRef.current = false;
       setSaving(false);
-      toast.show({ kind: 'error', message: "Couldn't save changes — please try again" });
+      const message = isSubjectError(e, 'DUPLICATE')
+        ? 'That subject name is already in use — rename it'
+        : isSubjectError(e, 'LAST_ACTIVE')
+          ? 'Keep at least one subject'
+          : "Couldn't save changes — please try again";
+      toast.show({ kind: 'error', message });
     }
   }
 
