@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather } from '@expo/vector-icons';
@@ -10,12 +10,16 @@ import { ScreenHeader } from '../../../src/components/ScreenHeader';
 import { PackageCard } from '../../../src/components/PackageCard';
 import { useToast } from '../../../src/components/Toast';
 import { getStudent } from '../../../src/db/students';
-import { currentBalance } from '../../../src/db/ledger';
 import { createPackage } from '../../../src/db/packages';
+import { getPrimarySubjectId, getSubjectBalances, isSubjectError, SubjectBalance } from '../../../src/db/subjects';
+import { getTravelOwed, listTravelSettlementsForPackage, settleTravel } from '../../../src/db/travel';
+import {
+  topUpCtaWithTravel, topUpGrandTotal, topUpSuccessMessage, topUpTravelAmount, topUpTravelToggleLabel,
+} from '../../../src/utils/travelBilling';
 import { newId } from '../../../src/db/uuid';
 import { getOrCreateTutorProfile, PackageTier, TutorProfile } from '../../../src/db/tutorProfile';
 import { CreditPackage, Student } from '../../../src/db/schema';
-import { formatHours, formatRand } from '../../../src/utils/format';
+import { formatRand } from '../../../src/utils/format';
 import { persistProofImage } from '../../../src/utils/proofImages';
 import { getTopUpReceiptText } from '../../../src/utils/receipt';
 import { openWhatsApp } from '../../../src/utils/whatsapp';
@@ -26,7 +30,7 @@ import {
   Button, ChoicePills, FieldHint, LoadingState, NotFoundState, PageHeading, SectionLabel,
 } from '../../../src/components/student/ui';
 import {
-  balanceReviewLine, decimalPreview, formatBalance, tierSavings, topUpCtaLabel,
+  balanceReviewLine, decimalPreview, formatBalance, tierSavings,
 } from '../../../src/components/student/flowLogic';
 
 type PaymentMethod = CreditPackage['payment_method'];
@@ -61,7 +65,7 @@ function parseTiers(p: TutorProfile): PackageTier[] {
 }
 
 export default function TopUpScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, subjectId: subjectParam } = useLocalSearchParams<{ id: string; subjectId?: string }>();
   const router = useRouter();
   const toast = useToast();
   // Generated once per screen visit: makes a double-submitted top-up idempotent.
@@ -71,7 +75,10 @@ export default function TopUpScreen() {
   const [student, setStudent] = useState<Student | null>(null);
   const [profile, setProfile] = useState<TutorProfile | null>(null);
   const [tiers, setTiers] = useState<PackageTier[]>([]);
-  const [balance, setBalance] = useState(0);
+  const [subjects, setSubjects] = useState<SubjectBalance[]>([]);
+  const [subjectId, setSubjectId] = useState<string | null>(null);
+  const [travelOwed, setTravelOwed] = useState<{ amount: number; lessonCount: number }>({ amount: 0, lessonCount: 0 });
+  const [includeTravel, setIncludeTravel] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   const [selection, setSelection] = useState<Selection>(null);
@@ -87,7 +94,18 @@ export default function TopUpScreen() {
     try {
       const s = getStudent(id);
       setStudent(s);
-      if (s) setBalance(currentBalance(id));
+      if (s) {
+        const active = getSubjectBalances(id).filter(b => b.status === 'active');
+        setSubjects(active);
+        const wanted = typeof subjectParam === 'string' && active.some(b => b.id === subjectParam) ? subjectParam : null;
+        setSubjectId(wanted ?? getPrimarySubjectId(id) ?? active[0]?.id ?? null);
+        try {
+          const o = getTravelOwed(id);
+          setTravelOwed({ amount: o.amount, lessonCount: o.lessonCount });
+        } catch {
+          // travel is optional on this screen
+        }
+      }
       const p = getOrCreateTutorProfile();
       setProfile(p);
       setTiers(parseTiers(p));
@@ -96,7 +114,7 @@ export default function TopUpScreen() {
     } finally {
       setLoaded(true);
     }
-  }, [id]);
+  }, [id, subjectParam]);
 
   if (!loaded) return <LoadingState />;
   if (!student) return <NotFoundState title="Student not found" onBack={() => router.back()} />;
@@ -113,6 +131,12 @@ export default function TopUpScreen() {
   const parentPrice = profile?.parent_hourly_price ?? null;
   const customSaving = isCustom && hours && price !== null ? tierSavings(hours, price, parentPrice) : null;
   const firstName = student.full_name.trim().split(/\s+/)[0];
+  const multiSubject = subjects.length > 1;
+  const subject = subjects.find(b => b.id === subjectId) ?? null;
+  const balance = subject?.balance_hours ?? 0;
+  const subjectName = multiSubject ? subject?.subject ?? null : null;
+  const travel = topUpTravelAmount(travelOwed.amount, includeTravel);
+  const grandTotal = ready ? topUpGrandTotal(price, travel) : null;
 
   async function pickProof() {
     try {
@@ -153,29 +177,58 @@ export default function TopUpScreen() {
       }
     }
 
+    let created: ReturnType<typeof createPackage>;
     try {
-      const { pkg, entry } = createPackage({
+      created = createPackage({
         id: packageId,
         studentId: id,
+        subjectId,
         hoursAdded: hours,
         amountPaid: price,
         paymentMethod,
         paymentRef: reference.trim() || undefined,
         proofImageUri: storedProof,
       });
-      toast.show({
-        kind: 'success',
-        message: `Added ${formatHours(hours)} · balance ${formatBalance(entry.balance_after)}`,
-        actionLabel: 'Send confirmation',
-        onAction: () => { void sendConfirmation(pkg.id); },
-        durationMs: 8000,
-      });
-      router.back();
-    } catch {
+    } catch (e) {
       savingRef.current = false;
       setSaving(false);
-      toast.show({ kind: 'error', message: "Couldn't add the top-up — please try again" });
+      toast.show({
+        kind: 'error',
+        message: isSubjectError(e)
+          ? 'That subject is no longer available — pick another'
+          : "Couldn't add the top-up — please try again",
+      });
+      return;
     }
+
+    // Travel owed is settled in the same payment (separate rand record, linked to the package).
+    let travelSettled = 0;
+    let travelFailed = false;
+    if (travel > 0) {
+      try {
+        if (listTravelSettlementsForPackage(created.pkg.id).length === 0) {
+          travelSettled = settleTravel({ studentId: id, amount: travel, packageId: created.pkg.id, method: paymentMethod }).amount;
+        }
+      } catch {
+        travelFailed = true;
+      }
+    }
+
+    const pkgId = created.pkg.id;
+    toast.show({
+      kind: travelFailed ? 'info' : 'success',
+      message: topUpSuccessMessage({
+        hours,
+        subjectName,
+        balanceLabel: formatBalance(created.entry.balance_after),
+        travelSettled,
+        travelFailed,
+      }),
+      actionLabel: 'Send confirmation',
+      onAction: () => { void sendConfirmation(pkgId); },
+      durationMs: travelFailed ? 10000 : 8000,
+    });
+    router.back();
   }
 
   return (
@@ -185,11 +238,12 @@ export default function TopUpScreen() {
         <View style={{ gap: 8 }}>
           {ready && hours !== null ? (
             <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, textAlign: 'center' }}>
-              {balanceReviewLine(balance, balance + hours)}
+              {`${subjectName ? `${subjectName} · ` : ''}${balanceReviewLine(balance, balance + hours)}`}
+              {travel > 0 && grandTotal !== null ? ` · total ${formatRand(grandTotal)}` : ''}
             </Text>
           ) : null}
           <Button
-            label={topUpCtaLabel(hours, price, hasSelection)}
+            label={topUpCtaWithTravel({ hours, price, hasSelection, subjectName, travel })}
             onPress={handleConfirm}
             disabled={!ready}
             busy={saving}
@@ -200,8 +254,19 @@ export default function TopUpScreen() {
     >
       <PageHeading eyebrow="★ ADD CREDITS" line1="How many" line2="hours?" />
 
+      {multiSubject ? (
+        <View style={{ marginBottom: 16 }}>
+          <SectionLabel>SUBJECT</SectionLabel>
+          <ChoicePills
+            options={subjects.map(b => ({ value: b.id, label: `${b.subject} · ${formatBalance(b.balance_hours)}` }))}
+            value={subjectId}
+            onChange={setSubjectId}
+          />
+        </View>
+      ) : null}
+
       <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, marginBottom: 16 }}>
-        {`${firstName} has ${formatBalance(balance)} now`}
+        {`${firstName} has ${formatBalance(balance)}${subjectName ? ` ${subjectName}` : ''} now`}
       </Text>
 
       {hasTiers ? (
@@ -269,6 +334,39 @@ export default function TopUpScreen() {
 
       {hasTiers && selection === null ? (
         <FieldHint>Pick the package the parent paid for.</FieldHint>
+      ) : null}
+
+      {travelOwed.amount > 0 ? (
+        <View
+          style={{
+            marginTop: 24,
+            borderWidth: 1,
+            borderColor: includeTravel ? COLORS.amber : COLORS.paperEdge,
+            backgroundColor: includeTravel ? COLORS.warnFill : COLORS.cardFill,
+            borderRadius: 14,
+            padding: 14,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.ink }}>
+              {topUpTravelToggleLabel(travelOwed.amount, travelOwed.lessonCount)}
+            </Text>
+            <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkSoft, marginTop: 2 }}>
+              {includeTravel ? 'Included in this payment' : 'Not included — stays owed'}
+            </Text>
+          </View>
+          <Switch
+            value={includeTravel}
+            onValueChange={setIncludeTravel}
+            trackColor={{ false: COLORS.paperEdge, true: COLORS.moss }}
+            thumbColor={COLORS.paper}
+            accessibilityLabel="Include travel owed in this payment"
+            testID="top-up-include-travel"
+          />
+        </View>
       ) : null}
 
       <View style={{ marginTop: 24 }}>
