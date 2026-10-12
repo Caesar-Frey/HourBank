@@ -54,7 +54,7 @@ import {
 import { BilledMinutesField, LessonPreview, SubjectPicker, TopicsField, TravelKmField } from './LessonFields';
 
 export type LessonFormScreenProps =
-  | { kind: 'record'; studentId: string; sessionId?: string; startedAt?: string; from?: string }
+  | { kind: 'record'; studentId: string; sessionId?: string; startedAt?: string; from?: string; subjectId?: string }
   | { kind: 'edit'; sessionId: string };
 
 type Ctx = {
@@ -94,6 +94,8 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
   const sessionIdProp = props.sessionId;
   const studentIdProp = props.kind === 'record' ? props.studentId : null;
   const startedAtProp = props.kind === 'record' ? props.startedAt : undefined;
+  /** Preselected subject (e.g. a subject card's Record button); a booked lesson's own subject wins. */
+  const subjectIdProp = props.kind === 'record' ? props.subjectId : undefined;
 
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -146,7 +148,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
 
       const { options, primaryId } = loadSubjectOptions(student.id);
       const lessonSubject = session?.subject_id ?? null;
-      const sid = isEdit && lessonSubject ? lessonSubject : defaultSubjectId(options, lessonSubject, primaryId);
+      const sid = isEdit && lessonSubject ? lessonSubject : defaultSubjectId(options, lessonSubject ?? subjectIdProp ?? null, primaryId);
       let fallbackSubject: Ctx['fallbackSubject'] = null;
       if (sid && !options.some(o => o.id === sid)) {
         fallbackSubject = { id: sid, name: subjectNameFor(sid) ?? 'Subject', balance: getSubjectBalance(student.id, sid) };
@@ -206,7 +208,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
     } finally {
       setLoaded(true);
     }
-  }, [isEdit, sessionIdProp, studentIdProp, startedAtProp]);
+  }, [isEdit, sessionIdProp, studentIdProp, startedAtProp, subjectIdProp]);
 
   const parsedKm = useMemo(() => parseKmInput(km), [km]);
 

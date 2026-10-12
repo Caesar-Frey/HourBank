@@ -68,7 +68,7 @@ export default function ScheduleScreen() {
 }
 
 function ScheduleScreenInner() {
-  const { id, sessionId, date: dateParam, from } = useLocalSearchParams<{ id: string; sessionId?: string; date?: string; from?: string }>();
+  const { id, sessionId, date: dateParam, from, subjectId: subjectParam } = useLocalSearchParams<{ id: string; sessionId?: string; date?: string; from?: string; subjectId?: string }>();
   const isReschedule = !!sessionId;
   const router = useRouter();
   const toast = useToast();
@@ -104,7 +104,7 @@ function ScheduleScreenInner() {
       const { options, primaryId: primary } = loadSubjectOptions(id);
       setSubjectOptions(options);
       setPrimaryId(primary);
-      let sid = defaultSubjectId(options, null, primary);
+      let sid = defaultSubjectId(options, subjectParam ?? null, primary);
       let lessonKm: number | null = null;
       if (sessionId) {
         const existing = getSession(sessionId);
@@ -144,7 +144,7 @@ function ScheduleScreenInner() {
     } finally {
       setLoaded(true);
     }
-  }, [id, sessionId]);
+  }, [id, sessionId, subjectParam]);
 
   const conflict = useMemo(() => {
     try {
