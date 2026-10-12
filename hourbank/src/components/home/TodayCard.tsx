@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useRouter, type Href } from 'expo-router';
 import { F, MIN_TOUCH } from '../../theme/fonts';
 import { COLORS } from '../../theme/colors';
 import { formatDuration, formatTimeRange, pluralize } from '../../utils/format';
@@ -77,6 +78,7 @@ export function TodayCard({
   onOpenLesson: (lesson: AgendaItem) => void;
   onStartAdHoc: () => void;
 }) {
+  const router = useRouter();
   const { next, lessons } = today;
   const rest = next ? lessons.filter(l => l.id !== next.id) : lessons;
   const count = lessons.length;
@@ -112,15 +114,15 @@ export function TodayCard({
               {next.student_full_name}
             </Text>
             <Text numberOfLines={1} style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft, marginTop: 2 }}>
-              {`${next.student_subject} · ${next.mode === 'in_person' ? 'In-person' : 'Online'}`}
+              {`${next.subject_name || next.student_subject} · ${next.mode === 'in_person' ? 'In-person' : 'Online'}`}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => onStart(next)}
+            onPress={() => router.push(`/student/${next.student_id}/log-past?sessionId=${next.id}` as Href)}
             disabled={starting !== null}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel={`Start lesson with ${next.student_full_name}`}
+            accessibilityLabel={`Record lesson with ${next.student_full_name}`}
             style={{
               minHeight: 52,
               backgroundColor: COLORS.oxblood,
@@ -132,12 +134,34 @@ export function TodayCard({
               opacity: starting !== null ? 0.6 : 1,
             }}
           >
+            <Feather name="check" size={18} color={COLORS.paper} />
+            <Text style={{ fontFamily: F.sansMed, fontSize: 16, color: COLORS.paper }}>Record lesson</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => onStart(next)}
+            disabled={starting !== null}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={`Start timer for ${next.student_full_name}`}
+            style={{
+              minHeight: MIN_TOUCH,
+              marginTop: 8,
+              borderWidth: 1,
+              borderColor: COLORS.ink,
+              borderRadius: 14,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              opacity: starting !== null ? 0.6 : 1,
+            }}
+          >
             {starting === next.id ? (
-              <ActivityIndicator color={COLORS.paper} />
+              <ActivityIndicator color={COLORS.ink} />
             ) : (
-              <Feather name="play" size={18} color={COLORS.paper} />
+              <Feather name="play" size={15} color={COLORS.ink} />
             )}
-            <Text style={{ fontFamily: F.sansMed, fontSize: 16, color: COLORS.paper }}>Start lesson</Text>
+            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>Start timer</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -184,7 +208,7 @@ export function TodayCard({
       >
         <Feather name="plus" size={14} color={COLORS.oxblood} />
         <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood, marginLeft: 6 }}>
-          Start an unplanned lesson
+          New lesson — record or time one
         </Text>
       </TouchableOpacity>
     </View>

@@ -44,6 +44,8 @@ export type AttentionItem = {
   title: string;
   detail: string;
   href: string;
+  /** Overdue lessons: straight to the Record lesson form (primary action). */
+  recordHref?: string;
 };
 
 /** Students with any booked lesson (today / upcoming / overdue / roster next_session). */
@@ -69,8 +71,9 @@ export function buildNeedsAttention(input: { agenda: Agenda; students: RosterStu
       key: `overdue:${l.id}`,
       kind: 'overdue',
       title: l.student_full_name,
-      detail: `Not logged · ${when}`.trim(),
+      detail: [l.subject_name, 'Not recorded', when].filter(Boolean).join(' · '),
       href: `/lesson/${l.id}`,
+      recordHref: `/student/${l.student_id}/log-past?sessionId=${l.id}`,
     });
   }
 

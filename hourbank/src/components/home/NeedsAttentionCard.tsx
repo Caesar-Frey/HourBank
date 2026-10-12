@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useRouter, type Href } from 'expo-router';
 import { F, MIN_TOUCH } from '../../theme/fonts';
 import { COLORS } from '../../theme/colors';
 import type { AttentionItem, AttentionKind } from './homeLogic';
@@ -22,6 +23,7 @@ export function NeedsAttentionCard({
   onPress: (item: AttentionItem) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const router = useRouter();
   if (items.length === 0) return null;
   const shown = expanded ? items : items.slice(0, maxItems);
   const hidden = items.length - shown.length;
@@ -78,7 +80,29 @@ export function NeedsAttentionCard({
                 {item.detail}
               </Text>
             </View>
-            <Feather name="chevron-right" size={16} color={COLORS.inkSoft} />
+            {item.recordHref ? (
+              <TouchableOpacity
+                onPress={() => router.push(item.recordHref as Href)}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={`Record lesson with ${item.title}`}
+                style={{
+                  minHeight: MIN_TOUCH,
+                  paddingHorizontal: 12,
+                  marginLeft: 8,
+                  borderRadius: 10,
+                  backgroundColor: COLORS.oxblood,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Feather name="check" size={13} color={COLORS.paper} />
+                <Text style={{ fontFamily: F.sansMed, fontSize: 13, color: COLORS.paper }}>Record</Text>
+              </TouchableOpacity>
+            ) : (
+              <Feather name="chevron-right" size={16} color={COLORS.inkSoft} />
+            )}
           </TouchableOpacity>
         );
       })}

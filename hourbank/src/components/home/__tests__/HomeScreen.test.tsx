@@ -93,8 +93,8 @@ test('Start on the next lesson: over-owe nudge retries with allowOverOwe', async
     .mockImplementationOnce(() => ({ id: 'sess-1', student_id: 'stu-1', started_at: new Date().toISOString(), paused_seconds: 0 }));
 
   const screen = render(<HomeScreen />);
-  await waitFor(() => screen.getByText('Start lesson'));
-  fireEvent.press(screen.getByText('Start lesson'));
+  await waitFor(() => screen.getByText('Start timer'));
+  fireEvent.press(screen.getByText('Start timer'));
 
   expect(Alert.alert).toHaveBeenCalledWith(
     'Start anyway?',
@@ -115,8 +115,8 @@ test('Start while another lesson runs opens the live lesson', async () => {
     throw new SessionError('ALREADY_ACTIVE', 'x', { activeSessionId: 'live-9', activeStudentId: 'stu-9' });
   });
   const screen = render(<HomeScreen />);
-  await waitFor(() => screen.getByText('Start lesson'));
-  fireEvent.press(screen.getByText('Start lesson'));
+  await waitFor(() => screen.getByText('Start timer'));
+  fireEvent.press(screen.getByText('Start timer'));
   expect(mockPush).toHaveBeenCalledWith('/student/stu-9/session?sessionId=live-9');
 });
 
@@ -125,6 +125,17 @@ test('overdue lesson appears under Needs attention and links to the lesson scree
   (listAgenda as jest.Mock).mockReturnValue({ inProgress: [], overdue: [overdue], today: [], upcoming: [] });
   const screen = render(<HomeScreen />);
   await waitFor(() => screen.getByText('Needs attention · 1'));
-  fireEvent.press(screen.getByLabelText(/Thandi M: Not logged/));
+  fireEvent.press(screen.getByLabelText(/Thandi M: Not recorded/));
   expect(mockPush).toHaveBeenCalledWith('/lesson/old-1');
+  fireEvent.press(screen.getByLabelText('Record lesson with Thandi M'));
+  expect(mockPush).toHaveBeenLastCalledWith('/student/stu-1/log-past?sessionId=old-1');
+});
+
+test('Today: Record lesson is the primary action on the next lesson', async () => {
+  (listAgenda as jest.Mock).mockReturnValue({ inProgress: [], overdue: [], today: [nextLesson], upcoming: [] });
+  const screen = render(<HomeScreen />);
+  await waitFor(() => screen.getByText('Record lesson'));
+  fireEvent.press(screen.getByText('Record lesson'));
+  expect(mockPush).toHaveBeenCalledWith('/student/stu-1/log-past?sessionId=sess-1');
+  expect(startSession).not.toHaveBeenCalled();
 });
