@@ -1,5 +1,9 @@
 import { getDb } from './client';
 import { billableSessionSql, billableSessionDateSql } from './claims';
+import { effectiveSubjectIdSql } from './migrations';
+
+const subjectNameSql = (alias: string) =>
+  `(SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${effectiveSubjectIdSql(alias)})`;
 
 export type StudentMonthRow = {
   studentId: string;
@@ -21,8 +25,32 @@ export type MonthSummary = {
   /** Billed hours of charged no-shows (billed, claimable — but not taught). */
   noShowHours: number;
   noShowLessons: number;
-  /** Per-student BILLED totals (taught lessons + charged no-shows). */
+  /** Per-student BILLED totals (taught lessons + charged no-shows). cashRand includes travel payments. */
   perStudent: StudentMonthRow[];
+  /** Per-subject BILLED totals (taught lessons + charged no-shows), hours desc. */
+  perSubject: SubjectMonthRow[];
+  /** Travel payments received in the month (included in totalCashRand). */
+  travelCashRand: number;
+};
+
+export type SubjectMonthRow = {
+  studentId: string;
+  studentName: string;
+  subjectId: string | null;
+  subject: string;
+  hours: number;
+  sessions: number;
+};
+
+export type TravelSettlementRow = {
+  id: string;
+  created_at: string;
+  student_id: string;
+  student_full_name: string;
+  amount: number;
+  payment_method: string;
+  package_id: string | null;
+  note: string | null;
 };
 
 /**
@@ -50,6 +78,9 @@ export type TopUpRow = {
   /** Rands paid for the linked credit package (null for legacy/unlinked top-ups). */
   amount_paid: number | null;
   payment_method: string | null;
+  /** Subject the hours were bought for. */
+  subject_id: string | null;
+  subject_name: string | null;
 };
 
 export type SessionListRow = {
@@ -67,6 +98,11 @@ export type SessionListRow = {
   status: string;
   cancel_reason: string | null;
   session_type: 'general' | 'review' | 'test_prep' | 'exam_prep';
+  subject_id: string | null;
+  subject_name: string | null;
+  travel_km: number | null;
+  /** Parent travel charge snapshotted on the lesson (null = none). */
+  parent_travel_fee: number | null;
 };
 
 export function listTopUpsForMonth(year: number, monthIdx: number): TopUpRow[] {
@@ -75,7 +111,8 @@ export function listTopUpsForMonth(year: number, monthIdx: number): TopUpRow[] {
   return db.getAllSync<TopUpRow>(
     `SELECT le.id, le.created_at, le.student_id, st.full_name AS student_full_name,
             le.hours_delta, le.reason AS notes,
-            cp.amount_paid, cp.payment_method
+            cp.amount_paid, cp.payment_method,
+            ${effectiveSubjectIdSql('le')} AS subject_id, ${subjectNameSql('le')} AS subject_name
      FROM ledger_entries le
      JOIN students st ON le.student_id = st.id
      LEFT JOIN credit_packages cp ON cp.id = le.related_package_id
@@ -91,7 +128,8 @@ export function listSessionsForMonth(year: number, monthIdx: number): SessionLis
   const { start, end } = localMonthBounds(year, monthIdx);
   return db.getAllSync<SessionListRow>(
     `SELECT s.id, ${billableSessionDateSql('s')} AS ended_at, s.started_at, s.cancel_reason, s.student_id, st.full_name AS student_full_name,
-            s.mode, s.status, s.session_type,
+            s.mode, s.status, s.session_type, s.travel_km, s.parent_travel_fee,
+            ${effectiveSubjectIdSql('s')} AS subject_id, ${subjectNameSql('s')} AS subject_name,
             ROUND(${BILLED_MINUTES_SQL}, 2) AS billed_minutes,
             CAST(ROUND(${BILLED_MINUTES_SQL} * 60) AS INTEGER) AS duration
      FROM sessions s
@@ -100,6 +138,19 @@ export function listSessionsForMonth(year: number, monthIdx: number): SessionLis
        AND julianday(${billableSessionDateSql('s')}) >= julianday(?)
        AND julianday(${billableSessionDateSql('s')}) < julianday(?)
      ORDER BY julianday(${billableSessionDateSql('s')}) DESC`,
+    [start, end]
+  );
+}
+
+/** Travel payments received in a month (Money In), newest first. */
+export function listTravelSettlementsForMonth(year: number, monthIdx: number): TravelSettlementRow[] {
+  const { start, end } = localMonthBounds(year, monthIdx);
+  return getDb().getAllSync<TravelSettlementRow>(
+    `SELECT ts.id, ts.created_at, ts.student_id, st.full_name AS student_full_name, ts.amount,
+            ts.payment_method, ts.package_id, ts.note
+     FROM travel_settlements ts JOIN students st ON st.id = ts.student_id
+     WHERE julianday(ts.created_at) >= julianday(?) AND julianday(ts.created_at) < julianday(?)
+     ORDER BY ts.created_at DESC, ts.rowid DESC`,
     [start, end]
   );
 }
@@ -201,11 +252,48 @@ export function getMonthSummary(year: number, monthZeroIdx: number): MonthSummar
     [start, end]
   );
 
+  type TravelRow = { student_id: string; name: string; grade: number; subject: string; cashRand: number };
+  const travelRows = db.getAllSync<TravelRow>(
+    `SELECT ts.student_id, st.full_name AS name, st.grade, st.subject, COALESCE(SUM(ts.amount), 0) AS cashRand
+     FROM travel_settlements ts JOIN students st ON st.id = ts.student_id
+     WHERE julianday(ts.created_at) >= julianday(?) AND julianday(ts.created_at) < julianday(?)
+     GROUP BY ts.student_id`,
+    [start, end]
+  );
+
+  type SubjectRow = { student_id: string; name: string; subject_id: string | null; subject: string | null; hours: number; sessions: number };
+  const subjectRows = db.getAllSync<SubjectRow>(
+    `SELECT s.student_id, st.full_name AS name, ${effectiveSubjectIdSql('s')} AS subject_id,
+            COALESCE(${subjectNameSql('s')}, st.subject) AS subject,
+            COALESCE(SUM(${BILLED_MINUTES_SQL}) / 60.0, 0) AS hours, COUNT(*) AS sessions
+     FROM sessions s
+     JOIN students st ON s.student_id = st.id
+     WHERE ${billableSessionSql('s')}
+       AND julianday(${billableSessionDateSql('s')}) >= julianday(?)
+       AND julianday(${billableSessionDateSql('s')}) < julianday(?)
+     GROUP BY s.student_id, ${effectiveSubjectIdSql('s')}`,
+    [start, end]
+  );
+  const perSubject: SubjectMonthRow[] = subjectRows
+    .map(r => ({
+      studentId: r.student_id,
+      studentName: r.name,
+      subjectId: r.subject_id,
+      subject: r.subject ?? '',
+      hours: r.hours,
+      sessions: r.sessions,
+    }))
+    .sort((a, b) => b.hours - a.hours);
+
   const cashMap = new Map<string, number>();
   const infoMap = new Map<string, { name: string; grade: number; subject: string }>();
   for (const r of pkgRows) {
     cashMap.set(r.student_id, r.cashRand);
     infoMap.set(r.student_id, { name: r.name, grade: r.grade, subject: r.subject });
+  }
+  for (const r of travelRows) {
+    cashMap.set(r.student_id, (cashMap.get(r.student_id) ?? 0) + r.cashRand);
+    if (!infoMap.has(r.student_id)) infoMap.set(r.student_id, { name: r.name, grade: r.grade, subject: r.subject });
   }
   for (const r of sessionRows) {
     if (!infoMap.has(r.student_id)) {
@@ -216,6 +304,7 @@ export function getMonthSummary(year: number, monthZeroIdx: number): MonthSummar
   const allIds = new Set([
     ...sessionRows.map(r => r.student_id),
     ...pkgRows.map(r => r.student_id),
+    ...travelRows.map(r => r.student_id),
   ]);
 
   const perStudent: StudentMonthRow[] = Array.from(allIds).map(sid => {
@@ -234,11 +323,12 @@ export function getMonthSummary(year: number, monthZeroIdx: number): MonthSummar
 
   perStudent.sort((a, b) => b.hours - a.hours);
 
-  const totalCashRand = pkgRows.reduce((sum, r) => sum + r.cashRand, 0);
+  const travelCashRand = travelRows.reduce((sum, r) => sum + r.cashRand, 0);
+  const totalCashRand = pkgRows.reduce((sum, r) => sum + r.cashRand, 0) + travelCashRand;
   const noShowHours = sessionRows.reduce((sum, r) => sum + r.noShowHours, 0);
   const noShowLessons = sessionRows.reduce((sum, r) => sum + r.noShowSessions, 0);
   const totalHours = sessionRows.reduce((sum, r) => sum + r.hours, 0) - noShowHours;
   const totalLessons = sessionRows.reduce((sum, r) => sum + r.sessions, 0) - noShowLessons;
 
-  return { monthLabel, totalCashRand, totalHours, totalLessons, noShowHours, noShowLessons, perStudent };
+  return { monthLabel, totalCashRand, totalHours, totalLessons, noShowHours, noShowLessons, perStudent, perSubject, travelCashRand };
 }

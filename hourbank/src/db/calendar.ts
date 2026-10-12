@@ -1,5 +1,6 @@
 import { getDb } from './client';
 import type { CalendarEventRow } from './schema';
+import { effectiveSubjectIdSql } from './migrations';
 
 /** SQL: ISO-8601 text → integer epoch seconds. */
 const epoch = (expr: string) => `CAST(strftime('%s', ${expr}) AS INTEGER)`;
@@ -15,6 +16,8 @@ export type CalendarEvent =
       id: string;
       studentId: string;
       studentName: string;
+      /** Lesson subject (migration 009). */
+      subjectName?: string | null;
       scheduledFor: string;
       durationMin: number;
       sessionType: string;
@@ -25,6 +28,8 @@ export type CalendarEvent =
       id: string;
       studentId: string;
       studentName: string;
+      /** Lesson subject (migration 009). */
+      subjectName?: string | null;
       /** Placement time: when the lesson started (falls back to ended_at for legacy rows). */
       startedAt: string;
       endedAt: string;
@@ -37,6 +42,8 @@ export type CalendarEvent =
       id: string;
       studentId: string;
       studentName: string;
+      /** Lesson subject (migration 009). */
+      subjectName?: string | null;
       scheduledFor: string;
       sessionType: string;
       /** e.g. 'no_show' | 'discarded' | null for a plain cancel. */
@@ -108,6 +115,7 @@ type RawSession = {
   billed_minutes: number | null;
   session_type: string;
   mode: string;
+  subject_name: string | null;
 };
 
 type RawTopUp = {
@@ -160,7 +168,8 @@ export function listEventsInRange(
       SELECT s.id, s.student_id, st.full_name AS student_name,
              s.status, s.scheduled_for, s.started_at, s.ended_at, s.cancel_reason,
              s.estimated_duration_minutes, s.duration_minutes, s.billed_minutes,
-             s.session_type, s.mode
+             s.session_type, s.mode,
+             (SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${effectiveSubjectIdSql('s')}) AS subject_name
       FROM sessions s
       JOIN students st ON s.student_id = st.id
       WHERE s.status IN (${statuses.join(',')})
@@ -194,6 +203,7 @@ export function listEventsInRange(
           id: row.id,
           studentId: row.student_id,
           studentName: row.student_name,
+          subjectName: row.subject_name,
           scheduledFor: row.scheduled_for,
           durationMin: row.estimated_duration_minutes ?? DEFAULT_LESSON_MINUTES,
           sessionType: row.session_type,
@@ -205,6 +215,7 @@ export function listEventsInRange(
           id: row.id,
           studentId: row.student_id,
           studentName: row.student_name,
+          subjectName: row.subject_name,
           startedAt: row.started_at ?? row.ended_at,
           endedAt: row.ended_at,
           durationMin: row.billed_minutes ?? row.duration_minutes ?? 0,
@@ -217,6 +228,7 @@ export function listEventsInRange(
           id: row.id,
           studentId: row.student_id,
           studentName: row.student_name,
+          subjectName: row.subject_name,
           scheduledFor: row.scheduled_for,
           sessionType: row.session_type,
           cancelReason: row.cancel_reason,

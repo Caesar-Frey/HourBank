@@ -8,6 +8,9 @@
  * only writes to an existing claim are voidClaim (one-time void stamp) and
  * setClaimReportPath (write-once metadata). No update/delete API exists.
  *
+ * Travel here is the tutor's PAYOUT travel (tutor_profile.travel_mode, per-lesson
+ * km) — separate from the PARENT travel charge billed to families (travel.ts).
+ *
  * Per-line pricing is single-sourced through src/utils/claim.ts so the live
  * rollup and the frozen finalisation snapshot produce identical numbers.
  */
@@ -78,6 +81,7 @@ type RawPoolRow = {
   billed_minutes: number | null;
   duration_minutes: number | null;
   travel_flat_fee: number;
+  /** Per-lesson km (sessions.travel_km) falling back to the student default. */
   travel_distance_km: number;
   payout_rate_override: number | null;
 };
@@ -161,7 +165,7 @@ function derivePoolLines(
   const rows = db.getAllSync<RawPoolRow>(
     `SELECT s.id AS session_id, s.student_id, st.full_name AS student_full_name,
             ${billableSessionDateSql('s')} AS ended_at, s.mode, s.billed_minutes, s.duration_minutes,
-            st.travel_flat_fee, st.travel_distance_km, st.payout_rate_override
+            st.travel_flat_fee, COALESCE(s.travel_km, st.travel_distance_km) AS travel_distance_km, st.payout_rate_override
      FROM sessions s
      JOIN students st ON st.id = s.student_id
      WHERE ${where.join(' AND ')}
