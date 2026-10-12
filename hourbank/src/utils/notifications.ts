@@ -21,8 +21,14 @@ export async function sendReceipt(payload: {
   endedAt?: string | null;
   tutorName?: string | null;
   parentName?: string | null;
+  subjectName?: string | null;
+  travelCharge?: number | null;
+  travelKm?: number | null;
 }): Promise<string> {
   return buildLessonReceiptText({
+    subjectName: payload.subjectName,
+    travelCharge: payload.travelCharge,
+    travelKm: payload.travelKm,
     tutorName: payload.tutorName,
     studentName: payload.studentName,
     parentName: payload.parentName,
@@ -43,6 +49,9 @@ export async function sendTopUpConfirmation(payload: {
   tutorName?: string | null;
   parentName?: string | null;
   paidAt?: string | null;
+  subjectName?: string | null;
+  travelSettled?: number | null;
+  travelStillOwed?: number | null;
 }): Promise<string> {
   return buildTopUpText(payload);
 }
@@ -53,6 +62,9 @@ export async function sendLowBalanceAlert(payload: {
   tutorName?: string | null;
   parentName?: string | null;
   paymentDetails?: string | null;
+  paymentReference?: string | null;
+  subjectBalances?: Array<{ subject: string; balanceHours: number }> | null;
+  travelOwed?: { amount: number; lessonCount: number } | null;
 }): Promise<string> {
   return buildLowBalanceReminderText({
     tutorName: payload.tutorName,
@@ -60,5 +72,8 @@ export async function sendLowBalanceAlert(payload: {
     parentName: payload.parentName,
     balanceHours: payload.currentBalance,
     paymentDetails: payload.paymentDetails,
+    paymentReference: payload.paymentReference,
+    subjectBalances: payload.subjectBalances,
+    travelOwed: payload.travelOwed,
   });
 }

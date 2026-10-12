@@ -13,16 +13,22 @@ import {
   getMonthSummary,
   listSessionsForMonth,
   listTopUpsForMonth,
+  listTravelSettlementsForMonth,
   MonthSummary,
   SessionListRow,
-  TopUpRow,
 } from '../../db/reports';
+import { listTravelOwedByStudent } from '../../db/travel';
+import { aggregateBySubject, kmLabel } from '../../utils/travelBilling';
 import { listActiveStudents, listPausedStudents } from '../../db/students';
 import { formatHours, formatLedgerDate, formatRand, pluralize } from '../../utils/format';
 import { SegmentedControl } from '../../components/calendar/SegmentedControl';
 import { modeLabel, paymentMethodLabel, sessionTypeLabel } from '../schedule/labels';
 import {
+  CashRow,
   Outstanding,
+  cashSplitLabel,
+  mergeCashRows,
+  travelOwedLabel,
   isChargedNoShow,
   isFutureMonth,
   lessonBilledLabel,
@@ -32,7 +38,9 @@ import {
   taughtLessonsLabel,
 } from './moneyModel';
 
-type List = 'cash' | 'lessons' | 'students';
+type List = 'cash' | 'lessons' | 'students' | 'subjects';
+
+type TravelOwedRow = { student_id: string; full_name: string; amount: number; lessonCount: number };
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -82,9 +90,10 @@ export function MoneyInView() {
   const [year, setYear] = useState(now.getFullYear());
   const [monthIdx, setMonthIdx] = useState(now.getMonth());
   const [summary, setSummary] = useState<MonthSummary | null>(null);
-  const [topUps, setTopUps] = useState<TopUpRow[]>([]);
+  const [cashRows, setCashRows] = useState<CashRow[]>([]);
   const [lessons, setLessons] = useState<SessionListRow[]>([]);
   const [outstanding, setOutstanding] = useState<Outstanding | null>(null);
+  const [travelOwed, setTravelOwed] = useState<TravelOwedRow[]>([]);
   const [list, setList] = useState<List>('cash');
   const [error, setError] = useState(false);
   const navigating = useRef(false);
@@ -93,10 +102,11 @@ export function MoneyInView() {
     navigating.current = false;
     try {
       setSummary(getMonthSummary(year, monthIdx));
-      setTopUps(listTopUpsForMonth(year, monthIdx));
+      setCashRows(mergeCashRows(listTopUpsForMonth(year, monthIdx), listTravelSettlementsForMonth(year, monthIdx)));
       setLessons(listSessionsForMonth(year, monthIdx));
       const balances = [...listActiveStudents(), ...listPausedStudents()].map(s => s.current_balance);
       setOutstanding(outstandingFromBalances(balances));
+      setTravelOwed(listTravelOwedByStudent());
       setError(false);
     } catch {
       setError(true);
@@ -159,7 +169,11 @@ export function MoneyInView() {
 
       {summary ? (
         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
-          <Tile label="Cash received" value={formatRand(summary.totalCashRand)} />
+          <Tile
+            label="Cash received"
+            value={formatRand(summary.totalCashRand)}
+            sub={cashSplitLabel(summary.totalCashRand, summary.travelCashRand) ?? undefined}
+          />
           <Tile
             label="Hours taught"
             value={formatHours(summary.totalHours)}
@@ -184,6 +198,33 @@ export function MoneyInView() {
             <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>Prepaid, not yet taught</Text>
             <Text style={{ fontFamily: F.monoMed, fontSize: 15, color: COLORS.ink }}>{formatHours(outstanding.prepaidHours)}</Text>
           </View>
+          {travelOwed.length > 0 ? (
+            <View style={{ marginTop: 6 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>{travelOwedLabel(travelOwed.length)}</Text>
+                <Text style={{ fontFamily: F.monoMed, fontSize: 15, color: COLORS.amber }} testID="money-travel-owed">
+                  {formatRand(travelOwed.reduce((a, r) => a + r.amount, 0))}
+                </Text>
+              </View>
+              {travelOwed.map(r => (
+                <TouchableOpacity
+                  key={r.student_id}
+                  onPress={() => go(`/student/${r.student_id}/travel`)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${r.full_name} travel owed ${formatRand(r.amount)}`}
+                  style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, gap: 8 }}
+                >
+                  <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{r.full_name}</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>
+                    {`${r.lessonCount} ${pluralize(r.lessonCount, 'lesson')}`}
+                  </Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.ink, minWidth: 84, textAlign: 'right' }}>{formatRand(r.amount)}</Text>
+                  <Feather name="chevron-right" size={14} color={COLORS.inkFaint} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -191,7 +232,8 @@ export function MoneyInView() {
         options={[
           { value: 'cash', label: 'Cash' },
           { value: 'lessons', label: 'Lessons' },
-          { value: 'students', label: 'By student' },
+          { value: 'students', label: 'Students' },
+          { value: 'subjects', label: 'Subjects' },
         ]}
         value={list}
         onChange={setList}
@@ -199,10 +241,10 @@ export function MoneyInView() {
       />
 
       {list === 'cash' &&
-        (topUps.length === 0 ? (
+        (cashRows.length === 0 ? (
           <Empty>No payments received this month.</Empty>
         ) : (
-          topUps.map(row => (
+          cashRows.map(row => (
             <TouchableOpacity
               key={row.id}
               onPress={() => go(`/transaction/${row.id}`)}
@@ -214,11 +256,14 @@ export function MoneyInView() {
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: F.serif, fontSize: 15, color: COLORS.ink }} numberOfLines={1}>{row.student_full_name}</Text>
                 <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, marginTop: 2 }}>
-                  {[paymentMethodLabel(row.payment_method), `+${formatHours(row.hours_delta)}`].filter(Boolean).join(' · ')}
+                  {(row.kind === 'package'
+                    ? [paymentMethodLabel(row.method), `+${formatHours(row.hours)}`, row.subject]
+                    : ['Travel', paymentMethodLabel(row.method), row.withTopUp ? 'with top-up' : null]
+                  ).filter(Boolean).join(' · ')}
                 </Text>
               </View>
               <Text style={{ fontFamily: F.monoMed, fontSize: 14, color: COLORS.moss }}>
-                {row.amount_paid != null ? formatRand(row.amount_paid) : '—'}
+                {row.amount != null ? formatRand(row.amount) : '—'}
               </Text>
               <Feather name="chevron-right" size={14} color={COLORS.inkFaint} />
             </TouchableOpacity>
@@ -231,7 +276,13 @@ export function MoneyInView() {
         ) : (
           lessons.map(row => {
             const noShow = isChargedNoShow(row);
-            const meta = [modeLabel(row.mode), row.session_type !== 'general' ? sessionTypeLabel(row.session_type) : null]
+            const meta = [
+              row.subject_name,
+              modeLabel(row.mode),
+              row.session_type !== 'general' ? sessionTypeLabel(row.session_type) : null,
+              kmLabel(row.mode, row.travel_km),
+              row.parent_travel_fee && row.parent_travel_fee > 0 ? `travel ${formatRand(row.parent_travel_fee)}` : null,
+            ]
               .filter(Boolean)
               .join(' · ');
             return (
@@ -255,6 +306,33 @@ export function MoneyInView() {
               </TouchableOpacity>
             );
           })
+        ))}
+
+      {list === 'subjects' &&
+        (!summary || summary.perSubject.length === 0 ? (
+          <Empty>No lessons this month.</Empty>
+        ) : (
+          <View>
+            <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}>
+              <Text style={[EYEBROW, { flex: 1, marginBottom: 0 }]}>Subject</Text>
+              <Text style={[EYEBROW, { width: 56, textAlign: 'right', marginBottom: 0 }]}>Stdnts</Text>
+              <Text style={[EYEBROW, { width: 44, textAlign: 'right', marginBottom: 0 }]}>Lsns</Text>
+              <Text style={[EYEBROW, { width: 72, textAlign: 'right', marginBottom: 0 }]}>Hours</Text>
+            </View>
+            {aggregateBySubject(summary.perSubject).map(r => (
+              <View
+                key={r.subject}
+                accessible
+                accessibilityLabel={`${r.subject}: ${r.students} students, ${r.sessions} lessons, ${formatHours(r.hours)}`}
+                style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}
+              >
+                <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{r.subject}</Text>
+                <Text style={{ width: 56, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.students}</Text>
+                <Text style={{ width: 44, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.sessions}</Text>
+                <Text style={{ width: 72, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{formatHours(r.hours)}</Text>
+              </View>
+            ))}
+          </View>
         ))}
 
       {list === 'students' &&
