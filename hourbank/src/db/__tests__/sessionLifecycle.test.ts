@@ -182,7 +182,7 @@ describe('startSession', () => {
     it('checkOweLimit reports projection without side effects', () => {
       setMaxOwe(1);
       topUp(0.5);
-      expect(checkOweLimit('stu-1', 90)).toEqual({
+      expect(checkOweLimit('stu-1', 90)).toMatchObject({
         balanceHours: 0.5, projectedBalanceHours: -1, maxOweHours: 1, lessonMinutes: 90, overLimit: false,
       });
       expect(checkOweLimit('stu-1', 120).overLimit).toBe(true);

@@ -1,8 +1,11 @@
 import { getDb } from './client';
-import { Session, Student } from './schema';
+import { Session, Student, ParentTravelMode } from './schema';
 import { LedgerEntry } from './schema';
 import { appendEntryInTx, currentBalance } from './ledger';
 import { newId } from './uuid';
+import { effectiveSubjectIdSql } from './migrations';
+import { resolveSubjectIdInTx, getSubjectBalance, getPrimarySubjectId } from './subjects';
+import { parentTravelCharge } from '../utils/travel';
 
 // ── Typed errors ─────────────────────────────────────────────────────────────
 
@@ -76,27 +79,79 @@ function mustGet(sessionId: string): Session {
   return s;
 }
 
+// ── Lesson travel (parent charge snapshot) ───────────────────────────────────
+
+function assertValidKm(km: number | null | undefined): void {
+  if (km !== undefined && km !== null && (!Number.isFinite(km) || km < 0)) {
+    throw new SessionError('INVALID_INPUT', 'Travel km must be zero or more');
+  }
+}
+
+/**
+ * Km + parent travel charge to SNAPSHOT on a lesson being recorded. In-person:
+ * km = explicit → booked → student default; charge at the student's CURRENT
+ * parent rate. Online: no km, no charge. Call inside a transaction.
+ */
+function lessonTravelInTx(
+  studentId: string,
+  mode: Session['mode'],
+  km: number | null | undefined,
+  bookedKm: number | null | undefined,
+): { travelKm: number | null; parentTravelFee: number } {
+  if (mode === 'online') return { travelKm: null, parentTravelFee: 0 };
+  const st = getDb().getFirstSync<{
+    travel_distance_km: number | null;
+    parent_travel_mode: ParentTravelMode | null;
+    parent_travel_flat_fee: number | null;
+    parent_travel_per_km: number | null;
+  }>(
+    'SELECT travel_distance_km, parent_travel_mode, parent_travel_flat_fee, parent_travel_per_km FROM students WHERE id = ?',
+    [studentId]
+  );
+  const travelKm = km ?? bookedKm ?? st?.travel_distance_km ?? 0;
+  return {
+    travelKm,
+    parentTravelFee: parentTravelCharge({
+      lessonMode: 'in_person',
+      parentTravelMode: st?.parent_travel_mode ?? 'none',
+      flatFee: st?.parent_travel_flat_fee ?? 0,
+      perKm: st?.parent_travel_per_km ?? 0,
+      km: travelKm,
+    }),
+  };
+}
+
 // ── Create ───────────────────────────────────────────────────────────────────
 
 export function createScheduled(data: {
   studentId: string;
+  /** Lesson subject; omitted = the student's primary subject. */
+  subjectId?: string | null;
   scheduledFor: string;
   estimatedDurationMinutes: number;
   mode: Session['mode'];
   session_type: Session['session_type'];
   topics?: string[];
   notes?: string;
+  /** Km override for this lesson; omitted/null = student default. */
+  travelKm?: number | null;
 }): Session {
   const db = getDb();
   const id = newId();
   const now = new Date().toISOString();
   const topicsJson = JSON.stringify(data.topics ?? []);
+  assertValidKm(data.travelKm);
+  const travelKm = data.travelKm ?? null;
+  let subjectId = '';
 
-  db.runSync(
-    `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, session_type, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)`,
-    [id, data.studentId, data.mode, data.scheduledFor, data.estimatedDurationMinutes, topicsJson, data.notes ?? null, data.session_type, now]
-  );
+  db.withTransactionSync(() => {
+    subjectId = resolveSubjectIdInTx(data.studentId, data.subjectId);
+    db.runSync(
+      `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, session_type, status, created_at, subject_id, travel_km)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)`,
+      [id, data.studentId, data.mode, data.scheduledFor, data.estimatedDurationMinutes, topicsJson, data.notes ?? null, data.session_type, now, subjectId, travelKm]
+    );
+  });
 
   return {
     id,
@@ -119,6 +174,10 @@ export function createScheduled(data: {
     updated_at: null,
     tutor_id: null,
     created_at: now,
+    subject_id: subjectId,
+    travel_km: travelKm,
+    parent_travel_fee: null,
+    edited_at: null,
   };
 }
 
@@ -131,11 +190,15 @@ export function createUnscheduled(studentId: string, mode: Session['mode'], sess
   const id = newId();
   const now = new Date().toISOString();
 
-  db.runSync(
-    `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, session_type, status, created_at)
-     VALUES (?, ?, ?, NULL, NULL, ?, NULL, ?, 'scheduled', ?)`,
-    [id, studentId, mode, '[]', session_type, now]
-  );
+  let subjectId = '';
+  db.withTransactionSync(() => {
+    subjectId = resolveSubjectIdInTx(studentId);
+    db.runSync(
+      `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, session_type, status, created_at, subject_id)
+       VALUES (?, ?, ?, NULL, NULL, ?, NULL, ?, 'scheduled', ?, ?)`,
+      [id, studentId, mode, '[]', session_type, now, subjectId]
+    );
+  });
 
   return {
     id,
@@ -158,6 +221,10 @@ export function createUnscheduled(studentId: string, mode: Session['mode'], sess
     updated_at: null,
     tutor_id: null,
     created_at: now,
+    subject_id: subjectId,
+    travel_km: null,
+    parent_travel_fee: null,
+    edited_at: null,
   };
 }
 
@@ -171,13 +238,20 @@ export type OweCheck = {
   lessonMinutes: number;
   /** true → UI should confirm ("Start anyway") and retry with allowOverOwe. */
   overLimit: boolean;
+  /** Subject whose balance was checked (null = student has no subject rows; total used). */
+  subjectId: string | null;
 };
 
-export function checkOweLimit(studentId: string, lessonMinutes: number): OweCheck {
+/**
+ * Owe projection for a lesson of `lessonMinutes` against the SUBJECT's balance
+ * (omitted subject = the student's primary subject).
+ */
+export function checkOweLimit(studentId: string, lessonMinutes: number, subjectId?: string | null): OweCheck {
   const db = getDb();
   const profile = db.getFirstSync<{ max_owe_hours: number }>('SELECT max_owe_hours FROM tutor_profile LIMIT 1');
   const maxOweHours = Math.max(0, profile?.max_owe_hours ?? 0);
-  const balanceHours = currentBalance(studentId);
+  const sid = subjectId ?? getPrimarySubjectId(studentId);
+  const balanceHours = sid ? getSubjectBalance(studentId, sid) : currentBalance(studentId);
   const projectedBalanceHours = balanceHours - lessonMinutes / 60;
   return {
     balanceHours,
@@ -185,6 +259,7 @@ export function checkOweLimit(studentId: string, lessonMinutes: number): OweChec
     maxOweHours,
     lessonMinutes,
     overLimit: projectedBalanceHours < -maxOweHours - EPS,
+    subjectId: sid,
   };
 }
 
@@ -227,7 +302,11 @@ function startSessionInTx(sessionId: string, opts: StartSessionOptions): Session
   }
 
   if (!opts.allowOverOwe) {
-    const check = checkOweLimit(target.student_id, target.estimated_duration_minutes ?? DEFAULT_LESSON_MINUTES);
+    const check = checkOweLimit(
+      target.student_id,
+      target.estimated_duration_minutes ?? DEFAULT_LESSON_MINUTES,
+      target.subject_id ?? null,
+    );
     if (check.overLimit) {
       const { overLimit: _overLimit, ...details } = check;
       throw new SessionError('OVER_OWE_LIMIT', 'Starting this lesson exceeds the owing limit', details);
@@ -270,6 +349,10 @@ export function startSession(sessionId: string, opts: StartSessionOptions = {}):
 /** Create an unscheduled lesson and start it in ONE transaction (no orphan row on failure). */
 export function createAndStartUnscheduled(data: {
   studentId: string;
+  /** Lesson subject; omitted = the student's primary subject. */
+  subjectId?: string | null;
+  /** Km override; omitted/null = student default. */
+  travelKm?: number | null;
   mode: Session['mode'];
   sessionType?: Session['session_type'];
   /** Expected length; used for the owe projection (defaults to 60) and stored as estimate. */
@@ -282,10 +365,12 @@ export function createAndStartUnscheduled(data: {
   db.withTransactionSync(() => {
     const id = newId();
     const createdAt = (data.now ?? new Date()).toISOString();
+    assertValidKm(data.travelKm);
+    const subjectId = resolveSubjectIdInTx(data.studentId, data.subjectId);
     db.runSync(
-      `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, session_type, status, created_at)
-       VALUES (?, ?, ?, NULL, ?, '[]', NULL, ?, 'scheduled', ?)`,
-      [id, data.studentId, data.mode, data.estimatedMinutes ?? null, data.sessionType ?? 'general', createdAt]
+      `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, topics, session_notes, session_type, status, created_at, subject_id, travel_km)
+       VALUES (?, ?, ?, NULL, ?, '[]', NULL, ?, 'scheduled', ?, ?, ?)`,
+      [id, data.studentId, data.mode, data.estimatedMinutes ?? null, data.sessionType ?? 'general', createdAt, subjectId, data.travelKm ?? null]
     );
     // Owe projection uses estimatedMinutes, or DEFAULT_LESSON_MINUTES when unknown.
     result = startSessionInTx(id, { allowOverOwe: data.allowOverOwe, now: data.now });
@@ -391,9 +476,14 @@ export function endSession(data: {
     const pausedSeconds = Math.max(dbPaused, data.pausedSeconds ?? 0);
 
     const topicsJson = JSON.stringify(data.topics);
+    const subjectId = resolveSubjectIdInTx(existing.student_id, existing.subject_id);
+    const travel = lessonTravelInTx(existing.student_id, existing.mode, undefined, existing.travel_km);
     const result = db.runSync(
-      `UPDATE sessions SET ended_at = ?, duration_minutes = ?, billed_minutes = ?, paused_seconds = ?, paused_at = NULL, topics = ?, session_notes = ?, status = 'completed' WHERE id = ? AND status IN ('active', 'paused')`,
-      [data.endedAt, data.durationMinutes, data.billedMinutes, pausedSeconds, topicsJson, data.sessionNotes ?? null, data.sessionId]
+      `UPDATE sessions SET ended_at = ?, duration_minutes = ?, billed_minutes = ?, paused_seconds = ?, paused_at = NULL, topics = ?, session_notes = ?, status = 'completed',
+         subject_id = ?, travel_km = ?, parent_travel_fee = ?
+       WHERE id = ? AND status IN ('active', 'paused')`,
+      [data.endedAt, data.durationMinutes, data.billedMinutes, pausedSeconds, topicsJson, data.sessionNotes ?? null,
+        subjectId, travel.travelKm, travel.parentTravelFee, data.sessionId]
     );
     if (result.changes === 0) throw new SessionError('INVALID_STATE', `Failed to end session ${data.sessionId} — status may have changed`);
 
@@ -402,6 +492,7 @@ export function endSession(data: {
       type: 'session_deduction',
       hoursDelta: -(data.billedMinutes / 60),
       relatedSessionId: data.sessionId,
+      subjectId,
     });
 
     session = db.getFirstSync<Session>('SELECT * FROM sessions WHERE id = ?', [data.sessionId])!;
@@ -411,13 +502,15 @@ export function endSession(data: {
 }
 
 /**
+ * @deprecated Use `recordLesson` (same behaviour; billed minutes first-class).
  * Record a lesson that already happened: completed session + deduction in one
- * transaction. With `sessionId`, completes that scheduled lesson ("Log as taught");
- * otherwise inserts a new completed lesson ("Log past lesson"). Not subject to
- * the owe limit (the lesson already happened).
+ * transaction. With `sessionId`, completes that lesson ("Log as taught");
+ * otherwise inserts a new completed lesson. Not subject to the owe limit.
  */
 export function logPastSession(data: {
   studentId: string;
+  /** Lesson subject; omitted = the booked lesson's subject, else the primary subject. */
+  subjectId?: string | null;
   /** ISO start time; must not be in the future. */
   startedAt: string;
   /** Actual lesson length. */
@@ -429,48 +522,110 @@ export function logPastSession(data: {
   sessionId?: string;
   mode?: Session['mode'];
   sessionType?: Session['session_type'];
+  travelKm?: number | null;
+  now?: Date;
+}): { session: Session; entry: LedgerEntry } {
+  return recordLesson({
+    sessionId: data.sessionId,
+    studentId: data.studentId,
+    subjectId: data.subjectId,
+    startedAt: data.startedAt,
+    minutes: data.minutes,
+    billedMinutes: data.billedMinutes ?? data.minutes,
+    topics: data.topics,
+    notes: data.notes,
+    mode: data.mode,
+    sessionType: data.sessionType,
+    travelKm: data.travelKm,
+    now: data.now,
+  });
+}
+
+/**
+ * THE way a lesson gets recorded (primary flow; timer optional). One transaction:
+ * - with `sessionId`: completes that scheduled lesson, or a running/paused timer lesson;
+ * - without: inserts a new completed lesson.
+ * Writes the session_deduction on the lesson's subject and snapshots travel km +
+ * the parent travel charge (student's current rate). Not subject to the owe
+ * limit (the lesson already happened).
+ * Throws SessionError NOT_FOUND | INVALID_STATE | INVALID_INPUT; SubjectError for a foreign subject.
+ */
+export function recordLesson(data: {
+  sessionId?: string;
+  studentId: string;
+  /** Omitted = the booked lesson's subject, else the student's primary subject. */
+  subjectId?: string | null;
+  /** ISO start; must not be in the future. */
+  startedAt: string;
+  /** Minutes charged to the balance (> 0). */
+  billedMinutes: number;
+  /** Actual length; defaults to billedMinutes. Drives ended_at. */
+  minutes?: number;
+  topics: string[];
+  /** undefined = keep the booked lesson's notes. */
+  notes?: string | null;
+  /** Defaults to the booked lesson's mode, else in_person. */
+  mode?: Session['mode'];
+  sessionType?: Session['session_type'];
+  /** Km for this lesson; omitted/null = booked km → student default. Ignored for online. */
+  travelKm?: number | null;
   now?: Date;
 }): { session: Session; entry: LedgerEntry } {
   const db = getDb();
-  const billed = data.billedMinutes ?? data.minutes;
+  const billed = data.billedMinutes;
+  const minutes = data.minutes ?? billed;
   const start = new Date(data.startedAt);
   const now = data.now ?? new Date();
-  if (!Number.isFinite(data.minutes) || data.minutes <= 0 || !Number.isFinite(billed) || billed <= 0) {
+  if (!Number.isFinite(minutes) || minutes <= 0 || !Number.isFinite(billed) || billed <= 0) {
     throw new SessionError('INVALID_INPUT', 'Lesson length must be greater than zero');
   }
   if (Number.isNaN(start.getTime())) throw new SessionError('INVALID_INPUT', 'Invalid start time');
   if (start.getTime() > now.getTime() + 60_000) {
     throw new SessionError('INVALID_INPUT', 'A past lesson cannot start in the future');
   }
+  assertValidKm(data.travelKm);
 
   const startedAt = start.toISOString();
-  const endedAt = new Date(start.getTime() + data.minutes * 60_000).toISOString();
+  const endedAt = new Date(start.getTime() + minutes * 60_000).toISOString();
   const topicsJson = JSON.stringify(data.topics);
   let session: Session | null = null;
   let entry: LedgerEntry | null = null;
 
   db.withTransactionSync(() => {
     let id = data.sessionId;
+    let subjectId: string;
     if (id) {
       const existing = mustGet(id);
       if (existing.student_id !== data.studentId) throw new SessionError('INVALID_INPUT', 'Session belongs to another student');
+      if (!['scheduled', 'active', 'paused'].includes(existing.status)) {
+        throw new SessionError('INVALID_STATE', `Session ${id} is not scheduled (status: ${existing.status})`);
+      }
+      subjectId = resolveSubjectIdInTx(data.studentId, data.subjectId ?? existing.subject_id);
+      const mode = data.mode ?? existing.mode;
+      const travel = lessonTravelInTx(data.studentId, mode, data.travelKm, existing.travel_km);
       const changes = db.runSync(
-        `UPDATE sessions SET started_at = ?, ended_at = ?, duration_minutes = ?, billed_minutes = ?, paused_seconds = 0,
-           paused_at = NULL, topics = ?, session_notes = COALESCE(?, session_notes), status = 'completed'
-         WHERE id = ? AND status = 'scheduled'`,
-        [startedAt, endedAt, data.minutes, billed, topicsJson, data.notes ?? null, id]
+        `UPDATE sessions SET started_at = ?, ended_at = ?, duration_minutes = ?, billed_minutes = ?,
+           paused_at = NULL, topics = ?, session_notes = CASE WHEN ? THEN ? ELSE session_notes END,
+           mode = ?, session_type = COALESCE(?, session_type), subject_id = ?, travel_km = ?, parent_travel_fee = ?,
+           status = 'completed'
+         WHERE id = ? AND status IN ('scheduled', 'active', 'paused')`,
+        [startedAt, endedAt, minutes, billed, topicsJson, data.notes !== undefined ? 1 : 0, data.notes ?? null,
+          mode, data.sessionType ?? null, subjectId, travel.travelKm, travel.parentTravelFee, id]
       ).changes;
       if (changes === 0) {
         throw new SessionError('INVALID_STATE', `Session ${id} is not scheduled (status: ${existing.status})`);
       }
     } else {
       id = newId();
+      subjectId = resolveSubjectIdInTx(data.studentId, data.subjectId);
+      const mode = data.mode ?? 'in_person';
+      const travel = lessonTravelInTx(data.studentId, mode, data.travelKm, null);
       db.runSync(
         `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, started_at, ended_at, paused_seconds,
-           duration_minutes, billed_minutes, topics, session_notes, session_type, status, created_at)
-         VALUES (?, ?, ?, NULL, NULL, ?, ?, 0, ?, ?, ?, ?, ?, 'completed', ?)`,
-        [id, data.studentId, data.mode ?? 'in_person', startedAt, endedAt, data.minutes, billed, topicsJson,
-          data.notes ?? null, data.sessionType ?? 'general', now.toISOString()]
+           duration_minutes, billed_minutes, topics, session_notes, session_type, status, created_at, subject_id, travel_km, parent_travel_fee)
+         VALUES (?, ?, ?, NULL, NULL, ?, ?, 0, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?)`,
+        [id, data.studentId, mode, startedAt, endedAt, minutes, billed, topicsJson,
+          data.notes ?? null, data.sessionType ?? 'general', now.toISOString(), subjectId, travel.travelKm, travel.parentTravelFee]
       );
     }
 
@@ -479,11 +634,127 @@ export function logPastSession(data: {
       type: 'session_deduction',
       hoursDelta: -(billed / 60),
       relatedSessionId: id,
+      subjectId,
     });
     session = mustGet(id);
   });
 
   return { session: session!, entry: entry! };
+}
+
+/** True when the lesson is in a non-voided payout claim. */
+export function isSessionInClaim(sessionId: string): boolean {
+  return getDb().getFirstSync<{ x: number }>(
+    `SELECT 1 AS x FROM claim_lines cl JOIN claims c ON c.id = cl.claim_id
+     WHERE cl.session_id = ? AND c.voided_at IS NULL LIMIT 1`,
+    [sessionId]
+  ) != null;
+}
+
+export type EditLessonPatch = {
+  billedMinutes?: number;
+  /** New ISO start (not in the future). */
+  startedAt?: string;
+  /** New actual length (minutes). */
+  minutes?: number;
+  subjectId?: string;
+  topics?: string[];
+  /** null clears the notes. */
+  notes?: string | null;
+  /** null = back to the student default km. Changing km or mode re-prices travel at the CURRENT rate. */
+  travelKm?: number | null;
+  mode?: Session['mode'];
+  sessionType?: Session['session_type'];
+  now?: Date;
+};
+
+/**
+ * Edit a recorded (completed) lesson in place — one transaction:
+ * updates the session, UPDATES its session_deduction row (hours/subject; the
+ * migration-009 guard allows only that), stamps edited_at. The parent travel
+ * charge is recomputed only when km or mode change. Claim snapshots never change;
+ * `inClaim` tells the UI to warn ("already in claim …") — a nudge, not a block.
+ */
+export function editLesson(sessionId: string, patch: EditLessonPatch): { session: Session; inClaim: boolean } {
+  const db = getDb();
+  const now = patch.now ?? new Date();
+  let session: Session | null = null;
+
+  if (patch.billedMinutes !== undefined && (!Number.isFinite(patch.billedMinutes) || patch.billedMinutes <= 0)) {
+    throw new SessionError('INVALID_INPUT', 'Billed time must be greater than zero');
+  }
+  if (patch.minutes !== undefined && (!Number.isFinite(patch.minutes) || patch.minutes <= 0)) {
+    throw new SessionError('INVALID_INPUT', 'Lesson length must be greater than zero');
+  }
+  assertValidKm(patch.travelKm);
+
+  db.withTransactionSync(() => {
+    const existing = mustGet(sessionId);
+    if (existing.status !== 'completed') {
+      throw new SessionError('INVALID_STATE', `Only recorded lessons can be edited (status: ${existing.status})`);
+    }
+
+    let startedAt = existing.started_at;
+    if (patch.startedAt !== undefined) {
+      const d = new Date(patch.startedAt);
+      if (Number.isNaN(d.getTime())) throw new SessionError('INVALID_INPUT', 'Invalid start time');
+      if (d.getTime() > now.getTime() + 60_000) throw new SessionError('INVALID_INPUT', 'A past lesson cannot start in the future');
+      startedAt = d.toISOString();
+    }
+    const minutes = patch.minutes ?? existing.duration_minutes ?? existing.billed_minutes ?? 0;
+    const billed = patch.billedMinutes ?? existing.billed_minutes ?? existing.duration_minutes ?? minutes;
+    const endedAt =
+      (patch.startedAt !== undefined || patch.minutes !== undefined) && startedAt
+        ? new Date(new Date(startedAt).getTime() + minutes * 60_000).toISOString()
+        : existing.ended_at;
+
+    const subjectId = resolveSubjectIdInTx(existing.student_id, patch.subjectId ?? existing.subject_id);
+    const mode = patch.mode ?? existing.mode;
+    const kmChanged = patch.travelKm !== undefined && patch.travelKm !== existing.travel_km;
+    const modeChanged = mode !== existing.mode;
+    let travelKm = existing.travel_km ?? null;
+    let parentTravelFee = existing.parent_travel_fee ?? null;
+    if (kmChanged || modeChanged) {
+      const t = lessonTravelInTx(existing.student_id, mode, patch.travelKm === undefined ? existing.travel_km : patch.travelKm, null);
+      travelKm = t.travelKm;
+      parentTravelFee = t.parentTravelFee;
+    }
+
+    db.runSync(
+      `UPDATE sessions SET started_at = ?, ended_at = ?, duration_minutes = ?, billed_minutes = ?,
+         topics = COALESCE(?, topics), session_notes = CASE WHEN ? THEN ? ELSE session_notes END,
+         mode = ?, session_type = COALESCE(?, session_type), subject_id = ?, travel_km = ?, parent_travel_fee = ?,
+         edited_at = ?
+       WHERE id = ? AND status = 'completed'`,
+      [startedAt, endedAt, minutes, billed,
+        patch.topics !== undefined ? JSON.stringify(patch.topics) : null,
+        patch.notes !== undefined ? 1 : 0, patch.notes ?? null,
+        mode, patch.sessionType ?? null, subjectId, travelKm, parentTravelFee,
+        now.toISOString(), sessionId]
+    );
+
+    const deduction = db.getFirstSync<{ id: string }>(
+      `SELECT id FROM ledger_entries WHERE related_session_id = ? AND type = 'session_deduction' ORDER BY rowid ASC LIMIT 1`,
+      [sessionId]
+    );
+    if (deduction) {
+      db.runSync(
+        'UPDATE ledger_entries SET hours_delta = ?, subject_id = ?, updated_at = ? WHERE id = ?',
+        [-(billed / 60), subjectId, now.toISOString(), deduction.id]
+      );
+    } else {
+      appendEntryInTx({
+        studentId: existing.student_id,
+        type: 'session_deduction',
+        hoursDelta: -(billed / 60),
+        relatedSessionId: sessionId,
+        subjectId,
+      });
+    }
+    session = mustGet(sessionId);
+  });
+
+  return { session: session!, inClaim: isSessionInClaim(sessionId) };
 }
 
 // ── Scheduled-lesson actions ─────────────────────────────────────────────────
@@ -521,6 +792,7 @@ export function markNoShow(
         hoursDelta: -(minutes / 60),
         relatedSessionId: sessionId,
         reason: 'No-show',
+        subjectId: existing.subject_id,
       });
     }
     session = mustGet(sessionId);
@@ -533,15 +805,18 @@ export function markNoShow(
 export function rescheduleSession(
   sessionId: string,
   newScheduledFor: string,
-  opts: { estimatedDurationMinutes?: number } = {},
+  /** travelKm: undefined = keep, null = back to student default. */
+  opts: { estimatedDurationMinutes?: number; travelKm?: number | null } = {},
 ): Session {
   const when = new Date(newScheduledFor);
   if (Number.isNaN(when.getTime())) throw new SessionError('INVALID_INPUT', 'Invalid date');
+  assertValidKm(opts.travelKm);
   const existing = mustGet(sessionId);
   const changes = getDb().runSync(
-    `UPDATE sessions SET scheduled_for = ?, estimated_duration_minutes = COALESCE(?, estimated_duration_minutes)
+    `UPDATE sessions SET scheduled_for = ?, estimated_duration_minutes = COALESCE(?, estimated_duration_minutes),
+       travel_km = CASE WHEN ? THEN ? ELSE travel_km END
      WHERE id = ? AND status = 'scheduled'`,
-    [when.toISOString(), opts.estimatedDurationMinutes ?? null, sessionId]
+    [when.toISOString(), opts.estimatedDurationMinutes ?? null, opts.travelKm !== undefined ? 1 : 0, opts.travelKm ?? null, sessionId]
   ).changes;
   if (changes === 0) throw new SessionError('INVALID_STATE', `Session ${sessionId} is not scheduled (status: ${existing.status})`);
   return mustGet(sessionId);
@@ -577,12 +852,25 @@ export function updateScheduled(
     session_type: Session['session_type'];
     topics: string[];
     notes?: string;
+    /** undefined = keep. */
+    subjectId?: string;
+    /** undefined = keep; null = student default. */
+    travelKm?: number | null;
   }
 ): void {
-  getDb().runSync(
-    `UPDATE sessions SET scheduled_for = ?, estimated_duration_minutes = ?, mode = ?, topics = ?, session_notes = ?, session_type = ? WHERE id = ? AND status = 'scheduled'`,
-    [data.scheduledFor, data.estimatedDurationMinutes, data.mode, JSON.stringify(data.topics), data.notes ?? null, data.session_type, sessionId]
-  );
+  const db = getDb();
+  assertValidKm(data.travelKm);
+  db.withTransactionSync(() => {
+    const existing = db.getFirstSync<{ student_id: string }>('SELECT student_id FROM sessions WHERE id = ?', [sessionId]);
+    const subjectId = existing && data.subjectId !== undefined ? resolveSubjectIdInTx(existing.student_id, data.subjectId) : null;
+    db.runSync(
+      `UPDATE sessions SET scheduled_for = ?, estimated_duration_minutes = ?, mode = ?, topics = ?, session_notes = ?, session_type = ?,
+         subject_id = COALESCE(?, subject_id), travel_km = CASE WHEN ? THEN ? ELSE travel_km END
+       WHERE id = ? AND status = 'scheduled'`,
+      [data.scheduledFor, data.estimatedDurationMinutes, data.mode, JSON.stringify(data.topics), data.notes ?? null, data.session_type,
+        subjectId, data.travelKm !== undefined ? 1 : 0, data.travelKm ?? null, sessionId]
+    );
+  });
 }
 
 // ── Lists ────────────────────────────────────────────────────────────────────
@@ -608,17 +896,28 @@ export function listUpcomingWithProjection(
     `SELECT * FROM sessions WHERE student_id = ? AND status = 'scheduled' AND scheduled_for IS NOT NULL ORDER BY scheduled_for ASC`,
     [studentId]
   ).filter(s => new Date(s.scheduled_for!).getTime() >= now.getTime());
-  let running = currentBalance(studentId);
+  // Per subject: each lesson draws on its own subject's balance.
+  const primary = getPrimarySubjectId(studentId);
+  const running = new Map<string, number>();
   return rows.map(s => {
-    running -= (s.estimated_duration_minutes ?? DEFAULT_LESSON_MINUTES) / 60;
-    return { ...s, projected_balance_after: Math.round(running * 1e6) / 1e6 };
+    const key = s.subject_id ?? primary ?? '';
+    if (!running.has(key)) running.set(key, key ? getSubjectBalance(studentId, key) : currentBalance(studentId));
+    const next = running.get(key)! - (s.estimated_duration_minutes ?? DEFAULT_LESSON_MINUTES) / 60;
+    running.set(key, next);
+    return { ...s, projected_balance_after: Math.round(next * 1e6) / 1e6 };
   });
 }
 
-export function listAllUpcoming(): Array<Session & { student_full_name: string; student_subject: string }> {
+/** SQL select list adding the lesson's effective subject to a `sessions` row. */
+const LESSON_SUBJECT_SELECT = `${effectiveSubjectIdSql('sessions')} AS subject_id,
+  (SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${effectiveSubjectIdSql('sessions')}) AS subject_name`;
+
+export function listAllUpcoming(): Array<Session & { student_full_name: string; student_subject: string; subject_name: string | null }> {
   const db = getDb();
-  return db.getAllSync<Session & { student_full_name: string; student_subject: string }>(
-    `SELECT sessions.*, students.full_name AS student_full_name, students.subject AS student_subject
+  return db.getAllSync<Session & { student_full_name: string; student_subject: string; subject_name: string | null }>(
+    `SELECT sessions.*, students.full_name AS student_full_name,
+            COALESCE((SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${effectiveSubjectIdSql('sessions')}), students.subject) AS student_subject,
+            ${LESSON_SUBJECT_SELECT}
      FROM sessions JOIN students ON sessions.student_id = students.id
      WHERE sessions.status = 'scheduled'
        AND datetime(sessions.scheduled_for) >= datetime('now')
@@ -629,8 +928,11 @@ export function listAllUpcoming(): Array<Session & { student_full_name: string; 
 
 export type AgendaItem = Session & {
   student_full_name: string;
+  /** The LESSON's subject name (falls back to students.subject). */
   student_subject: string;
   student_status: Student['status'];
+  /** Lesson subject name (null only if the student has no subject rows). Always set by listAgenda. */
+  subject_name?: string | null;
 };
 
 export type Agenda = {
@@ -651,8 +953,9 @@ export type Agenda = {
  */
 export function listAgenda(now: Date = new Date()): Agenda {
   const rows = getDb().getAllSync<AgendaItem>(
-    `SELECT sessions.*, students.full_name AS student_full_name, students.subject AS student_subject,
-            students.status AS student_status
+    `SELECT sessions.*, students.full_name AS student_full_name,
+            COALESCE((SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${effectiveSubjectIdSql('sessions')}), students.subject) AS student_subject,
+            students.status AS student_status, ${LESSON_SUBJECT_SELECT}
      FROM sessions JOIN students ON sessions.student_id = students.id
      WHERE students.status != 'archived'
        AND (sessions.status IN ('active','paused')
@@ -686,18 +989,21 @@ export function listAgenda(now: Date = new Date()): Agenda {
   return agenda;
 }
 
-export function listForStudent(studentId: string, limit?: number): Session[] {
+/** Recorded (non-scheduled, non-cancelled) lessons, newest first; optionally one subject. */
+export function listForStudent(studentId: string, limit?: number, subjectId?: string): Session[] {
   const db = getDb();
-  if (limit !== undefined) {
-    return db.getAllSync<Session>(
-      `SELECT * FROM sessions WHERE student_id = ? AND status NOT IN ('scheduled','cancelled') ORDER BY created_at DESC LIMIT ?`,
-      [studentId, limit]
-    );
+  const params: (string | number)[] = [studentId];
+  let where = `student_id = ? AND status NOT IN ('scheduled','cancelled')`;
+  if (subjectId) {
+    where += ` AND ${effectiveSubjectIdSql('sessions')} = ?`;
+    params.push(subjectId);
   }
-  return db.getAllSync<Session>(
-    `SELECT * FROM sessions WHERE student_id = ? AND status NOT IN ('scheduled','cancelled') ORDER BY created_at DESC`,
-    [studentId]
-  );
+  let lim = '';
+  if (limit !== undefined) {
+    lim = 'LIMIT ?';
+    params.push(limit);
+  }
+  return db.getAllSync<Session>(`SELECT * FROM sessions WHERE ${where} ORDER BY created_at DESC ${lim}`, params);
 }
 
 export function getActiveSession(): (Session & { student_full_name: string }) | null {
@@ -755,7 +1061,8 @@ export function sessionsThisWeekCount(): number {
 export function getSessionWithStudent(sessionId: string): (Session & { student_name: string; grade: number; subject: string; curriculum: string }) | null {
   const db = getDb();
   return db.getFirstSync<Session & { student_name: string; grade: number; subject: string; curriculum: string }>(
-    `SELECT s.*, st.full_name as student_name, st.grade, st.subject, st.curriculum
+    `SELECT s.*, st.full_name as student_name, st.grade, st.curriculum,
+            COALESCE((SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${effectiveSubjectIdSql('s')}), st.subject) AS subject
      FROM sessions s
      JOIN students st ON s.student_id = st.id
      WHERE s.id = ?`,
