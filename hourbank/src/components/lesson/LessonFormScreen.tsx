@@ -38,12 +38,15 @@ import {
   defaultTravelKm,
   hasFormErrors,
   parseKmInput,
+  topicsAfterSubjectChange,
+  topicsUpdatedNote,
   travelPreview,
   validateLessonForm,
   type LessonFormValues,
   type LessonMode,
 } from './lessonFormLogic';
 import {
+  builtinCatalogTopics,
   catalogTopics,
   claimLabelForSession,
   loadSubjectOptions,
@@ -108,6 +111,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
   const [km, setKm] = useState('');
   const [topics, setTopics] = useState<string[]>([]);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const [topicsNote, setTopicsNote] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
   const [showErrors, setShowErrors] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -250,8 +254,14 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
   function changeSubject(id: string) {
     setSubjectId(id);
     const name = ctx!.options.find(o => o.id === id)?.subject;
-    const catalog = catalogTopics(name);
-    setTopics([...catalog, ...selectedTopics.filter(t => !catalog.includes(t))]);
+    const next = topicsAfterSubjectChange({
+      selected: selectedTopics,
+      oldCatalog: builtinCatalogTopics(subjectName),
+      newCatalog: catalogTopics(name),
+    });
+    setTopics(next.topics);
+    setSelectedTopics(next.selected);
+    setTopicsNote(topicsUpdatedNote(next.removed, name ?? 'this subject'));
   }
 
   function changeMode(next: LessonMode) {
@@ -262,10 +272,12 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
   }
 
   function toggleTopic(t: string) {
+    setTopicsNote(null);
     setSelectedTopics(prev => (prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]));
   }
 
   function addTopic(t: string) {
+    setTopicsNote(null);
     try {
       addCustomTopicForSubject(subjectName, t);
     } catch { /* still usable on this lesson */ }
@@ -493,6 +505,14 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
       {!noShow ? (
         <View style={{ marginTop: 24 }}>
           <SectionLabel>TOPICS</SectionLabel>
+          {topicsNote ? (
+            <Text
+              accessibilityLiveRegion="polite"
+              style={{ fontFamily: F.serifItalic, fontSize: 13, color: COLORS.inkSoft, marginBottom: 8 }}
+            >
+              {topicsNote}
+            </Text>
+          ) : null}
           <TopicsField topics={topics} selected={selectedTopics} onToggle={toggleTopic} onAdd={addTopic} />
         </View>
       ) : null}

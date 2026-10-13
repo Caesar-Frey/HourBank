@@ -11,6 +11,8 @@ import {
   stepBilled,
   timerReviewOverrides,
   timerReviewSaveRoute,
+  topicsAfterSubjectChange,
+  topicsUpdatedNote,
   travelPreview,
   validateLessonForm,
   type LessonFormValues,
@@ -214,5 +216,40 @@ describe('timer review save decision', () => {
     // Zero-billed: endSession, which applies the same overrides (nothing dropped).
     expect(timerReviewSaveRoute({ overrides: { travelKm: 14 }, billedMinutes: 0, hasStarted: true })).toBe('end');
     expect(timerReviewSaveRoute({ overrides: { subjectId: 'ss-2' }, billedMinutes: 60, hasStarted: false })).toBe('end');
+  });
+});
+
+describe('topicsAfterSubjectChange', () => {
+  const maths = ['Algebra', 'Calculus'];
+  const science = ['Electricity', 'Chemical change'];
+
+  test('drops old-catalog topics not in the new catalog, keeps typed custom topics', () => {
+    const r = topicsAfterSubjectChange({
+      selected: ['Calculus', 'Exam prep', 'Electricity'],
+      oldCatalog: maths,
+      newCatalog: science,
+    });
+    expect(r.selected).toEqual(['Exam prep', 'Electricity']);
+    expect(r.removed).toEqual(['Calculus']);
+    expect(r.topics).toEqual(['Electricity', 'Chemical change', 'Exam prep']);
+  });
+
+  test('keeps catalog topics shared by both subjects; nothing removed', () => {
+    const r = topicsAfterSubjectChange({ selected: ['Algebra'], oldCatalog: maths, newCatalog: ['Algebra', 'Graphs'] });
+    expect(r.selected).toEqual(['Algebra']);
+    expect(r.removed).toEqual([]);
+    expect(r.topics).toEqual(['Algebra', 'Graphs']);
+  });
+
+  test('no selection → just the new catalog', () => {
+    const r = topicsAfterSubjectChange({ selected: [], oldCatalog: maths, newCatalog: science });
+    expect(r).toEqual({ topics: science, selected: [], removed: [] });
+  });
+});
+
+describe('topicsUpdatedNote', () => {
+  test('note only when topics were removed', () => {
+    expect(topicsUpdatedNote(['Calculus'], 'Science')).toBe('Topics updated for Science');
+    expect(topicsUpdatedNote([], 'Science')).toBeNull();
   });
 });

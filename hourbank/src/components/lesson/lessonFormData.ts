@@ -50,6 +50,16 @@ export function catalogTopics(subjectName: string | null | undefined): string[] 
   }
 }
 
+/** Built-in (non-custom) catalog topic names for a subject — custom ones the tutor typed are excluded. */
+export function builtinCatalogTopics(subjectName: string | null | undefined): string[] {
+  if (!subjectName) return [];
+  try {
+    return listTopicsForStudentSubject(subjectName).filter(t => !t.is_custom).map(t => t.name);
+  } catch {
+    return [];
+  }
+}
+
 /** Period label of the (non-void) payout claim holding this lesson, e.g. "1–30 Sep 2026"; null if none. */
 export function claimLabelForSession(sessionId: string): string | null {
   const row = getDb().getFirstSync<{ period_start: string | null; period_end: string | null }>(

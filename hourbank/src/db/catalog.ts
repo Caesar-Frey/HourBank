@@ -16,6 +16,8 @@ export type Topic = {
   subject_id: string;
   name: string;
   sort_order: number;
+  /** 1 for topics the tutor typed (addCustomTopicForSubject); 0 for the seeded catalog. */
+  is_custom?: number;
   created_at: string;
   updated_at: string;
 };

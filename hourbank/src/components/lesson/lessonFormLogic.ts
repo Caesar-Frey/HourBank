@@ -251,3 +251,26 @@ export function timerReviewSaveRoute(a: {
 }): 'record' | 'end' {
   return Object.keys(a.overrides).length > 0 && a.billedMinutes > 0 && a.hasStarted ? 'record' : 'end';
 }
+
+/**
+ * Subject change on the lesson form: drop selected topics that come from the old
+ * subject's built-in catalog but aren't in the new one (e.g. Calculus on a Science
+ * lesson). Topics the tutor typed (not in the old built-in catalog) stay selected.
+ */
+export function topicsAfterSubjectChange(a: {
+  selected: string[];
+  /** Built-in (non-custom) catalog topics of the subject being left. */
+  oldCatalog: string[];
+  /** Full catalog of the new subject. */
+  newCatalog: string[];
+}): { topics: string[]; selected: string[]; removed: string[] } {
+  const removed = a.selected.filter(t => a.oldCatalog.includes(t) && !a.newCatalog.includes(t));
+  const selected = a.selected.filter(t => !removed.includes(t));
+  const topics = [...a.newCatalog, ...selected.filter(t => !a.newCatalog.includes(t))];
+  return { topics, selected, removed };
+}
+
+/** Inline note after a subject change removed topics; null when nothing was removed. */
+export function topicsUpdatedNote(removed: string[], subjectName: string): string | null {
+  return removed.length > 0 ? `Topics updated for ${subjectName}` : null;
+}
