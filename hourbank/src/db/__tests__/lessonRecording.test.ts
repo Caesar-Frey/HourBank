@@ -245,14 +245,14 @@ describe('lesson recording + editing (Phase A)', () => {
       });
     });
 
-    it('recomputes the parent travel charge only when km or mode change, at the CURRENT rate', () => {
+    it('recomputes the parent travel charge only when km or mode change, at the rate of the time', () => {
       const { s, id } = recorded(db);
       expect(getSession(id)!.parent_travel_fee).toBe(50);
       updateStudent(s.id, { ...base, parentTravelPerKm: 6 });
       editLesson(id, { billedMinutes: 75, now: NOW });
       expect(getSession(id)!.parent_travel_fee).toBe(50); // rate change never reprices
       editLesson(id, { travelKm: 12, now: NOW });
-      expect(getSession(id)).toMatchObject({ travel_km: 12, parent_travel_fee: 72 });
+      expect(getSession(id)).toMatchObject({ travel_km: 12, parent_travel_fee: 60 });
       editLesson(id, { mode: 'online', now: NOW });
       expect(getSession(id)).toMatchObject({ mode: 'online', parent_travel_fee: 0 });
     });

@@ -107,6 +107,10 @@ export type Session = {
   travel_km?: number | null;
   /** Parent travel charge (rand) snapshotted when the lesson was recorded; NULL = none. */
   parent_travel_fee?: number | null;
+  /** Rate terms that priced parent_travel_fee (migration 010); NULL = legacy, snapshotted on first edit. */
+  parent_travel_mode_snapshot?: ParentTravelMode | null;
+  parent_travel_flat_snapshot?: number | null;
+  parent_travel_per_km_snapshot?: number | null;
   /** Set when a past lesson is edited in place. */
   edited_at?: string | null;
 };

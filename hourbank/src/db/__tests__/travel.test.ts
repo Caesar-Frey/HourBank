@@ -110,6 +110,43 @@ describe('travel owed + settlements', () => {
     expect(getTravelOwed(s.id)).toMatchObject({ amount: 0, charged: 0, settled: 50, credit: 50 });
   });
 
+  function setPerKm(id: string, perKm: number) {
+    updateStudent(id, { ...base, travelDistanceKm: 10, parentTravelMode: 'per_km', parentTravelPerKm: perKm });
+  }
+
+  it('rate change then km edit keeps the rate that applied at the time', () => {
+    const s = student();
+    const l = lesson(s.id, '2026-10-01T10:00:00.000Z'); // 10km x R5 = 50
+    expect(l).toMatchObject({ parent_travel_mode_snapshot: 'per_km', parent_travel_per_km_snapshot: 5 });
+    setPerKm(s.id, 9);
+    const other = lesson(s.id, '2026-10-02T10:00:00.000Z'); // new lessons use the new rate
+    expect(other.parent_travel_fee).toBe(90);
+    expect(editLesson(l.id, { travelKm: 20, now: NOW }).session.parent_travel_fee).toBe(100);
+    expect(getTravelOwed(s.id).charged).toBe(190);
+  });
+
+  it('legacy lesson without snapshot falls back to current terms, then freezes them', () => {
+    const s = student();
+    const l = lesson(s.id, '2026-10-01T10:00:00.000Z');
+    db.runSync(`UPDATE sessions SET parent_travel_mode_snapshot = NULL, parent_travel_flat_snapshot = NULL,
+                parent_travel_per_km_snapshot = NULL WHERE id = ?`, [l.id]);
+    setPerKm(s.id, 8);
+    const e1 = editLesson(l.id, { travelKm: 10.5, now: NOW }).session;
+    expect(e1).toMatchObject({ parent_travel_fee: 84, parent_travel_mode_snapshot: 'per_km', parent_travel_per_km_snapshot: 8 });
+    setPerKm(s.id, 20);
+    expect(editLesson(l.id, { travelKm: 11, now: NOW }).session.parent_travel_fee).toBe(88);
+  });
+
+  it('online <-> in-person toggle keeps the snapshot and reprices from it', () => {
+    const s = student();
+    const l = lesson(s.id, '2026-10-01T10:00:00.000Z');
+    setPerKm(s.id, 9);
+    const online = editLesson(l.id, { mode: 'online', now: NOW }).session;
+    expect(online).toMatchObject({ parent_travel_fee: 0, parent_travel_per_km_snapshot: 5 });
+    const back = editLesson(l.id, { mode: 'in_person', travelKm: 12, now: NOW }).session;
+    expect(back).toMatchObject({ parent_travel_fee: 60, parent_travel_per_km_snapshot: 5 });
+  });
+
   it('lists students with travel owed (archived excluded)', () => {
     const a = student();
     const b = createStudent({ ...base, fullName: 'Bongani', parentTravelMode: 'flat', parentTravelFlatFee: 80 });

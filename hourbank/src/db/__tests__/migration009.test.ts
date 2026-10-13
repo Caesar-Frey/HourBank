@@ -62,7 +62,6 @@ describe('migration 009 — subjects, editable lessons, travel billing', () => {
 
   it('is the last migration and follows 008', () => {
     const idx = ALL_MIGRATIONS.indexOf(MIGRATION_009_SUBJECTS_TRAVEL);
-    expect(idx).toBe(ALL_MIGRATIONS.length - 1);
     expect(ALL_MIGRATIONS[idx - 1]).toBe(MIGRATION_008_CONTACTS_REFERENCE);
     expect(MIGRATION_009_SUBJECTS_TRAVEL.version).toBe('009_subjects_travel');
   });
@@ -222,5 +221,35 @@ describe('migration 009 — subjects, editable lessons, travel billing', () => {
     expect(() => runMigrations([MIGRATION_009_SUBJECTS_TRAVEL])).not.toThrow();
     expect(db.getFirstSync<{ n: number }>('SELECT COUNT(*) AS n FROM student_subjects')!.n).toBe(3);
     expect(balancesByStudent(db)).toEqual({ a: 8.5, b: 4, c: 1.5 });
+  });
+});
+
+describe('migration 010 — travel rate snapshot', () => {
+  afterEach(() => resetDbSingleton());
+
+  it('upgrades a populated 009 DB: adds columns, backfills derivable lessons, idempotent', () => {
+    const db = createTestDb();
+    runMigrations(ALL_MIGRATIONS.slice(0, -1));
+    const st = (id: string, mode: string, flat: number, perKm: number) =>
+      db.runSync(`INSERT INTO students (id, full_name, grade, subject, curriculum, status, created_at, parent_travel_mode, parent_travel_flat_fee, parent_travel_per_km)
+                  VALUES (?, ?, 10, 'Maths', 'CAPS', 'active', ?, ?, ?, ?)`, [id, id, T0, mode, flat, perKm]);
+    st('pk', 'per_km', 0, 5); st('fl', 'flat', 80, 0); st('no', 'none', 0, 0);
+    const ses = (id: string, sid: string, km: number | null, fee: number | null) =>
+      db.runSync(`INSERT INTO sessions (id, student_id, status, mode, started_at, ended_at, billed_minutes, created_at, travel_km, parent_travel_fee)
+                  VALUES (?, ?, 'completed', 'in_person', ?, ?, 60, ?, ?, ?)`, [id, sid, T0, T0, T0, km, fee]);
+    ses('l1', 'pk', 10, 50); ses('l2', 'pk', 0, 40); ses('l3', 'fl', 7, 80); ses('l4', 'no', 5, null); ses('l5', 'pk', 10, null);
+    runMigrations(ALL_MIGRATIONS);
+    runMigrations(ALL_MIGRATIONS);
+    const rows = db.getAllSync<Record<string, unknown>>(
+      `SELECT id, parent_travel_mode_snapshot AS m, parent_travel_flat_snapshot AS f, parent_travel_per_km_snapshot AS k
+       FROM sessions ORDER BY id`
+    );
+    expect(rows).toEqual([
+      { id: 'l1', m: 'per_km', f: 0, k: 5 },
+      { id: 'l2', m: null, f: null, k: null },
+      { id: 'l3', m: 'flat', f: 80, k: 0 },
+      { id: 'l4', m: null, f: null, k: null },
+      { id: 'l5', m: null, f: null, k: null },
+    ]);
   });
 });

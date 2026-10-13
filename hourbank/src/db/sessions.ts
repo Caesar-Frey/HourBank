@@ -87,18 +87,9 @@ function assertValidKm(km: number | null | undefined): void {
   }
 }
 
-/**
- * Km + parent travel charge to SNAPSHOT on a lesson being recorded. In-person:
- * km = explicit → booked → student default; charge at the student's CURRENT
- * parent rate. Online: no km, no charge. Call inside a transaction.
- */
-function lessonTravelInTx(
-  studentId: string,
-  mode: Session['mode'],
-  km: number | null | undefined,
-  bookedKm: number | null | undefined,
-): { travelKm: number | null; parentTravelFee: number } {
-  if (mode === 'online') return { travelKm: null, parentTravelFee: 0 };
+type TravelTerms = { mode: ParentTravelMode; flat: number; perKm: number };
+
+function studentTermsInTx(studentId: string): { km: number | null; terms: TravelTerms } {
   const st = getDb().getFirstSync<{
     travel_distance_km: number | null;
     parent_travel_mode: ParentTravelMode | null;
@@ -108,17 +99,55 @@ function lessonTravelInTx(
     'SELECT travel_distance_km, parent_travel_mode, parent_travel_flat_fee, parent_travel_per_km FROM students WHERE id = ?',
     [studentId]
   );
-  const travelKm = km ?? bookedKm ?? st?.travel_distance_km ?? 0;
+  return {
+    km: st?.travel_distance_km ?? null,
+    terms: { mode: st?.parent_travel_mode ?? 'none', flat: st?.parent_travel_flat_fee ?? 0, perKm: st?.parent_travel_per_km ?? 0 },
+  };
+}
+
+type LessonTravel = {
+  travelKm: number | null;
+  parentTravelFee: number;
+  /** Terms that priced the charge — written to the session's snapshot columns. */
+  terms: TravelTerms;
+};
+
+/**
+ * Km + parent travel charge to SNAPSHOT on a lesson. In-person: km = explicit →
+ * booked → student default. Rate terms: `terms` when given (the lesson's own
+ * snapshot — rate changes never reprice it), else the student's CURRENT terms
+ * (first time a lesson is priced). Online: no km, no charge, terms still
+ * returned so a later switch back to in-person can price from them.
+ * Call inside a transaction.
+ */
+function lessonTravelInTx(
+  studentId: string,
+  mode: Session['mode'],
+  km: number | null | undefined,
+  bookedKm: number | null | undefined,
+  terms?: TravelTerms | null,
+): LessonTravel {
+  const st = studentTermsInTx(studentId);
+  const t = terms ?? st.terms;
+  if (mode === 'online') return { travelKm: null, parentTravelFee: 0, terms: t };
+  const travelKm = km ?? bookedKm ?? st.km ?? 0;
   return {
     travelKm,
     parentTravelFee: parentTravelCharge({
       lessonMode: 'in_person',
-      parentTravelMode: st?.parent_travel_mode ?? 'none',
-      flatFee: st?.parent_travel_flat_fee ?? 0,
-      perKm: st?.parent_travel_per_km ?? 0,
+      parentTravelMode: t.mode,
+      flatFee: t.flat,
+      perKm: t.perKm,
       km: travelKm,
     }),
+    terms: t,
   };
+}
+
+/** The lesson's snapshotted rate terms, or null for legacy lessons. */
+function snapshotTerms(s: Session): TravelTerms | null {
+  if (!s.parent_travel_mode_snapshot) return null;
+  return { mode: s.parent_travel_mode_snapshot, flat: s.parent_travel_flat_snapshot ?? 0, perKm: s.parent_travel_per_km_snapshot ?? 0 };
 }
 
 // ── Create ───────────────────────────────────────────────────────────────────
@@ -551,7 +580,7 @@ export function logPastSession(data: {
  * - with `sessionId`: completes that scheduled lesson, or a running/paused timer lesson;
  * - without: inserts a new completed lesson.
  * Writes the session_deduction on the lesson's subject and snapshots travel km +
- * the parent travel charge (student's current rate). Not subject to the owe
+ * the parent travel charge (student's current rate, stored as the lesson's rate snapshot). Not subject to the owe
  * limit (the lesson already happened).
  * Throws SessionError NOT_FOUND | INVALID_STATE | INVALID_INPUT; SubjectError for a foreign subject.
  */
@@ -612,10 +641,12 @@ export function recordLesson(data: {
         `UPDATE sessions SET started_at = ?, ended_at = ?, duration_minutes = ?, billed_minutes = ?,
            paused_at = NULL, topics = ?, session_notes = CASE WHEN ? THEN ? ELSE session_notes END,
            mode = ?, session_type = COALESCE(?, session_type), subject_id = ?, travel_km = ?, parent_travel_fee = ?,
+           parent_travel_mode_snapshot = ?, parent_travel_flat_snapshot = ?, parent_travel_per_km_snapshot = ?,
            status = 'completed'
          WHERE id = ? AND status IN ('scheduled', 'active', 'paused')`,
         [startedAt, endedAt, minutes, billed, topicsJson, data.notes !== undefined ? 1 : 0, data.notes ?? null,
-          mode, data.sessionType ?? null, subjectId, travel.travelKm, travel.parentTravelFee, id]
+          mode, data.sessionType ?? null, subjectId, travel.travelKm, travel.parentTravelFee,
+          travel.terms.mode, travel.terms.flat, travel.terms.perKm, id]
       ).changes;
       if (changes === 0) {
         throw new SessionError('INVALID_STATE', `Session ${id} is not scheduled (status: ${existing.status})`);
@@ -627,10 +658,12 @@ export function recordLesson(data: {
       const travel = lessonTravelInTx(data.studentId, mode, data.travelKm, null);
       db.runSync(
         `INSERT INTO sessions (id, student_id, mode, scheduled_for, estimated_duration_minutes, started_at, ended_at, paused_seconds,
-           duration_minutes, billed_minutes, topics, session_notes, session_type, status, created_at, subject_id, travel_km, parent_travel_fee)
-         VALUES (?, ?, ?, NULL, NULL, ?, ?, 0, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?)`,
+           duration_minutes, billed_minutes, topics, session_notes, session_type, status, created_at, subject_id, travel_km, parent_travel_fee,
+           parent_travel_mode_snapshot, parent_travel_flat_snapshot, parent_travel_per_km_snapshot)
+         VALUES (?, ?, ?, NULL, NULL, ?, ?, 0, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?)`,
         [id, data.studentId, mode, startedAt, endedAt, minutes, billed, topicsJson,
-          data.notes ?? null, data.sessionType ?? 'general', now.toISOString(), subjectId, travel.travelKm, travel.parentTravelFee]
+          data.notes ?? null, data.sessionType ?? 'general', now.toISOString(), subjectId, travel.travelKm, travel.parentTravelFee,
+          travel.terms.mode, travel.terms.flat, travel.terms.perKm]
       );
     }
 
@@ -666,7 +699,7 @@ export type EditLessonPatch = {
   topics?: string[];
   /** null clears the notes. */
   notes?: string | null;
-  /** null = back to the student default km. Changing km or mode re-prices travel at the CURRENT rate. */
+  /** null = back to the student default km. Changing km or mode re-prices travel at the lesson's snapshotted rate. */
   travelKm?: number | null;
   mode?: Session['mode'];
   sessionType?: Session['session_type'];
@@ -771,22 +804,28 @@ export function editLesson(sessionId: string, patch: EditLessonPatch): { session
     const modeChanged = mode !== existing.mode;
     let travelKm = existing.travel_km ?? null;
     let parentTravelFee = existing.parent_travel_fee ?? null;
+    let terms = snapshotTerms(existing);
     if (kmChanged || modeChanged) {
-      const t = lessonTravelInTx(existing.student_id, mode, patch.travelKm === undefined ? existing.travel_km : patch.travelKm, null);
+      // Re-price at the rate that applied when the lesson was recorded; legacy
+      // lessons (no snapshot) use the student's current terms, then freeze them.
+      const t = lessonTravelInTx(existing.student_id, mode, patch.travelKm === undefined ? existing.travel_km : patch.travelKm, null, terms);
       travelKm = t.travelKm;
       parentTravelFee = t.parentTravelFee;
+      terms = t.terms;
     }
 
     db.runSync(
       `UPDATE sessions SET started_at = ?, ended_at = ?, duration_minutes = ?, billed_minutes = ?,
          topics = COALESCE(?, topics), session_notes = CASE WHEN ? THEN ? ELSE session_notes END,
          mode = ?, session_type = COALESCE(?, session_type), subject_id = ?, travel_km = ?, parent_travel_fee = ?,
+         parent_travel_mode_snapshot = ?, parent_travel_flat_snapshot = ?, parent_travel_per_km_snapshot = ?,
          edited_at = ?
        WHERE id = ? AND status = 'completed'`,
       [startedAt, endedAt, minutes, billed,
         patch.topics !== undefined ? JSON.stringify(patch.topics) : null,
         patch.notes !== undefined ? 1 : 0, patch.notes ?? null,
         mode, patch.sessionType ?? null, subjectId, travelKm, parentTravelFee,
+        terms?.mode ?? null, terms?.flat ?? null, terms?.perKm ?? null,
         now.toISOString(), sessionId]
     );
 

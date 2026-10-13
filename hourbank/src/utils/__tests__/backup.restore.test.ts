@@ -376,7 +376,7 @@ describe('backups made by older app versions', () => {
     const db = openWrapped(path);
     __setDb(db);
     initDb();
-    runMigrations(MIGRATIONS.filter(m => m.version !== '009_subjects_travel'));
+    runMigrations(MIGRATIONS.filter(m => !['009_subjects_travel', '010_travel_rate_snapshot'].includes(m.version)));
     addStudent(db, 's8', 'Eight Esi');
     db.runSync(`INSERT INTO credit_packages (id, student_id, hours_added, amount_paid, created_at) VALUES ('p8', 's8', 6, 3300, '2026-10-01T08:00:00.000Z')`);
     db.runSync(`INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_package_id, created_at)
@@ -401,6 +401,28 @@ describe('backups made by older app versions', () => {
     expect(subjects).toEqual([{ student_id: 's8', balance_hours: 5 }]);
     expect(getDb().getFirstSync(`SELECT COUNT(*) AS n FROM ledger_entries WHERE student_id = 's8'`)).toEqual({ n: 2 });
     expect(getDb().getFirstSync(`SELECT subject_id FROM sessions WHERE id = 'x8'`)).toEqual({ subject_id: 'ss-s8' });
+  });
+
+  it('restores a 009-era backup (before 010) and backfills the travel rate snapshot', async () => {
+    const path = join(root, 'picked', 'backup-009.db');
+    const db = openWrapped(path);
+    __setDb(db);
+    initDb();
+    runMigrations(MIGRATIONS.filter(m => m.version !== '010_travel_rate_snapshot'));
+    addStudent(db, 's9', 'Nine Noma');
+    db.runSync(`UPDATE students SET parent_travel_mode = 'per_km', parent_travel_per_km = 5 WHERE id = 's9'`);
+    db.runSync(`INSERT INTO sessions (id, student_id, status, mode, started_at, ended_at, duration_minutes, billed_minutes, created_at, travel_km, parent_travel_fee)
+                VALUES ('x9', 's9', 'completed', 'in_person', '2026-10-02T10:00:00.000Z', '2026-10-02T11:00:00.000Z', 60, 60, '2026-10-02T10:00:00.000Z', 10, 50)`);
+    db.closeSync();
+    __setDb(null);
+
+    const pending = await importBackup(pathToFileURL(path).href, MIGRATIONS);
+    expect(pending.summary.migrationVersions).toContain('009_subjects_travel');
+    expect(pending.summary.migrationVersions).not.toContain('010_travel_rate_snapshot');
+    await pending.restore();
+    expect(getDb().getFirstSync(
+      `SELECT parent_travel_mode_snapshot AS m, parent_travel_per_km_snapshot AS k FROM sessions WHERE id = 'x9'`
+    )).toEqual({ m: 'per_km', k: 5 });
   });
 
   it('names the missing table when an HourBank backup is only partly there', async () => {

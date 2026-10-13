@@ -643,6 +643,43 @@ export const MIGRATION_008_CONTACTS_REFERENCE: Migration = {
   },
 };
 
+/**
+ * 010 — parent travel RATE snapshot per lesson. Editing km/mode on a recorded
+ * lesson re-prices at the rate that applied when it was recorded, never the
+ * student's current rate. Backfill derives terms from the stored charge where
+ * possible (student's current mode as the hint); otherwise NULL, and the first
+ * edit snapshots the student's then-current terms. Additive and idempotent.
+ */
+export const MIGRATION_010_TRAVEL_RATE_SNAPSHOT: Migration = {
+  version: '010_travel_rate_snapshot',
+  run: (db) => {
+    if (!hasColumn(db, 'sessions', 'parent_travel_mode_snapshot')) {
+      db.runSync(`ALTER TABLE sessions ADD COLUMN parent_travel_mode_snapshot TEXT`);
+    }
+    if (!hasColumn(db, 'sessions', 'parent_travel_flat_snapshot')) {
+      db.runSync(`ALTER TABLE sessions ADD COLUMN parent_travel_flat_snapshot REAL`);
+    }
+    if (!hasColumn(db, 'sessions', 'parent_travel_per_km_snapshot')) {
+      db.runSync(`ALTER TABLE sessions ADD COLUMN parent_travel_per_km_snapshot REAL`);
+    }
+    if (!hasColumn(db, 'sessions', 'parent_travel_fee') || !hasColumn(db, 'students', 'parent_travel_mode')) return;
+    const scope = `parent_travel_mode_snapshot IS NULL AND status = 'completed' AND mode = 'in_person'
+      AND COALESCE(parent_travel_fee, 0) > 0`;
+    db.runSync(
+      `UPDATE sessions SET parent_travel_mode_snapshot = 'flat', parent_travel_flat_snapshot = parent_travel_fee,
+         parent_travel_per_km_snapshot = 0
+       WHERE ${scope}
+         AND (SELECT parent_travel_mode FROM students WHERE id = sessions.student_id) = 'flat'`
+    );
+    db.runSync(
+      `UPDATE sessions SET parent_travel_mode_snapshot = 'per_km', parent_travel_flat_snapshot = 0,
+         parent_travel_per_km_snapshot = parent_travel_fee / travel_km
+       WHERE ${scope} AND COALESCE(travel_km, 0) > 0
+         AND (SELECT parent_travel_mode FROM students WHERE id = sessions.student_id) = 'per_km'`
+    );
+  },
+};
+
 /** Ordered migration chain run at app boot (app/_layout.tsx) and by test DBs. */
 export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_002,
@@ -653,4 +690,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_007_AUDIT_REMEDIATION,
   MIGRATION_008_CONTACTS_REFERENCE,
   MIGRATION_009_SUBJECTS_TRAVEL,
+  MIGRATION_010_TRAVEL_RATE_SNAPSHOT,
 ];
