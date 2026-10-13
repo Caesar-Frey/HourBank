@@ -22,6 +22,7 @@ import { useStartLesson } from '../../../src/hooks/useStartLesson';
 import { getDb } from '../../../src/db/client';
 import { getStudent } from '../../../src/db/students';
 import { currentBalance } from '../../../src/db/ledger';
+import { getPrimarySubjectId, getSubjectBalance } from '../../../src/db/subjects';
 import {
   cancelScheduled,
   computeElapsedSeconds,
@@ -122,7 +123,10 @@ export default function SessionScreen() {
       if (fresh && (fresh.status === 'active' || fresh.status === 'paused')) {
         showTopics(parseSessionTopics(fresh.topics));
       }
-      setBalance(currentBalance(id));
+      // The lesson deducts from its own subject — show that balance, not the
+      // student's total across subjects (NULL subject_id = primary subject).
+      const subjectId = fresh?.subject_id ?? getPrimarySubjectId(id);
+      setBalance(subjectId ? getSubjectBalance(id, subjectId) : currentBalance(id));
       refreshFromDb();
     } catch (e) {
       console.error('SessionScreen reload error', e);
