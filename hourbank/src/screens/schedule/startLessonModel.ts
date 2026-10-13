@@ -2,6 +2,8 @@
  * Pure helpers for app/start-lesson.tsx (ad-hoc lesson starter).
  */
 import { formatHours } from '../../utils/format';
+import { rosterBalanceLine, worstSubjectBalance } from '../../utils/subjectBalances';
+import type { StudentSubjectBalanceSummary } from '../../db/students';
 
 const EPS = 1e-9;
 
@@ -45,4 +47,17 @@ export function overOweMessage(
   const limit =
     maxOwe == null ? '' : maxOwe <= 0 ? ' Your settings don’t allow owing.' : ` Your limit is ${formatHours(maxOwe)}.`;
   return { title, message: `Start anyway?${limit} You can ask for a top-up afterwards.` };
+}
+
+/**
+ * Picker row balance: per-subject line for multi-subject students (same copy as
+ * the Home roster) and the worst subject's balance for the status colour.
+ */
+export function pickerBalance(s: {
+  subject: string;
+  current_balance: number;
+  subjects: StudentSubjectBalanceSummary[];
+}): { line: string | null; statusHours: number } {
+  const src = { subject: s.subject, current_balance: s.current_balance, subject_balances: s.subjects };
+  return { line: rosterBalanceLine(src), statusHours: worstSubjectBalance(src) };
 }

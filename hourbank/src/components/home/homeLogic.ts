@@ -7,6 +7,10 @@ import type { Session, Student } from '../../db/schema';
 import type { StudentSubjectBalanceSummary } from '../../db/students';
 import { formatDayShort, formatHours, formatMinutes, formatTime, pluralize } from '../../utils/format';
 import { getCurrentNudgeTier, shouldShowNudge } from '../../utils/backup';
+import { rosterSubjectBalances, worstSubjectBalance } from '../../utils/subjectBalances';
+
+export { rosterBalanceLine, rosterSubjectBalances, worstSubjectBalance } from '../../utils/subjectBalances';
+export type { SubjectBalanceSource } from '../../utils/subjectBalances';
 
 export type RosterStudent = Student & {
   current_balance: number;
@@ -16,28 +20,6 @@ export type RosterStudent = Student & {
 };
 
 // ─── Subjects (each has its own balance) ─────────────────────────────────────
-
-/** Subject balances for a roster row; falls back to one row = the total. */
-export function rosterSubjectBalances(s: RosterStudent): StudentSubjectBalanceSummary[] {
-  if (s.subject_balances && s.subject_balances.length > 0) return s.subject_balances;
-  return [{ subject_id: '', subject: s.subject, balance_hours: s.current_balance }];
-}
-
-/** Lowest subject balance — drives the status stripe and "lowest balance" sort. */
-export function worstSubjectBalance(s: RosterStudent): number {
-  return Math.min(...rosterSubjectBalances(s).map(b => b.balance_hours));
-}
-
-function compactBalance(h: number): string {
-  return Math.round(h * 60) < 0 ? `owes ${formatHours(-h)}` : formatHours(h);
-}
-
-/** "Maths 3h · Science 45m" — null for single-subject students (card stays as before). */
-export function rosterBalanceLine(s: RosterStudent): string | null {
-  const list = rosterSubjectBalances(s);
-  if (list.length < 2) return null;
-  return list.map(b => `${b.subject} ${compactBalance(b.balance_hours)}`).join(' · ');
-}
 
 /** Hours banked / owed across students, summed per subject. */
 export function rosterHoursTotals(students: RosterStudent[]): { banked: number; owed: number } {

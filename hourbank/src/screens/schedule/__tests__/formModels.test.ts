@@ -9,7 +9,7 @@ import {
   withDatePart,
   withTimePart,
 } from '../eventFormModel';
-import { balanceWarning, filterStudents, overOweMessage, owesAfterLesson } from '../startLessonModel';
+import { balanceWarning, filterStudents, overOweMessage, owesAfterLesson, pickerBalance } from '../startLessonModel';
 
 const d = (day: number, h = 0, m = 0) => new Date(2026, 9, day, h, m);
 
@@ -88,5 +88,27 @@ describe('start lesson', () => {
     expect(m.message).toMatch(/don’t allow owing/);
     expect(overOweMessage('Ann', { projectedBalanceHours: -3, maxOweHours: 2 }).message).toMatch(/limit is 2h/);
     expect(overOweMessage('Ann', undefined).title).toBe('Ann is over the owing limit');
+  });
+});
+
+describe('start lesson picker balance', () => {
+  const sub = (subject: string, balance_hours: number) => ({ subject_id: subject.toLowerCase(), subject, balance_hours });
+
+  test('multi-subject: per-subject line and worst subject drives status', () => {
+    const b = pickerBalance({ subject: 'Maths', current_balance: 9, subjects: [sub('Maths', 10), sub('Science', -1)] });
+    expect(b.line).toBe('Maths 10h · Science owes 1h');
+    expect(b.statusHours).toBe(-1);
+  });
+
+  test('single subject: no line, total drives status', () => {
+    const b = pickerBalance({ subject: 'Maths', current_balance: 2.5, subjects: [sub('Maths', 2.5)] });
+    expect(b.line).toBeNull();
+    expect(b.statusHours).toBe(2.5);
+  });
+
+  test('legacy (no subject rows): falls back to current balance', () => {
+    const b = pickerBalance({ subject: 'Maths', current_balance: 4, subjects: [] });
+    expect(b.line).toBeNull();
+    expect(b.statusHours).toBe(4);
   });
 });

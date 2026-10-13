@@ -32,7 +32,7 @@ import type { Session } from '../src/db/schema';
 import { formatHours } from '../src/utils/format';
 import { balanceColour, balanceStatus } from '../src/utils/balance';
 import { MODE_OPTIONS, SESSION_TYPE_OPTIONS, type LessonModeKey, type SessionTypeKey } from '../src/screens/schedule/labels';
-import { balanceWarning, filterStudents, overOweMessage } from '../src/screens/schedule/startLessonModel';
+import { balanceWarning, filterStudents, overOweMessage, pickerBalance } from '../src/screens/schedule/startLessonModel';
 
 type PickStudent = {
   id: string;
@@ -355,8 +355,9 @@ export default function StartLessonScreen() {
 
       {shown.map(s => {
         const sel = s.id === selectedId;
-        const warn = balanceWarning(s.current_balance, DEFAULT_LESSON_MINUTES);
-        const colour = balanceColour(balanceStatus(s.current_balance));
+        const { line: balanceLine, statusHours } = pickerBalance(s);
+        const warn = balanceWarning(statusHours, DEFAULT_LESSON_MINUTES);
+        const colour = balanceColour(balanceStatus(statusHours));
         return (
           <TouchableOpacity
             key={s.id}
@@ -392,22 +393,29 @@ export default function StartLessonScreen() {
               <Text style={{ fontFamily: F.serif, fontSize: 16, color: COLORS.ink }} numberOfLines={1}>
                 {s.full_name}
               </Text>
-              <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkSoft }} numberOfLines={1}>
-                {s.subjects.length > 0 ? s.subjects.map(x => x.subject).join(' · ') : s.subject}
+              <Text
+                style={{ fontFamily: balanceLine ? F.mono : F.sans, fontSize: balanceLine ? 11 : 12, color: COLORS.inkSoft }}
+                numberOfLines={2}
+              >
+                {balanceLine ?? (s.subjects[0]?.subject ?? s.subject)}
                 {s.status === 'paused' ? ' · Paused' : ''}
               </Text>
               {warn ? (
                 <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.crimson, marginTop: 2 }}>{warn}</Text>
               ) : null}
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={{ fontFamily: F.monoMed, fontSize: 14, color: colour }}>
-                {s.current_balance < 0 ? `−${formatHours(-s.current_balance)}` : formatHours(s.current_balance)}
-              </Text>
-              <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase' }}>
-                {s.current_balance < 0 ? 'owes' : 'balance'}
-              </Text>
-            </View>
+            {balanceLine ? (
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colour }} />
+            ) : (
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ fontFamily: F.monoMed, fontSize: 14, color: colour }}>
+                  {statusHours < 0 ? `−${formatHours(-statusHours)}` : formatHours(statusHours)}
+                </Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase' }}>
+                  {statusHours < 0 ? 'owes' : 'balance'}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         );
       })}
