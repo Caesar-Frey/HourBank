@@ -1,0 +1,1590 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>HourBank — Mobile App Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Warm paper palette */
+    --paper:        #F4EFE6;
+    --paper-deep:   #ECE5D6;
+    --paper-edge:   #D9CFBF;
+
+    /* Ink */
+    --ink:          #1B1714;
+    --ink-soft:     #4A413A;
+    --ink-faint:    #8A7E72;
+
+    /* Accents */
+    --oxblood:      #7A2530;
+    --oxblood-deep: #5C1B24;
+    --moss:         #3F5641;
+    --amber:        #B8743F;
+    --crimson:      #9A2A2A;
+
+    /* Status fills */
+    --ok-fill:      #E4EAE0;
+    --warn-fill:    #F0E0CB;
+    --bad-fill:     #EFD7D7;
+
+    --hair: 1px solid var(--paper-edge);
+  }
+
+  * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Geist', system-ui, sans-serif;
+    font-weight: 400;
+    line-height: 1.5;
+    /* subtle paper grain */
+    background-image:
+      radial-gradient(rgba(27,23,20,0.025) 1px, transparent 1px),
+      radial-gradient(rgba(27,23,20,0.018) 1px, transparent 1px);
+    background-size: 3px 3px, 7px 7px;
+    background-position: 0 0, 1px 2px;
+  }
+
+  /* ==================== PAGE FRAME ==================== */
+  .page {
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: 64px 48px 96px;
+  }
+
+  .masthead {
+    border-bottom: var(--hair);
+    padding-bottom: 32px;
+    margin-bottom: 56px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 32px;
+  }
+  .masthead .crest {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 144, "SOFT" 30;
+    font-weight: 400;
+    font-style: italic;
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--oxblood);
+    margin-bottom: 12px;
+  }
+  .masthead h1 {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 144, "SOFT" 50;
+    font-weight: 350;
+    font-size: clamp(48px, 6vw, 88px);
+    line-height: 0.98;
+    letter-spacing: -0.025em;
+    margin: 0;
+    color: var(--ink);
+  }
+  .masthead h1 em {
+    font-style: italic;
+    font-variation-settings: "opsz" 144, "SOFT" 100;
+    color: var(--oxblood);
+  }
+  .masthead .meta {
+    font-family: 'Geist Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-faint);
+    text-align: right;
+    line-height: 1.8;
+  }
+  .masthead .meta span { display: block; }
+
+  .deck {
+    font-family: 'Fraunces', serif;
+    font-weight: 350;
+    font-style: italic;
+    font-size: 22px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    max-width: 720px;
+    margin-bottom: 64px;
+    letter-spacing: -0.005em;
+  }
+  .deck::before {
+    content: "—  ";
+    color: var(--oxblood);
+  }
+
+  /* ==================== SECTION HEADERS ==================== */
+  .section-rule {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 16px;
+    align-items: center;
+    margin: 48px 0 28px;
+  }
+  .section-rule .num {
+    font-family: 'Geist Mono', monospace;
+    font-size: 12px;
+    color: var(--oxblood);
+    letter-spacing: 0.1em;
+  }
+  .section-rule .label {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink-faint);
+    letter-spacing: 0.04em;
+  }
+  .section-rule .line {
+    height: 1px;
+    background: var(--paper-edge);
+  }
+
+  /* ==================== PHONE GALLERY ==================== */
+  .gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 56px 40px;
+    margin-top: 40px;
+  }
+
+  .phone-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .phone-caption {
+    margin-top: 24px;
+    text-align: center;
+    max-width: 320px;
+  }
+  .phone-caption .num {
+    font-family: 'Geist Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--oxblood);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .phone-caption .title {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+    margin-bottom: 6px;
+  }
+  .phone-caption .desc {
+    font-size: 13px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+  }
+
+  /* ==================== PHONE FRAME ==================== */
+  .phone {
+    width: 320px;
+    height: 660px;
+    border-radius: 44px;
+    border: 1.5px solid var(--ink);
+    background: var(--paper);
+    padding: 12px;
+    position: relative;
+    box-shadow:
+      0 1px 0 rgba(27,23,20,0.05),
+      0 24px 48px -16px rgba(27,23,20,0.18),
+      0 4px 12px -4px rgba(27,23,20,0.08);
+  }
+  .phone::before {
+    content: "";
+    position: absolute;
+    top: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 84px;
+    height: 22px;
+    background: var(--ink);
+    border-radius: 14px;
+    z-index: 5;
+  }
+  .screen {
+    width: 100%;
+    height: 100%;
+    border-radius: 32px;
+    background: var(--paper);
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .statusbar {
+    height: 44px;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 28px 0 32px;
+    font-family: 'Geist Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .statusbar .right { display: flex; gap: 5px; align-items: center; }
+  .statusbar .right svg { width: 14px; height: 14px; }
+
+  .screen-body {
+    flex: 1;
+    overflow: hidden;
+    padding: 4px 22px 22px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ==================== APP CHROME ==================== */
+  .top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+    margin-top: 4px;
+  }
+  .brand {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-style: italic;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .brand em {
+    color: var(--oxblood);
+    font-style: normal;
+    font-weight: 500;
+  }
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: var(--hair);
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .icon-btn svg { width: 14px; height: 14px; }
+
+  .greeting {
+    margin-bottom: 22px;
+  }
+  .greeting .eyebrow {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 6px;
+  }
+  .greeting h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 350;
+    font-size: 28px;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  .greeting h2 em {
+    font-style: italic;
+    color: var(--oxblood);
+    font-variation-settings: "opsz" 144, "SOFT" 80;
+  }
+
+  /* ==================== SUMMARY STATS ==================== */
+  .summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 22px;
+  }
+  .stat {
+    border: var(--hair);
+    border-radius: 14px;
+    padding: 12px 14px;
+    background: rgba(255,255,255,0.4);
+  }
+  .stat .label {
+    font-family: 'Geist Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 6px;
+  }
+  .stat .value {
+    font-family: 'Fraunces', serif;
+    font-size: 24px;
+    font-weight: 400;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .stat .value .unit {
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-style: italic;
+    margin-left: 4px;
+  }
+
+  /* ==================== SECTION LABEL ==================== */
+  .sec-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .sec-label .heading {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .sec-label .action {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 12px;
+    color: var(--oxblood);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-thickness: 0.5px;
+  }
+
+  /* ==================== STUDENT CARD ==================== */
+  .student-list {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .student {
+    border: var(--hair);
+    border-radius: 14px;
+    padding: 14px;
+    background: rgba(255,255,255,0.45);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: center;
+    position: relative;
+  }
+  .student .name {
+    font-family: 'Fraunces', serif;
+    font-weight: 450;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin-bottom: 2px;
+  }
+  .student .meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .student .dot {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--ink-faint);
+  }
+
+  .balance-pill {
+    text-align: right;
+    padding-left: 12px;
+    border-left: var(--hair);
+  }
+  .balance-pill .h {
+    font-family: 'Geist Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 2px;
+  }
+  .balance-pill .v {
+    font-family: 'Geist Mono', monospace;
+    font-weight: 500;
+    font-size: 17px;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .balance-pill .v small {
+    font-size: 10px;
+    color: var(--ink-faint);
+    font-weight: 400;
+  }
+
+  .balance-pill.ok .v    { color: var(--moss); }
+  .balance-pill.warn .v  { color: var(--amber); }
+  .balance-pill.bad .v   { color: var(--crimson); }
+
+  .student.flag-low::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 14px;
+    bottom: 14px;
+    width: 2px;
+    background: var(--crimson);
+    border-radius: 2px;
+  }
+
+  /* ==================== TAB BAR ==================== */
+  .tabbar {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    border-top: var(--hair);
+    padding: 12px 0 4px;
+    margin-top: auto;
+    margin-left: -22px;
+    margin-right: -22px;
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+  .tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    color: var(--ink-faint);
+  }
+  .tab svg { width: 18px; height: 18px; }
+  .tab .l {
+    font-family: 'Geist Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .tab.active { color: var(--oxblood); }
+
+  /* ==================== STUDENT DETAIL ==================== */
+  .nav-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 4px 0 18px;
+  }
+  .back {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .header-block {
+    margin-bottom: 18px;
+  }
+  .header-block .super {
+    font-family: 'Geist Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 6px;
+  }
+  .header-block h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 32px;
+    line-height: 1.02;
+    letter-spacing: -0.025em;
+    margin: 0 0 4px;
+  }
+  .header-block .sub {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+
+  .balance-hero {
+    border: 1.5px solid var(--ink);
+    border-radius: 16px;
+    padding: 18px;
+    margin-bottom: 18px;
+    background: var(--paper-deep);
+    position: relative;
+    overflow: hidden;
+  }
+  .balance-hero::after {
+    content: "";
+    position: absolute;
+    inset: 5px;
+    border: 0.5px solid rgba(27,23,20,0.18);
+    border-radius: 12px;
+    pointer-events: none;
+  }
+  .balance-hero .ribbon {
+    font-family: 'Geist Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 10px;
+  }
+  .balance-hero .number {
+    font-family: 'Fraunces', serif;
+    font-weight: 350;
+    font-size: 56px;
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+  }
+  .balance-hero .number em {
+    font-style: italic;
+    color: var(--oxblood);
+    font-variation-settings: "opsz" 144, "SOFT" 80;
+  }
+  .balance-hero .number .unit {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--ink-soft);
+    margin-left: 4px;
+  }
+  .balance-hero .footnote {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-faint);
+    margin-top: 10px;
+    letter-spacing: 0.05em;
+  }
+
+  .actions-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .btn {
+    border: 1.5px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: 12px;
+    padding: 12px;
+    font-family: 'Geist', sans-serif;
+    font-weight: 500;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-align: center;
+    cursor: pointer;
+  }
+  .btn.ghost {
+    background: transparent;
+    color: var(--ink);
+  }
+  .btn.accent {
+    border-color: var(--oxblood);
+    background: var(--oxblood);
+    color: var(--paper);
+  }
+
+  /* ==================== LEDGER ==================== */
+  .ledger {
+    flex: 1;
+    overflow: hidden;
+  }
+  .ledger-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    padding: 11px 0;
+    border-bottom: var(--hair);
+    align-items: center;
+  }
+  .ledger-row:last-child { border-bottom: none; }
+  .ledger-row .date {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-faint);
+    letter-spacing: 0.04em;
+    width: 38px;
+    line-height: 1.2;
+  }
+  .ledger-row .desc {
+    font-size: 12.5px;
+    color: var(--ink);
+    line-height: 1.3;
+  }
+  .ledger-row .desc .sub {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 11px;
+    color: var(--ink-faint);
+    display: block;
+    margin-top: 1px;
+  }
+  .ledger-row .delta {
+    font-family: 'Geist Mono', monospace;
+    font-weight: 500;
+    font-size: 13px;
+    text-align: right;
+  }
+  .delta.pos { color: var(--moss); }
+  .delta.neg { color: var(--ink); }
+
+  /* ==================== ACTIVE SESSION ==================== */
+  .session-screen {
+    background: var(--ink);
+    color: var(--paper);
+  }
+  .session-screen .statusbar { color: var(--paper); }
+  .session-screen .nav-row { color: var(--paper); }
+  .session-screen .back { color: var(--paper); opacity: 0.7; }
+
+  .session-meta {
+    text-align: center;
+    margin: 20px 0 8px;
+  }
+  .session-meta .name {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 18px;
+    letter-spacing: -0.01em;
+  }
+  .session-meta .sub {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(244,239,230,0.55);
+    margin-top: 4px;
+  }
+
+  .timer-circle {
+    margin: 24px auto;
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    border: 1px solid rgba(244,239,230,0.2);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .timer-circle::before {
+    content: "";
+    position: absolute;
+    inset: 12px;
+    border-radius: 50%;
+    border: 0.5px solid rgba(244,239,230,0.12);
+  }
+  .timer-circle .label {
+    font-family: 'Geist Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--paper);
+    opacity: 0.6;
+    margin-bottom: 14px;
+  }
+  .timer-circle .digits {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-size: 56px;
+    letter-spacing: -0.04em;
+    line-height: 0.9;
+    color: var(--paper);
+  }
+  .timer-circle .digits em {
+    font-style: italic;
+    color: #D89D9D;
+    font-size: 32px;
+    margin-left: 2px;
+    font-variation-settings: "opsz" 144, "SOFT" 100;
+  }
+  .timer-circle .running {
+    font-family: 'Geist Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #D89D9D;
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .timer-circle .running::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    background: #D89D9D;
+    border-radius: 50%;
+    animation: pulse 1.6s infinite ease-in-out;
+  }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+
+  .topic-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    margin: 4px 0 18px;
+  }
+  .chip {
+    padding: 6px 12px;
+    border: 0.5px solid rgba(244,239,230,0.3);
+    border-radius: 99px;
+    font-size: 11px;
+    color: rgba(244,239,230,0.75);
+  }
+  .chip.on {
+    background: var(--paper);
+    color: var(--ink);
+    border-color: var(--paper);
+  }
+  .chip.add { color: rgba(244,239,230,0.5); border-style: dashed; }
+
+  .session-controls {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 8px;
+    margin-top: auto;
+  }
+  .session-controls .btn {
+    border-color: var(--paper);
+    color: var(--paper);
+    background: transparent;
+  }
+  .session-controls .btn.end {
+    background: var(--oxblood);
+    border-color: var(--oxblood);
+  }
+
+  /* ==================== END SESSION (FORM) ==================== */
+  .summary-line {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: var(--hair);
+  }
+  .summary-line:first-of-type { border-top: var(--hair); }
+  .summary-line .l {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .summary-line .r {
+    font-family: 'Geist Mono', monospace;
+    font-size: 12px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .summary-line .r em {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    color: var(--oxblood);
+    font-weight: 400;
+  }
+
+  .field {
+    margin: 16px 0 6px;
+  }
+  .field .lbl {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+  }
+  .topic-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .topic-grid .chip-l {
+    padding: 6px 11px;
+    border: var(--hair);
+    border-radius: 99px;
+    font-size: 11px;
+    color: var(--ink-soft);
+    background: rgba(255,255,255,0.4);
+  }
+  .topic-grid .chip-l.on {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+  }
+
+  .note-area {
+    border: var(--hair);
+    border-radius: 12px;
+    padding: 12px;
+    background: rgba(255,255,255,0.4);
+    font-size: 12px;
+    color: var(--ink-soft);
+    font-style: italic;
+    font-family: 'Fraunces', serif;
+    line-height: 1.5;
+    min-height: 70px;
+  }
+
+  /* ==================== TOP-UP ==================== */
+  .topup-hero {
+    text-align: center;
+    margin: 16px 0 24px;
+  }
+  .topup-hero .eyebrow {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--oxblood);
+    margin-bottom: 10px;
+  }
+  .topup-hero h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 350;
+    font-size: 28px;
+    line-height: 1.05;
+    margin: 0;
+    letter-spacing: -0.02em;
+  }
+  .topup-hero h2 em {
+    font-style: italic;
+    color: var(--oxblood);
+  }
+
+  .package-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .package {
+    border: var(--hair);
+    border-radius: 14px;
+    padding: 14px 12px;
+    background: rgba(255,255,255,0.4);
+    text-align: left;
+    cursor: pointer;
+    position: relative;
+  }
+  .package.selected {
+    border: 1.5px solid var(--ink);
+    background: var(--paper-deep);
+  }
+  .package.selected::after {
+    content: "✓";
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    font-size: 14px;
+    color: var(--oxblood);
+  }
+  .package .hours {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 28px;
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .package .hours em {
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink-faint);
+    margin-left: 2px;
+  }
+  .package .price {
+    font-family: 'Geist Mono', monospace;
+    font-size: 12px;
+    margin-top: 8px;
+    color: var(--ink-soft);
+  }
+  .package .save {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 11px;
+    color: var(--moss);
+    margin-top: 4px;
+  }
+
+  .form-row {
+    margin-bottom: 12px;
+  }
+  .form-row .lbl {
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+  }
+  .form-row .input {
+    border: var(--hair);
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.4);
+    font-size: 12.5px;
+    color: var(--ink);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .form-row .input .placeholder { color: var(--ink-faint); }
+  .form-row .input .chev { color: var(--ink-faint); }
+
+  /* ==================== DESIGN SYSTEM PANEL ==================== */
+  .system {
+    margin-top: 96px;
+    border-top: var(--hair);
+    padding-top: 56px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 40px;
+  }
+  .sys-block .h {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-style: italic;
+    font-size: 22px;
+    margin-bottom: 16px;
+    color: var(--oxblood);
+  }
+  .swatch-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .swatch {
+    flex: 1;
+    height: 80px;
+    border-radius: 8px;
+    border: var(--hair);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    padding: 8px;
+    color: white;
+    font-family: 'Geist Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+  .swatch.light { color: var(--ink); }
+  .type-spec {
+    border: var(--hair);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+  .type-spec .meta {
+    font-family: 'Geist Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 8px;
+  }
+  .type-spec .display {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 24px;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+  .type-spec .display em {
+    font-style: italic;
+    color: var(--oxblood);
+  }
+  .type-spec .body {
+    font-family: 'Geist', sans-serif;
+    font-size: 13px;
+  }
+  .type-spec .mono {
+    font-family: 'Geist Mono', monospace;
+    font-size: 13px;
+  }
+
+  /* ==================== PROMPT BLOCK ==================== */
+  .prompt-block {
+    margin-top: 80px;
+    border: 1.5px solid var(--ink);
+    border-radius: 16px;
+    padding: 32px;
+    background: var(--paper-deep);
+    position: relative;
+  }
+  .prompt-block::before {
+    content: "PROMPT";
+    position: absolute;
+    top: -10px;
+    left: 24px;
+    background: var(--paper);
+    padding: 0 10px;
+    font-family: 'Geist Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--oxblood);
+  }
+  .prompt-block h3 {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 22px;
+    margin: 0 0 16px;
+    letter-spacing: -0.01em;
+  }
+  .prompt-block h3 em {
+    font-style: italic;
+    color: var(--oxblood);
+  }
+  .prompt-block pre {
+    font-family: 'Geist Mono', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    color: var(--ink);
+    margin: 0;
+  }
+
+  @media (max-width: 720px) {
+    .page { padding: 32px 20px 64px; }
+    .masthead { grid-template-columns: 1fr; }
+    .masthead .meta { text-align: left; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <div>
+      <div class="crest">★ HourBank — Vol. 1, No. 1</div>
+      <h1>The <em>Modern</em> Ledger.</h1>
+    </div>
+    <div class="meta">
+      <span>iOS / Android</span>
+      <span>v1.0 — MVP Mockups</span>
+      <span>05.05.2026</span>
+    </div>
+  </header>
+
+  <p class="deck">Most tutoring software dresses itself in cheerful blues and cartoon mascots. We're doing the opposite. HourBank borrows from editorial design and boutique fintech — warm paper tones, a sharp oxblood accent, a contemporary serif for headlines, and monospaced numerals so the ledger feels precise and earned.</p>
+
+  <!-- ============ SECTION: SCREENS ============ -->
+  <div class="section-rule">
+    <span class="num">§ 01</span>
+    <span class="line"></span>
+    <span class="label">Five screens, one aesthetic.</span>
+    <span class="line"></span>
+    <span class="num">v1 / MVP</span>
+  </div>
+
+  <div class="gallery">
+
+    <!-- ============ SCREEN 1: DASHBOARD ============ -->
+    <div class="phone-cell">
+      <div class="phone"><div class="screen">
+        <div class="statusbar">
+          <span>9:41</span>
+          <div class="right">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h20v2H2zm1.15-3l1.55-7.65h2.6L8.85 14H6.3l-.55-2.85h-1L4.2 14H1.65zm5.4-7.65h2.55l1.55 7.65H10.6l-.25-1.5H8.7L8.45 14H5.95L7.5 6.35zM12.55 14V6.35h2.5V14h-2.5zm3.45 0V6.35h4.6c.6 0 1.1.2 1.45.55.4.4.55.85.55 1.5v3c0 .6-.2 1.1-.55 1.45-.4.35-.85.55-1.45.55h-2.1V14H16zm2.5-3.95h1.4c.15 0 .25-.05.35-.15s.15-.25.15-.4V8.55c0-.2-.05-.3-.15-.4s-.2-.15-.35-.15h-1.4v1.95z"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12 a 10 10 0 0 1 20 0"/></svg>
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="6" width="18" height="12" rx="2"/></svg>
+          </div>
+        </div>
+        <div class="screen-body">
+          <div class="top-row">
+            <div class="brand">Hour<em>Bank</em></div>
+            <button class="icon-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+          </div>
+
+          <div class="greeting">
+            <div class="eyebrow">Monday · 04 May</div>
+            <h2>Good morning,<br><em>Master.</em></h2>
+          </div>
+
+          <div class="summary">
+            <div class="stat">
+              <div class="label">This Week</div>
+              <div class="value">12.5<span class="unit">hrs</span></div>
+            </div>
+            <div class="stat">
+              <div class="label">Active</div>
+              <div class="value">8<span class="unit">students</span></div>
+            </div>
+          </div>
+
+          <div class="sec-label">
+            <span class="heading">Roster</span>
+            <span class="action">All →</span>
+          </div>
+
+          <div class="student-list">
+            <div class="student flag-low">
+              <div>
+                <div class="name">Amara Naidoo</div>
+                <div class="meta-row">Gr 11 · Maths<span class="dot"></span>IEB</div>
+              </div>
+              <div class="balance-pill bad">
+                <div class="h">Balance</div>
+                <div class="v">0.5<small>h</small></div>
+              </div>
+            </div>
+            <div class="student">
+              <div>
+                <div class="name">Joshua van Wyk</div>
+                <div class="meta-row">Gr 12 · Phys Sci<span class="dot"></span>CAPS</div>
+              </div>
+              <div class="balance-pill warn">
+                <div class="h">Balance</div>
+                <div class="v">2.0<small>h</small></div>
+              </div>
+            </div>
+            <div class="student">
+              <div>
+                <div class="name">Lerato Mokoena</div>
+                <div class="meta-row">Gr 10 · Maths<span class="dot"></span>CAPS</div>
+              </div>
+              <div class="balance-pill ok">
+                <div class="h">Balance</div>
+                <div class="v">7.5<small>h</small></div>
+              </div>
+            </div>
+            <div class="student">
+              <div>
+                <div class="name">Daniel Botha</div>
+                <div class="meta-row">Gr 11 · Maths<span class="dot"></span>Camb</div>
+              </div>
+              <div class="balance-pill ok">
+                <div class="h">Balance</div>
+                <div class="v">9.0<small>h</small></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tabbar">
+            <div class="tab active">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              <span class="l">Home</span>
+            </div>
+            <div class="tab">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span class="l">Sessions</span>
+            </div>
+            <div class="tab">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+              <span class="l">Reports</span>
+            </div>
+            <div class="tab">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 14 0v1"/></svg>
+              <span class="l">Profile</span>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <div class="phone-caption">
+        <div class="num">Screen 01</div>
+        <div class="title">Roster</div>
+        <div class="desc">Balance badges colour-code at a glance — green, amber, red. A vertical hairline marks any student that needs a top-up urgently.</div>
+      </div>
+    </div>
+
+    <!-- ============ SCREEN 2: STUDENT DETAIL ============ -->
+    <div class="phone-cell">
+      <div class="phone"><div class="screen">
+        <div class="statusbar">
+          <span>9:41</span>
+          <div class="right">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h20v2H2zm1.15-3l1.55-7.65h2.6L8.85 14H6.3l-.55-2.85h-1L4.2 14H1.65zm5.4-7.65h2.55l1.55 7.65H10.6l-.25-1.5H8.7L8.45 14H5.95L7.5 6.35zM12.55 14V6.35h2.5V14h-2.5zm3.45 0V6.35h4.6c.6 0 1.1.2 1.45.55.4.4.55.85.55 1.5v3c0 .6-.2 1.1-.55 1.45-.4.35-.85.55-1.45.55h-2.1V14H16zm2.5-3.95h1.4c.15 0 .25-.05.35-.15s.15-.25.15-.4V8.55c0-.2-.05-.3-.15-.4s-.2-.15-.35-.15h-1.4v1.95z"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12 a 10 10 0 0 1 20 0"/></svg>
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="6" width="18" height="12" rx="2"/></svg>
+          </div>
+        </div>
+        <div class="screen-body">
+          <div class="nav-row">
+            <div class="back">← Roster</div>
+            <button class="icon-btn">
+              <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+            </button>
+          </div>
+
+          <div class="header-block">
+            <div class="super">Student · Gr 11 · IEB</div>
+            <h2>Amara<br>Naidoo</h2>
+            <div class="sub">Mathematics  ·  In-person</div>
+          </div>
+
+          <div class="balance-hero">
+            <div class="ribbon">★ Remaining Balance</div>
+            <div class="number">0<em>.5</em><span class="unit">hours</span></div>
+            <div class="footnote">— Top-up due. Last payment 14 Apr.</div>
+          </div>
+
+          <div class="actions-pair">
+            <button class="btn ghost">＋ Top up</button>
+            <button class="btn accent">Begin session ▸</button>
+          </div>
+
+          <div class="sec-label">
+            <span class="heading">Ledger — Last 5 entries</span>
+            <span class="action">Full →</span>
+          </div>
+
+          <div class="ledger">
+            <div class="ledger-row">
+              <div class="date">02<br>MAY</div>
+              <div class="desc">Session — Algebra: Quadratics<span class="sub">verified by parent</span></div>
+              <div class="delta neg">−1.5h</div>
+            </div>
+            <div class="ledger-row">
+              <div class="date">28<br>APR</div>
+              <div class="desc">Session — Trig identities<span class="sub">verified by parent</span></div>
+              <div class="delta neg">−2.0h</div>
+            </div>
+            <div class="ledger-row">
+              <div class="date">25<br>APR</div>
+              <div class="desc">Session — Functions review<span class="sub">verified by parent</span></div>
+              <div class="delta neg">−1.0h</div>
+            </div>
+            <div class="ledger-row">
+              <div class="date">14<br>APR</div>
+              <div class="desc">Top-up — EFT, ref AN0414<span class="sub">R 3,000.00 · 5h package</span></div>
+              <div class="delta pos">+5.0h</div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <div class="phone-caption">
+        <div class="num">Screen 02</div>
+        <div class="title">Student Ledger</div>
+        <div class="desc">Balance is the headline. The ledger underneath reads like a bank statement — chronological, monospaced, audit-ready.</div>
+      </div>
+    </div>
+
+    <!-- ============ SCREEN 3: ACTIVE SESSION ============ -->
+    <div class="phone-cell">
+      <div class="phone"><div class="screen session-screen">
+        <div class="statusbar">
+          <span>10:14</span>
+          <div class="right">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h20v2H2zm1.15-3l1.55-7.65h2.6L8.85 14H6.3l-.55-2.85h-1L4.2 14H1.65zm5.4-7.65h2.55l1.55 7.65H10.6l-.25-1.5H8.7L8.45 14H5.95L7.5 6.35zM12.55 14V6.35h2.5V14h-2.5zm3.45 0V6.35h4.6c.6 0 1.1.2 1.45.55.4.4.55.85.55 1.5v3c0 .6-.2 1.1-.55 1.45-.4.35-.85.55-1.45.55h-2.1V14H16zm2.5-3.95h1.4c.15 0 .25-.05.35-.15s.15-.25.15-.4V8.55c0-.2-.05-.3-.15-.4s-.2-.15-.35-.15h-1.4v1.95z"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12 a 10 10 0 0 1 20 0"/></svg>
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="6" width="18" height="12" rx="2"/></svg>
+          </div>
+        </div>
+        <div class="screen-body">
+          <div class="nav-row">
+            <div class="back">✕ Cancel</div>
+            <div class="back">📍 In-Person</div>
+          </div>
+
+          <div class="session-meta">
+            <div class="name">Lerato Mokoena</div>
+            <div class="sub">Gr 10 Maths · Session 12</div>
+          </div>
+
+          <div class="timer-circle">
+            <div class="label">Elapsed</div>
+            <div class="digits">00:47<em>:23</em></div>
+            <div class="running">Live · 7.5h remaining</div>
+          </div>
+
+          <div style="text-align: center; font-family: 'Geist Mono', monospace; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.55; margin-bottom: 10px;">Topics covered</div>
+
+          <div class="topic-chips">
+            <div class="chip on">Geometry · Circles</div>
+            <div class="chip on">Tangent rules</div>
+            <div class="chip">Cyclic quad.</div>
+            <div class="chip add">＋ add</div>
+          </div>
+
+          <div class="session-controls">
+            <button class="btn ghost">▮▮ Pause</button>
+            <button class="btn end">End Session ▸</button>
+          </div>
+        </div>
+      </div></div>
+      <div class="phone-caption">
+        <div class="num">Screen 03</div>
+        <div class="title">Live Session</div>
+        <div class="desc">Goes dark to signal "in flight." Tap topic chips as you teach — no scrambling at the end. Pause doesn't burn credits.</div>
+      </div>
+    </div>
+
+    <!-- ============ SCREEN 4: END SESSION ============ -->
+    <div class="phone-cell">
+      <div class="phone"><div class="screen">
+        <div class="statusbar">
+          <span>11:08</span>
+          <div class="right">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h20v2H2zm1.15-3l1.55-7.65h2.6L8.85 14H6.3l-.55-2.85h-1L4.2 14H1.65zm5.4-7.65h2.55l1.55 7.65H10.6l-.25-1.5H8.7L8.45 14H5.95L7.5 6.35zM12.55 14V6.35h2.5V14h-2.5zm3.45 0V6.35h4.6c.6 0 1.1.2 1.45.55.4.4.55.85.55 1.5v3c0 .6-.2 1.1-.55 1.45-.4.35-.85.55-1.45.55h-2.1V14H16zm2.5-3.95h1.4c.15 0 .25-.05.35-.15s.15-.25.15-.4V8.55c0-.2-.05-.3-.15-.4s-.2-.15-.35-.15h-1.4v1.95z"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12 a 10 10 0 0 1 20 0"/></svg>
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="6" width="18" height="12" rx="2"/></svg>
+          </div>
+        </div>
+        <div class="screen-body">
+          <div class="nav-row">
+            <div class="back">← Back</div>
+          </div>
+
+          <div class="header-block">
+            <div class="super">Review &amp; Sign Off</div>
+            <h2>Session<br><span style="font-style:italic; color:var(--oxblood);">complete.</span></h2>
+          </div>
+
+          <div class="summary-line">
+            <span class="l">Student</span>
+            <span class="r">Lerato Mokoena</span>
+          </div>
+          <div class="summary-line">
+            <span class="l">Duration</span>
+            <span class="r">1<em>h</em> 30<em>m</em></span>
+          </div>
+          <div class="summary-line">
+            <span class="l">Mode</span>
+            <span class="r">In-Person</span>
+          </div>
+          <div class="summary-line">
+            <span class="l">Balance after</span>
+            <span class="r">6.0<em>h</em> remaining</span>
+          </div>
+
+          <div class="field">
+            <div class="lbl">Topics covered</div>
+            <div class="topic-grid">
+              <span class="chip-l on">Circles</span>
+              <span class="chip-l on">Tangent rules</span>
+              <span class="chip-l on">Cyclic quad.</span>
+              <span class="chip-l">＋ add</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="lbl">Notes for parent</div>
+            <div class="note-area">Strong grasp of tangent rules today — recommend exam-style problems for next session. Homework: Ex 4.2 q1–8.</div>
+          </div>
+
+          <div class="actions-pair" style="margin-top: 14px;">
+            <button class="btn ghost">Save draft</button>
+            <button class="btn accent">Save &amp; send ▸</button>
+          </div>
+        </div>
+      </div></div>
+      <div class="phone-caption">
+        <div class="num">Screen 04</div>
+        <div class="title">Sign Off</div>
+        <div class="desc">A receipt-style review screen. Topics are required. The note auto-emails the parent — verifies silently in 24h.</div>
+      </div>
+    </div>
+
+    <!-- ============ SCREEN 5: TOP-UP ============ -->
+    <div class="phone-cell">
+      <div class="phone"><div class="screen">
+        <div class="statusbar">
+          <span>9:41</span>
+          <div class="right">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h20v2H2zm1.15-3l1.55-7.65h2.6L8.85 14H6.3l-.55-2.85h-1L4.2 14H1.65zm5.4-7.65h2.55l1.55 7.65H10.6l-.25-1.5H8.7L8.45 14H5.95L7.5 6.35zM12.55 14V6.35h2.5V14h-2.5zm3.45 0V6.35h4.6c.6 0 1.1.2 1.45.55.4.4.55.85.55 1.5v3c0 .6-.2 1.1-.55 1.45-.4.35-.85.55-1.45.55h-2.1V14H16zm2.5-3.95h1.4c.15 0 .25-.05.35-.15s.15-.25.15-.4V8.55c0-.2-.05-.3-.15-.4s-.2-.15-.35-.15h-1.4v1.95z"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12 a 10 10 0 0 1 20 0"/></svg>
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="6" width="18" height="12" rx="2"/></svg>
+          </div>
+        </div>
+        <div class="screen-body">
+          <div class="nav-row">
+            <div class="back">← Amara Naidoo</div>
+          </div>
+
+          <div class="topup-hero">
+            <div class="eyebrow">★ Add Credits</div>
+            <h2>How many<br><em>hours?</em></h2>
+          </div>
+
+          <div class="package-grid">
+            <button class="package">
+              <div class="hours">5<em>hrs</em></div>
+              <div class="price">R 3,000</div>
+              <div class="save"></div>
+            </button>
+            <button class="package selected">
+              <div class="hours">10<em>hrs</em></div>
+              <div class="price">R 5,500</div>
+              <div class="save">— save R500</div>
+            </button>
+            <button class="package">
+              <div class="hours">15<em>hrs</em></div>
+              <div class="price">R 8,000</div>
+              <div class="save">— save R1,000</div>
+            </button>
+            <button class="package">
+              <div class="hours">Other</div>
+              <div class="price">Custom</div>
+              <div class="save"></div>
+            </button>
+          </div>
+
+          <div class="form-row">
+            <div class="lbl">Payment method</div>
+            <div class="input"><span>EFT — Standard Bank</span><span class="chev">▾</span></div>
+          </div>
+          <div class="form-row">
+            <div class="lbl">Reference</div>
+            <div class="input"><span class="placeholder">e.g. AN0504</span><span class="chev"></span></div>
+          </div>
+          <div class="form-row">
+            <div class="lbl">Proof of payment</div>
+            <div class="input"><span class="placeholder">Attach image (optional)</span><span class="chev">＋</span></div>
+          </div>
+
+          <button class="btn accent" style="margin-top: auto; width: 100%;">Confirm top-up · R 5,500 ▸</button>
+        </div>
+      </div></div>
+      <div class="phone-caption">
+        <div class="num">Screen 05</div>
+        <div class="title">Top-Up</div>
+        <div class="desc">Volume-discount tiers. The ten-hour pack is pre-selected (your default). Parent gets a confirmation receipt instantly.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ DESIGN SYSTEM ============ -->
+  <div class="section-rule" style="margin-top: 80px;">
+    <span class="num">§ 02</span>
+    <span class="line"></span>
+    <span class="label">The system.</span>
+    <span class="line"></span>
+    <span class="num">tokens</span>
+  </div>
+
+  <div class="system">
+    <div class="sys-block">
+      <div class="h">Palette</div>
+      <div class="swatch-row">
+        <div class="swatch light" style="background:#F4EFE6;">paper</div>
+        <div class="swatch light" style="background:#ECE5D6;">paper-deep</div>
+      </div>
+      <div class="swatch-row">
+        <div class="swatch" style="background:#1B1714;">ink</div>
+        <div class="swatch" style="background:#7A2530;">oxblood</div>
+      </div>
+      <div class="swatch-row">
+        <div class="swatch" style="background:#3F5641;">moss</div>
+        <div class="swatch" style="background:#B8743F;">amber</div>
+        <div class="swatch" style="background:#9A2A2A;">crimson</div>
+      </div>
+      <p style="font-family:'Fraunces',serif; font-style:italic; font-size:13px; color:var(--ink-soft); margin-top:14px; line-height:1.5;">Warm cream replaces sterile white. Oxblood replaces the predictable blue. Moss / amber / crimson handle status without ever feeling like a child's worksheet.</p>
+    </div>
+
+    <div class="sys-block">
+      <div class="h">Typography</div>
+      <div class="type-spec">
+        <div class="meta">Display — Fraunces (serif)</div>
+        <div class="display">The <em>Modern</em> Ledger</div>
+      </div>
+      <div class="type-spec">
+        <div class="meta">Body — Geist (sans)</div>
+        <div class="body">A grotesque with personality — clean, neutral, but unmistakably contemporary.</div>
+      </div>
+      <div class="type-spec">
+        <div class="meta">Numerals — Geist Mono</div>
+        <div class="mono">10.5 hrs · R 5,500.00 · 00:47:23</div>
+      </div>
+    </div>
+
+    <div class="sys-block">
+      <div class="h">Principles</div>
+      <ol style="font-family:'Fraunces',serif; font-size:14px; line-height:1.7; color:var(--ink); padding-left:20px; margin:0;">
+        <li><em>Hairlines, not shadows.</em> 1px borders carry the structure.</li>
+        <li><em>Numerals are sacred.</em> Always monospaced for the ledger to feel earned.</li>
+        <li><em>Italic is emphasis.</em> Don't bold things — italicise them in serif.</li>
+        <li><em>Status by colour, not iconography.</em> Three-tone traffic system: moss / amber / crimson.</li>
+        <li><em>Dark mode equals "in flight."</em> Active sessions invert the palette to signal focus.</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ============ CLAUDE DESIGN PROMPT ============ -->
+  <div class="prompt-block">
+    <h3>Prompt for <em>Claude Design</em> / Cursor / v0</h3>
+<pre>Design a mobile app called HourBank for a private high school tutor running
+a prepaid-credits business. The app is the tutor's tool to manage student
+balances, run sessions, and send sign-off receipts to parents.
+
+AESTHETIC DIRECTION — strict, hold the line:
+- "Editorial ledger" — borrows from boutique fintech (Mercury, Monzo) and
+  Penguin Modern Classics typography. Not playful, not cartoonish, not
+  generic edtech.
+- Warm cream paper background (#F4EFE6), NOT white. Subtle paper grain.
+- Deep warm ink as primary text (#1B1714).
+- Single accent: oxblood (#7A2530). Use sparingly — italic emphasis,
+  primary CTAs, balance highlights.
+- Status palette: moss green #3F5641, amber #B8743F, crimson #9A2A2A.
+- Hairline borders (1px, #D9CFBF) instead of drop shadows. No shadows
+  except on elevated phone frames in marketing views.
+
+TYPOGRAPHY:
+- Display: Fraunces (variable serif, Google Fonts). Use opsz 144 and SOFT
+  60–100 for italics. Light weights only (300–400).
+- Body: Geist (Google Fonts).
+- Numerals: Geist Mono (Google Fonts) — used for ALL balances, durations,
+  timestamps, prices. This is non-negotiable; numerals are the soul of
+  this product.
+- Italic in Fraunces is the only emphasis. Do NOT use bold for emphasis.
+
+LAYOUT PRINCIPLES:
+- Generous vertical rhythm. Don't cram.
+- Section labels are tiny uppercase Geist Mono with letter-spacing 0.12em
+  in muted ink.
+- Active session screen INVERTS the palette to dark — ink background,
+  cream text — to signal "in flight."
+
+SCREENS to design (mobile, iPhone 14/15 viewport):
+1. Roster (home) — list of student cards with colour-coded balance
+   pills (moss/amber/crimson), summary stats above, bottom tab bar.
+2. Student detail — name as a serif display headline, prominent boxed
+   balance hero with double-border framing (think old certificate),
+   ledger list styled like a bank statement.
+3. Live Session — DARK theme, big circular elapsed timer, topic chips
+   the tutor taps during the lesson, pause + end session controls.
+4. End Session review — receipt-style summary with monospaced metric
+   rows, required topic chips, parent notes textarea, save & send CTA.
+5. Top-Up — package tier cards (5 / 10 / 15 / custom hrs) with a
+   pre-selected "best value" tier, payment method + reference inputs,
+   confirm CTA showing total.
+
+CRITICAL RULES:
+- Never use generic blue or teal. Never use rounded "friendly"
+  illustrations. Never use stock education iconography (graduation caps,
+  pencils, books).
+- Never use Inter, Roboto, Poppins, or any default system font.
+- Numerals MUST be monospaced. Always.
+- Italic serif for emphasis. Never use bold for emphasis.
+- South African context — Rand prices (R 5,500), CAPS / IEB / Cambridge
+  curriculum tags, EFT as default payment method.
+
+Build with React Native + Expo + NativeWind. Use Expo's Google Fonts
+package for Fraunces, Geist, and Geist Mono. Output a single Expo
+project with all five screens navigable.</pre>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# macOS / editors
+.DS_Store
+.idea/
+
+# local Claude settings and generated graph output
+.claude/settings.local.json
+.claude/worktrees/
+graphify-out/
+
+# signing secrets: never commit
+*.keystore
+*.jks
+keystore.properties
+.env
+.env*.local
