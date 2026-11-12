@@ -70,7 +70,7 @@ export default function ArchivedStudentsScreen() {
                 kind: 'success',
                 message: `${first} restored`,
                 actionLabel: 'Open',
-                onAction: () => router.push(`/student/${row.id}`),
+                onAction: () => router.push(`/student/${row.id}?from=ARCHIVED`),
               });
               load();
             } catch {

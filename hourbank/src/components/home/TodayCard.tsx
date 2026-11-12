@@ -69,14 +69,12 @@ export function TodayCard({
   starting,
   onStart,
   onOpenLesson,
-  onStartAdHoc,
 }: {
   today: TodaySplit;
   /** Session id currently being started (guards double taps). */
   starting: string | null;
   onStart: (lesson: AgendaItem) => void;
   onOpenLesson: (lesson: AgendaItem) => void;
-  onStartAdHoc: () => void;
 }) {
   const router = useRouter();
   const { next, lessons } = today;
@@ -200,17 +198,6 @@ export function TodayCard({
         </View>
       )}
 
-      <TouchableOpacity
-        onPress={onStartAdHoc}
-        activeOpacity={0.7}
-        accessibilityRole="button"
-        style={{ minHeight: MIN_TOUCH, flexDirection: 'row', alignItems: 'center', marginTop: 8 }}
-      >
-        <Feather name="plus" size={14} color={COLORS.oxblood} />
-        <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood, marginLeft: 6 }}>
-          New lesson — record or time one
-        </Text>
-      </TouchableOpacity>
     </View>
   );
 }

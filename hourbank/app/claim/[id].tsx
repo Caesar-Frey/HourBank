@@ -248,7 +248,7 @@ export default function ClaimDetailScreen() {
         >
           <Feather name="download" size={16} color={COLORS.inkSoft} />
           <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.inkSoft }}>
-            {downloading ? 'Generating…' : 'Download report'}
+            {downloading ? 'Generating…' : 'Share report'}
           </Text>
         </TouchableOpacity>
 

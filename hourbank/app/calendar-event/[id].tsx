@@ -149,7 +149,7 @@ export default function CalendarEventDetailScreen() {
 
       {current.student_id && current.student_name ? (
         <TouchableOpacity
-          onPress={() => router.push(`/student/${current.student_id}` as Href)}
+          onPress={() => router.push(`/student/${current.student_id}?from=SCHEDULE` as Href)}
           activeOpacity={0.7}
           accessibilityRole="link"
           style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: MIN_TOUCH, marginBottom: 8 }}

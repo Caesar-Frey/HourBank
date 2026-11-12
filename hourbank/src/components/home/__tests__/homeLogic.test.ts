@@ -119,14 +119,15 @@ describe('buildNeedsAttention', () => {
     ]);
   });
 
-  test('low balance only counts when a lesson is booked', () => {
+  test('low balance counts with or without a booked lesson (C2)', () => {
     const agenda: Agenda = { ...emptyAgenda, upcoming: [lesson('l', 'booked', '2026-10-12T10:00:00')] };
     const items = buildNeedsAttention({
       agenda,
       students: [student('booked', 0.5), student('idle', 0.5), student('fine', 1)],
     });
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ kind: 'low', href: '/student/booked', detail: '30m left · lesson booked' });
+    expect(items).toHaveLength(2);
+    expect(items.find(i => i.href === '/student/booked')).toMatchObject({ kind: 'low', detail: '30m left · lesson booked' });
+    expect(items.find(i => i.href === '/student/idle')).toMatchObject({ kind: 'low', detail: '30m left' });
   });
 
   test('zero balance with a booked lesson is low, not owing', () => {
@@ -287,12 +288,12 @@ describe('multi-subject roster helpers', () => {
     expect(new Set(items.map(i => i.key)).size).toBe(2);
   });
 
-  test('needs attention: low subject without a booking for that subject is skipped', () => {
+  test('needs attention: low subjects are listed; the booked one says so', () => {
     const s = multi('m', [['Maths', 0.5], ['Science', 0.5]]);
     const agenda: Agenda = {
       ...emptyAgenda,
       upcoming: [lesson('l', 'm', '2026-10-12T10:00:00', { subject_id: 'm-Science' })],
     };
-    expect(buildNeedsAttention({ agenda, students: [s] }).map(i => i.detail)).toEqual(['Science · 30m left · lesson booked']);
+    expect(buildNeedsAttention({ agenda, students: [s] }).map(i => i.detail).sort()).toEqual(['Maths · 30m left', 'Science · 30m left · lesson booked']);
   });
 });

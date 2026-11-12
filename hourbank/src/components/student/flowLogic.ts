@@ -27,9 +27,18 @@ export function balanceReviewLine(before: number, after: number): string {
   return `Balance ${formatBalance(before)} → ${formatBalance(after)}`;
 }
 
-/** A top-up reminder is worth sending when under 1h remains (incl. owing). */
+/** A top-up reminder is offered whenever credit is not healthy: running low, low or owing (C1). */
 export function shouldOfferTopUpReminder(balance: number): boolean {
-  return Math.round(balance * 60) < 60;
+  return Math.round(balance * 60) < 180;
+}
+
+/** Text status next to the balance, so status is never colour-only (C1). null when healthy. */
+export function balanceStatusChip(balance: number): { label: string; tone: 'owes' | 'low' | 'warn' } | null {
+  const m = Math.round(balance * 60);
+  if (m < 0) return { label: 'OWES', tone: 'owes' };
+  if (m < 60) return { label: 'LOW · TOP-UP DUE', tone: 'low' };
+  if (m < 180) return { label: 'RUNNING LOW', tone: 'warn' };
+  return null;
 }
 
 /** Upcoming-row warning, e.g. "will owe 1h 30m"; null while still in credit. */

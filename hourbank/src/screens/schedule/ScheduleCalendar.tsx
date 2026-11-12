@@ -364,6 +364,10 @@ export function ScheduleCalendar({ view, onChangeView }: Props) {
           setShowPicker(false);
           go(`/student/${id}/schedule?date=${dateParam}`);
         }}
+        onAddStudent={() => {
+          setShowPicker(false);
+          go('/student/new');
+        }}
       />
     </View>
   );

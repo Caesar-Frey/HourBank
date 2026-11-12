@@ -150,12 +150,13 @@ export function buildNeedsAttention(input: { agenda: Agenda; students: RosterStu
 
   const booked = bookedStudentIds(agenda, students);
   const bookedSubjects = bookedSubjectKeys(agenda, students);
+  // Low credit needs attention whether or not a lesson is booked (C2).
   const low = rows
     .filter(r => r.balance >= 0 && r.balance < 1)
-    .filter(r => (r.multi ? bookedSubjects.has(`${r.student.id}:${r.subjectId}`) : booked.has(r.student.id)))
     .sort((a, b) => a.balance - b.balance);
   for (const r of low) {
-    const left = `${formatHours(r.balance)} left · lesson booked`;
+    const isBooked = r.multi ? bookedSubjects.has(`${r.student.id}:${r.subjectId}`) : booked.has(r.student.id);
+    const left = `${formatHours(r.balance)} left${isBooked ? ' · lesson booked' : ''}`;
     items.push({
       key: key('low', r),
       kind: 'low',
@@ -171,12 +172,25 @@ export function buildNeedsAttention(input: { agenda: Agenda; students: RosterStu
 
 export type SortMode = 'balance' | 'next_session' | 'name' | 'grade';
 
-export const SORT_OPTIONS: { value: SortMode; label: string; summary: string }[] = [
-  { value: 'balance', label: 'Lowest balance first', summary: 'lowest balance' },
-  { value: 'next_session', label: 'Next lesson', summary: 'next lesson' },
-  { value: 'name', label: 'Name A–Z', summary: 'name' },
-  { value: 'grade', label: 'Grade', summary: 'grade' },
+export const SORT_OPTIONS: { value: SortMode; label: string; summary: string; heading: string }[] = [
+  { value: 'balance', label: 'Lowest balance first', summary: 'lowest balance', heading: 'LOWEST FIRST' },
+  { value: 'next_session', label: 'Next lesson', summary: 'next lesson', heading: 'NEXT LESSON FIRST' },
+  { value: 'name', label: 'Name A–Z', summary: 'name', heading: 'A–Z' },
+  { value: 'grade', label: 'Grade', summary: 'grade', heading: 'BY GRADE' },
 ];
+
+/** Caption above a roster balance: OWES / LOW / LEFT (C2). */
+export function rosterStatusWord(status: 'ok' | 'warn' | 'low' | 'owes'): string {
+  if (status === 'owes') return 'OWES';
+  if (status === 'low') return 'LOW';
+  return 'LEFT';
+}
+
+/** Section label that states the sort, e.g. "STUDENTS · LOWEST FIRST" (C2). */
+export function rosterHeading(mode: SortMode): string {
+  const h = SORT_OPTIONS.find(o => o.value === mode)?.heading;
+  return h ? `STUDENTS · ${h}` : 'STUDENTS';
+}
 
 export function isSortMode(v: unknown): v is SortMode {
   return SORT_OPTIONS.some(o => o.value === v);

@@ -132,7 +132,7 @@ function TravelPaymentDetail({ settlement, student }: { settlement: TravelSettle
 
         {student ? (
           <TouchableOpacity
-            onPress={() => router.push(`/student/${student.id}`)}
+            onPress={() => router.push(`/student/${student.id}?from=TRANSACTION`)}
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel={`Open ${student.full_name}`}
@@ -302,7 +302,7 @@ export default function TransactionDetailScreen() {
 
         {entry.studentName ? (
           <TouchableOpacity
-            onPress={() => router.push(`/student/${entry.student_id}`)}
+            onPress={() => router.push(`/student/${entry.student_id}?from=TRANSACTION`)}
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel={`Open ${entry.studentName}`}

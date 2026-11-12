@@ -9,10 +9,10 @@ import { useStudent } from '../../../src/hooks/useStudent';
 import { ScreenHeader, HeaderIconButton } from '../../../src/components/ScreenHeader';
 import { ActionSheet, ActionSheetItem } from '../../../src/components/ActionSheet';
 import { useToast } from '../../../src/components/Toast';
-import { formatHours, formatScheduledTime } from '../../../src/utils/format';
+import { formatDayShort, formatHours, formatScheduledTime } from '../../../src/utils/format';
 import { balanceColour, balanceStatus } from '../../../src/utils/balance';
-import { LedgerEntry, PreferredContact } from '../../../src/db/schema';
-import { reactivateStudent, restoreStudent } from '../../../src/db/students';
+import { LedgerEntry } from '../../../src/db/schema';
+import { markReminded, reactivateStudent, restoreStudent } from '../../../src/db/students';
 import { getPrimarySubjectId, getSubjectBalances, listStudentSubjects, SubjectBalance } from '../../../src/db/subjects';
 import type { LedgerRow } from '../../../src/db/ledger';
 import { SubjectBalanceCard } from '../../../src/components/student/SubjectBalanceCard';
@@ -21,14 +21,14 @@ import { lessonSubjectName, lowestSubject } from '../../../src/components/studen
 import { getLowBalanceReminderText } from '../../../src/utils/receipt';
 import { getOrCreateTutorProfile } from '../../../src/db/tutorProfile';
 import { openWhatsApp } from '../../../src/utils/whatsapp';
-import { resolveRecipient } from '../../../src/utils/recipient';
+import { recipientOptions, resolveRecipient, type Recipient } from '../../../src/utils/recipient';
 import { StudentLedgerRow } from '../../../src/components/student/StudentLedgerRow';
 import { ContactsCard } from '../../../src/components/student/ContactsCard';
-import { RecipientChooser } from '../../../src/components/student/RecipientChooser';
 import { Button, LoadingState, NotFoundState, SectionLabel } from '../../../src/components/student/ui';
 import { confirmArchiveStudent, confirmPauseStudent } from '../../../src/components/student/studentActions';
 import {
   archivedToastMessage,
+  balanceStatusChip,
   ledgerRowHref,
   shouldOfferTopUpReminder,
   upcomingOweWarning,
@@ -49,7 +49,7 @@ export default function StudentDetailScreen() {
   const toast = useToast();
   const { student, balance, ledger, upcomingProjected, pastSessions, loading, reload } = useStudent(id);
   const [showMenu, setShowMenu] = useState(false);
-  const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
+  const [reminderPick, setReminderPick] = useState(false);
   // Each subject has its own balance (migration 009).
   const [subjects, setSubjects] = useState<SubjectBalance[]>([]);
   const [subjectNames, setSubjectNames] = useState<Record<string, string>>({});
@@ -92,10 +92,8 @@ export default function StudentDetailScreen() {
   const subjectLine = activeSubjects.length > 0 ? activeSubjects.map(s => s.subject).join(' · ') : student.subject;
   const subjectQuery = (subjectId: string) => `subjectId=${encodeURIComponent(subjectId)}`;
 
-  let statusTip: string | null = null;
-  if (isOwes) statusTip = 'Owes hours — top-up required.';
-  else if (balance < 1) statusTip = 'Top-up due.';
-  else if (balance < 3) statusTip = 'Running low.';
+  const chip = balanceStatusChip(balance);
+  const lastReminded = student.last_reminded_at ? formatDayShort(student.last_reminded_at) : null;
 
   const nameParts = name.split(/\s+/);
   const firstName = nameParts.slice(0, -1).join(' ') || nameParts[0];
@@ -155,38 +153,71 @@ export default function StudentDetailScreen() {
     }
   }
 
-  const recipient = resolveRecipient(student, sendTo);
-
+  /** Send reminder → pick who (when both numbers exist) → phone check → bank details check → WhatsApp. */
   function sendReminder() {
     if (!student) return;
+    if (recipientOptions(student).length > 0) {
+      setReminderPick(true);
+      return;
+    }
+    checkPhone(resolveRecipient(student, null));
+  }
+
+  function checkPhone(r: Recipient) {
+    if (r.phone) {
+      checkPaymentDetails(r);
+      return;
+    }
+    // No number saved: say so before WhatsApp opens its contact picker (C1).
+    Alert.alert(
+      'No phone number saved',
+      `There's no WhatsApp number for ${r.who === 'student' ? firstName : `${firstName}'s parent`}. WhatsApp will ask you to pick a contact.`,
+      [
+        { text: 'Add number', onPress: () => router.push(`/student/${id}/edit`) },
+        { text: 'Open WhatsApp', onPress: () => checkPaymentDetails(r) },
+      ],
+    );
+  }
+
+  function checkPaymentDetails(r: Recipient) {
     let hasDetails = true;
     try {
       hasDetails = !!getOrCreateTutorProfile().payment_details?.trim();
     } catch { /* send anyway */ }
     if (hasDetails) {
-      void sendReminderNow();
+      void sendReminderNow(r);
       return;
     }
     Alert.alert('No bank details yet', "Parents won't know how to pay you.", [
       { text: 'Add bank details', onPress: () => router.navigate('/profile?focus=payment') },
-      { text: 'Send anyway', onPress: () => { void sendReminderNow(); } },
+      { text: 'Send anyway', onPress: () => { void sendReminderNow(r); } },
     ]);
   }
 
-  async function sendReminderNow() {
+  async function sendReminderNow(r: Recipient) {
     if (!student) return;
     try {
       // Subject balance(s), suggested package, travel owed, payment details + reference.
-      const text = getLowBalanceReminderText(student.id, {
-        recipientName: recipient.name,
-        audience: recipient.who,
-      });
+      const text = getLowBalanceReminderText(student.id, { recipientName: r.name, audience: r.who });
       if (!text) throw new Error('student not found');
-      await openWhatsApp(recipient.phone, text);
+      await openWhatsApp(r.phone, text);
+      try {
+        markReminded(student.id);
+        reload();
+      } catch { /* the stamp is a convenience */ }
     } catch {
       showError("Couldn't open WhatsApp");
     }
   }
+
+  const reminderItems: ActionSheetItem[] = recipientOptions(student).map(o => ({
+    label: `Send to ${o.label}`,
+    icon: 'message-circle',
+    onPress: () => {
+      setReminderPick(false);
+      checkPhone(resolveRecipient(student, o.value));
+    },
+  }));
 
   function openLedgerEntry(entry: LedgerEntry) {
     const href = ledgerRowHref(entry);
@@ -196,7 +227,6 @@ export default function StudentDetailScreen() {
   const menuItems: ActionSheetItem[] = [
     { label: 'Edit details', icon: 'edit-2', onPress: () => { setShowMenu(false); router.push(`/student/${id}/edit`); } },
     { label: 'Correct balance', icon: 'sliders', onPress: () => { setShowMenu(false); router.push(`/student/${id}/adjust`); } },
-    { label: 'Log past lesson', icon: 'clock', onPress: () => { setShowMenu(false); router.push(`/student/${id}/log-past`); } },
     ...(student.status === 'active'
       ? [{ label: 'Pause student', icon: 'pause-circle', onPress: () => { setShowMenu(false); handlePause(); } }]
       : []),
@@ -209,7 +239,7 @@ export default function StudentDetailScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top', 'bottom']}>
       <ScreenHeader
-        backLabel={from ?? 'BACK'}
+        backLabel={from ?? 'HOME'}
         onBack={() => router.back()}
         right={archived ? undefined : (
           <HeaderIconButton icon="more-horizontal" accessibilityLabel="Student actions" onPress={() => setShowMenu(true)} />
@@ -274,71 +304,60 @@ export default function StudentDetailScreen() {
               />
             ))}
             {nextLesson?.scheduled_for ? (
-              <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft }}>
                 {`Next: ${formatScheduledTime(nextLesson.scheduled_for)} · ${lessonSubjectName(nextLesson.subject_id, subjectNames, primaryId) ?? ''} · ${modeLabel}`}
               </Text>
             ) : null}
+            {showReminder && !archived ? (
+              <ReminderRow
+                lastReminded={lastReminded}
+                onSend={sendReminder}
+                note={lowest ? `About ${lowest.subject}, the lowest credit.` : null}
+              />
+            ) : null}
           </View>
         ) : (
-          <>
-          {/* Balance hero */}
+          /* Balance card (M4) */
           <View
-            accessible
-            accessibilityLabel={`${isOwes ? 'Owes' : 'Balance'} ${formatHours(Math.abs(balance))}`}
-            style={{ borderWidth: 1.5, borderColor: COLORS.ink, borderRadius: 16, padding: 20, backgroundColor: COLORS.paperDeep }}
+            style={{ borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 16, padding: 16, backgroundColor: COLORS.cardFill, gap: 6 }}
+            testID="student-balance-card"
           >
             <View
-              pointerEvents="none"
-              style={{ position: 'absolute', top: 12, left: 12, right: 12, bottom: 12, borderWidth: 0.5, borderColor: COLORS.inkHairline, borderRadius: 12 }}
-            />
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: isOwes ? COLORS.oxblood : COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
-              {isOwes ? '★ HOURS OWED' : '★ REMAINING BALANCE'}
-            </Text>
-            <Text style={{ fontFamily: F.monoMed, fontSize: 44, color: statusColour, lineHeight: 52 }}>
-              {formatHours(Math.abs(balance))}
-            </Text>
-            {statusTip ? (
-              <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: COLORS.inkSoft, marginTop: 4 }}>{statusTip}</Text>
-            ) : null}
-            {nextLesson?.scheduled_for ? (
-              <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginTop: 6 }}>
-                {`Next: ${formatScheduledTime(nextLesson.scheduled_for)} · ${modeLabel}`}
+              accessible
+              accessibilityLabel={`${isOwes ? 'Owes' : 'Credit left'} ${formatHours(Math.abs(balance))}${chip ? `, ${chip.label.toLowerCase()}` : ''}`}
+              style={{ gap: 6 }}
+            >
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, letterSpacing: 1.5, color: isOwes ? COLORS.oxblood : COLORS.inkFaint }}>
+                  {isOwes ? 'HOURS OWED' : 'CREDIT LEFT'}
+                </Text>
+                {chip ? <StatusChip label={chip.label} tone={chip.tone} /> : null}
+              </View>
+              <Text style={{ fontFamily: F.monoMed, fontSize: 44, color: statusColour, lineHeight: 50 }}>
+                {formatHours(Math.abs(balance))}
               </Text>
-            ) : null}
-          </View>
-
-          </>
-        )}
-
-        {/* Primary actions */}
-        {archived ? null : (
-        <View style={{ marginTop: 16, gap: 10 }}>
-          <Button label="Start lesson now" icon="play" onPress={() => router.push(`/start-lesson?studentId=${id}`)} />
-          {multiSubject ? null : (
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Button label="Book lesson" icon="calendar" variant="secondary" style={{ flex: 1 }} onPress={() => router.push(`/student/${id}/schedule`)} />
-              <Button label="Top up" icon="plus" variant="secondary" style={{ flex: 1 }} onPress={() => router.push(`/student/${id}/top-up`)} />
-            </View>
-          )}
-          {showReminder ? (
-            <View style={{ gap: 8 }}>
-              <RecipientChooser student={student} value={recipient.who} onChange={setSendTo} />
-              <Button
-                label="Send top-up reminder"
-                icon="message-circle"
-                variant="quiet"
-                onPress={sendReminder}
-                accessibilityHint={`Opens WhatsApp with a reminder for the ${recipient.who}`}
-              />
-              {multiSubject && lowest ? (
-                <Text style={{ fontFamily: F.serifItalic, fontSize: 12, color: COLORS.inkSoft, textAlign: 'center' }}>
-                  {`About ${lowest.subject} — the lowest balance.`}
+              {nextLesson?.scheduled_for ? (
+                <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.inkSoft }}>
+                  {`Next: ${formatScheduledTime(nextLesson.scheduled_for)} · ${formatHours((nextLesson.estimated_duration_minutes ?? 60) / 60)} booked`}
                 </Text>
               ) : null}
             </View>
-          ) : null}
-        </View>
+            {showReminder && !archived ? (
+              <ReminderRow lastReminded={lastReminded} onSend={sendReminder} divided />
+            ) : null}
+          </View>
+        )}
 
+        {/* Actions (M4): recording after the lesson is THE path; the timer is a quiet secondary. */}
+        {archived ? null : (
+          <View style={{ marginTop: 16, gap: 8 }}>
+            <Button label="Record lesson" onPress={() => router.push(`/student/${id}/log-past`)} testID="student-record-lesson" />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <OutlineButton label="Start timer" onPress={() => router.push(`/start-lesson?studentId=${id}&kind=timer`)} />
+              <OutlineButton label="Book" onPress={() => router.push(`/student/${id}/schedule`)} />
+              <OutlineButton label="Top up" onPress={() => router.push(`/student/${id}/top-up`)} />
+            </View>
+          </View>
         )}
 
         {/* Parent travel owed (B3) */}
@@ -413,21 +432,21 @@ export default function StudentDetailScreen() {
         {/* Ledger */}
         <View style={{ marginTop: 28 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <SectionLabel style={{ marginBottom: 0 }}>LEDGER — LATEST</SectionLabel>
+            <SectionLabel style={{ marginBottom: 0 }}>HISTORY</SectionLabel>
             {ledger.length > 0 ? (
               <TouchableOpacity
                 onPress={() => router.push(`/student/${id}/ledger`)}
                 accessibilityRole="button"
-                accessibilityLabel="See full ledger"
+                accessibilityLabel="Full history"
                 style={{ minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, justifyContent: 'center', alignItems: 'flex-end' }}
               >
-                <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.oxblood }}>See all →</Text>
+                <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood }}>Full history →</Text>
               </TouchableOpacity>
             ) : null}
           </View>
           {ledger.length === 0 ? (
             <Text style={{ fontFamily: F.serifItalic, fontSize: 13, color: COLORS.inkFaint, marginTop: 6 }}>
-              No ledger entries yet — add a top-up to get started.
+              Nothing yet. Add a top-up to get started.
             </Text>
           ) : (
             ledger.map(entry => (
@@ -444,6 +463,74 @@ export default function StudentDetailScreen() {
       </ScrollView>
 
       <ActionSheet visible={showMenu} onDismiss={() => setShowMenu(false)} items={menuItems} />
+      <ActionSheet visible={reminderPick} onDismiss={() => setReminderPick(false)} items={reminderItems} />
     </SafeAreaView>
+  );
+}
+
+const CHIP_TONE = {
+  owes: { fg: COLORS.oxblood, bg: COLORS.oxbloodFill },
+  low: { fg: COLORS.crimson, bg: COLORS.badFill },
+  warn: { fg: COLORS.amber, bg: COLORS.warnFill },
+} as const;
+
+function StatusChip({ label, tone }: { label: string; tone: keyof typeof CHIP_TONE }) {
+  const t = CHIP_TONE[tone];
+  return (
+    <View style={{ backgroundColor: t.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+      <Text style={{ fontFamily: F.mono, fontSize: 12, letterSpacing: 1, color: t.fg }}>{label}</Text>
+    </View>
+  );
+}
+
+function ReminderRow({ lastReminded, onSend, divided = false, note = null }: {
+  lastReminded: string | null;
+  onSend: () => void;
+  divided?: boolean;
+  note?: string | null;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+        ...(divided ? { borderTopWidth: 1, borderTopColor: COLORS.paperEdge, marginTop: 6, paddingTop: 2 } : {}),
+      }}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>
+          {lastReminded ? (
+            <>
+              {'Last reminded '}
+              <Text style={{ fontFamily: F.mono, fontSize: 12 }}>{lastReminded}</Text>
+            </>
+          ) : 'Not reminded yet'}
+        </Text>
+        {note ? <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>{note}</Text> : null}
+      </View>
+      <TouchableOpacity
+        onPress={onSend}
+        accessibilityRole="button"
+        accessibilityLabel="Send top-up reminder"
+        accessibilityHint="Opens WhatsApp with a reminder"
+        style={{ minHeight: MIN_TOUCH, justifyContent: 'center' }}
+        testID="student-send-reminder"
+      >
+        <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood }}>Send reminder →</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function OutlineButton({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={{ flex: 1, minHeight: 48, borderWidth: 1, borderColor: COLORS.ink, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}
+    >
+      <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{label}</Text>
+    </TouchableOpacity>
   );
 }

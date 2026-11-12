@@ -13,6 +13,7 @@ import { RosterStudentCard } from '../../src/components/home/RosterStudentCard';
 import { TodayCard, LiveLessonPill } from '../../src/components/home/TodayCard';
 import { NeedsAttentionCard } from '../../src/components/home/NeedsAttentionCard';
 import { SetupCard } from '../../src/components/home/SetupCard';
+import { StudentPickerSheet } from '../../src/components/calendar/StudentPickerSheet';
 import { getOrCreateTutorProfile, getSetupStatus, type SetupStatus } from '../../src/db/tutorProfile';
 import {
   RosterStudent,
@@ -20,6 +21,7 @@ import {
   SORT_OPTIONS,
   isSortMode,
   sortRoster,
+  rosterHeading,
   rosterSummary,
   splitToday,
   buildNeedsAttention,
@@ -95,6 +97,7 @@ export default function HomeScreen() {
 
   // null until AsyncStorage answers → the roster never renders in the wrong order first.
   const [sortMode, setSortMode] = useState<SortMode | null>(null);
+  const [bookPicker, setBookPicker] = useState(false);
   const [sortSheetVisible, setSortSheetVisible] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState('');
@@ -336,9 +339,16 @@ export default function HomeScreen() {
             starting={starting}
             onStart={item => startLesson(item)}
             onOpenLesson={item => router.push(`/lesson/${item.id}`)}
-            onStartAdHoc={() => router.push('/start-lesson')}
           />
         )}
+
+        {/* Record / book from Home (C2): both pick the student first. */}
+        {ready && !noStudents ? (
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+            <HomeAction icon="check" label="Record a lesson" onPress={() => router.push('/start-lesson')} testID="home-record" />
+            <HomeAction icon="calendar" label="Book a lesson" onPress={() => setBookPicker(true)} testID="home-book" />
+          </View>
+        ) : null}
 
         {/* Needs attention (collapses when empty) */}
         <NeedsAttentionCard items={attention} onPress={item => router.push(item.href)} />
@@ -384,7 +394,7 @@ export default function HomeScreen() {
 
         {/* ── Students ─────────────────────────────────────────────────── */}
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-          <Text style={[SECTION_LABEL, { flex: 1 }]}>Students</Text>
+          <Text style={[SECTION_LABEL, { flex: 1 }]} numberOfLines={1}>{rosterHeading(sortMode ?? 'balance')}</Text>
           {active.length > 1 && (
             <TouchableOpacity
               onPress={() => setSortSheetVisible(true)}
@@ -508,7 +518,7 @@ export default function HomeScreen() {
               <RosterStudentCard
                 key={student.id}
                 student={student}
-                onPress={() => router.push(`/student/${student.id}`)}
+                onPress={() => router.push(`/student/${student.id}?from=HOME`)}
               />
             ))}
           </View>
@@ -531,7 +541,7 @@ export default function HomeScreen() {
                 style={{ minHeight: MIN_TOUCH, justifyContent: 'center', paddingLeft: 12 }}
               >
                 <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.oxblood }}>
-                  {showAll ? 'Show fewer' : 'All →'}
+                  {showAll ? 'Show fewer' : `All ${active.length} →`}
                 </Text>
               </TouchableOpacity>
             )}
@@ -548,7 +558,7 @@ export default function HomeScreen() {
                   key={student.id}
                   student={student}
                   paused
-                  onPress={() => router.push(`/student/${student.id}`)}
+                  onPress={() => router.push(`/student/${student.id}?from=HOME`)}
                 />
               ))}
             </View>
@@ -582,7 +592,45 @@ export default function HomeScreen() {
         )}
       </ScrollView>
 
+      <StudentPickerSheet
+        visible={bookPicker}
+        title="Book a lesson"
+        students={[...active, ...paused]}
+        onClose={() => setBookPicker(false)}
+        onPick={sid => {
+          setBookPicker(false);
+          router.push(`/student/${sid}/schedule`);
+        }}
+        onAddStudent={() => {
+          setBookPicker(false);
+          router.push('/student/new');
+        }}
+      />
       <ActionSheet visible={sortSheetVisible} onDismiss={() => setSortSheetVisible(false)} items={sortItems} />
     </SafeAreaView>
+  );
+}
+
+function HomeAction({ icon, label, onPress, testID }: {
+  icon: React.ComponentProps<typeof Feather>['name'];
+  label: string;
+  onPress: () => void;
+  testID?: string;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      testID={testID}
+      style={{
+        flex: 1, minHeight: 48, borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 14,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 8,
+      }}
+    >
+      <Feather name={icon} size={15} color={COLORS.oxblood} />
+      <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{label}</Text>
+    </TouchableOpacity>
   );
 }

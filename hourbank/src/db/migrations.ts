@@ -761,6 +761,19 @@ export const MIGRATION_012_POLISH_B: Migration = {
   },
 };
 
+/**
+ * Migration 013 — polish package C.
+ * - students.last_reminded_at: shown on the student page ("Last reminded Tue 3 Nov").
+ */
+export const MIGRATION_013_POLISH_C: Migration = {
+  version: '013_polish_c',
+  run: (db) => {
+    if (!hasColumn(db, 'students', 'last_reminded_at')) {
+      db.runSync(`ALTER TABLE students ADD COLUMN last_reminded_at TEXT`);
+    }
+  },
+};
+
 /** Ordered migration chain run at app boot (app/_layout.tsx) and by test DBs. */
 export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_002,
@@ -774,4 +787,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_010_TRAVEL_RATE_SNAPSHOT,
   MIGRATION_011_POLISH_A,
   MIGRATION_012_POLISH_B,
+  MIGRATION_013_POLISH_C,
 ];

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, TouchableOpacity, Alert, Switch, TextInput, Modal, ActivityIndicator, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import { F, MIN_TOUCH, hitSlopFor } from '../../src/theme/fonts';
 import { COLORS } from '../../src/theme/colors';
@@ -44,7 +43,6 @@ import { exportDatabase, getLastBackupAt, importBackup, BackupSummary } from '..
 import { BACKUP_READY_TOAST } from '../../src/utils/shareCopy';
 import { formatHours, formatRand } from '../../src/utils/format';
 import { useSessionTimer } from '../../src/contexts/SessionTimerContext';
-import { SHOW_ALL_GRADES_KEY } from '../../src/config';
 
 type AmountField = 'parentPrice' | 'payoutRate' | 'maxOwe' | 'perKm';
 type PendingRestore = Awaited<ReturnType<typeof importBackup>>;
@@ -71,7 +69,6 @@ export default function SettingsScreen() {
 
   const profileRef = useRef<TutorProfile | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
-  const [showAllGrades, setShowAllGrades] = useState(false);
 
   // Drafts (strings keep half-typed input like "1," intact).
   const [fullName, setFullName] = useState('');
@@ -147,9 +144,6 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     loadProfile();
-    AsyncStorage.getItem(SHOW_ALL_GRADES_KEY)
-      .then(v => setShowAllGrades(v === 'true'))
-      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -668,23 +662,6 @@ export default function SettingsScreen() {
         subtitle="View or restore students you've archived"
         onPress={() => router.push('/student/archived')}
       />
-      <View style={[ROW_CONTAINER, { flexDirection: 'row', alignItems: 'center' }]}>
-        <View style={{ flex: 1, marginRight: 12 }}>
-          <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>Show all grades (1–12)</Text>
-          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>
-            Off: only grades 8–12 (high school)
-          </Text>
-        </View>
-        <Switch
-          value={showAllGrades}
-          onValueChange={v => {
-            setShowAllGrades(v);
-            AsyncStorage.setItem(SHOW_ALL_GRADES_KEY, v ? 'true' : 'false').catch(() => {});
-          }}
-          trackColor={{ false: COLORS.paperEdge, true: COLORS.oxblood }}
-          thumbColor={COLORS.paper}
-        />
-      </View>
 
       {/* ── Backup & restore ──────────────────────────────────────────── */}
       <SectionLabel>Backup & restore</SectionLabel>

@@ -140,7 +140,6 @@ export default function EndSessionScreen() {
   const [addingTopic, setAddingTopic] = useState(false);
   const [customTopic, setCustomTopic] = useState('');
   const [notes, setNotes] = useState(draft?.notes ?? '');
-  const [topicError, setTopicError] = useState(false);
   // Only a tutor-edited amount survives a trip back to the timer (or an end-time
   // change); an untouched default follows the taught time.
   const [billedOverride, setBilledOverride] = useState<number | null>(
@@ -244,14 +243,12 @@ export default function EndSessionScreen() {
   };
 
   const toggleTopic = (topic: string) => {
-    setTopicError(false);
     setSelectedTopics(prev => (prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]));
   };
 
   const submitCustomTopic = () => {
     const trimmed = customTopic.trim();
     if (trimmed) {
-      setTopicError(false);
       setSelectedTopics(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
       setAvailableTopics(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
     }
@@ -316,10 +313,7 @@ export default function EndSessionScreen() {
     if (submittingRef.current) return;
     const billed = billedMinutes;
     if (endError) return;
-    if (selectedTopics.length < 1) {
-      setTopicError(true);
-      return;
-    }
+    // Topics are optional, as on the Record form (C6).
     if (kmError) return;
     // Warn-but-allow: going past zero credit is a confirm, never a block.
     const after = subjectBalance - billed / 60;
@@ -585,11 +579,6 @@ export default function EndSessionScreen() {
               </TouchableOpacity>
             )}
           </View>
-          {topicError && (
-            <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.crimson, marginTop: 8 }}>
-              At least one topic is required.
-            </Text>
-          )}
         </View>
 
         {/* Notes */}

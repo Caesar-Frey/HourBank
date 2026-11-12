@@ -343,9 +343,19 @@ export default function StartLessonScreen() {
       ) : null}
 
       {loaded && students.length === 0 ? (
-        <Text style={{ fontFamily: F.serifItalic, fontSize: 14, color: COLORS.inkFaint, paddingVertical: 16 }}>
-          No students yet — add one from Home first.
-        </Text>
+        <View style={{ paddingVertical: 16, gap: 12 }}>
+          <Text style={{ fontFamily: F.serifItalic, fontSize: 14, color: COLORS.inkFaint }}>No students yet.</Text>
+          <TouchableOpacity
+            onPress={() => router.push('/student/new' as Href)}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            testID="start-lesson-add-student"
+            style={{ minHeight: 48, borderWidth: 1, borderColor: COLORS.ink, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 }}
+          >
+            <Feather name="user-plus" size={16} color={COLORS.ink} />
+            <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>Add a student</Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
       {loaded && students.length > 0 && shown.length === 0 ? (
         <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkFaint, paddingVertical: 16 }}>

@@ -119,6 +119,8 @@ export function MoneyInView() {
 
   useFocusEffect(load);
 
+  const travelOwedTotal = travelOwed.reduce((a, r) => a + r.amount, 0);
+
   function move(delta: number) {
     const next = shiftMonth(year, monthIdx, delta);
     if (isFutureMonth(next.year, next.monthIdx)) return;
@@ -196,6 +198,9 @@ export function MoneyInView() {
             </Text>
             <Text style={{ fontFamily: F.monoMed, fontSize: 15, color: outstanding.owedHours > 0 ? COLORS.crimson : COLORS.ink }}>
               {formatHours(outstanding.owedHours)}
+              {travelOwedTotal > 0 ? (
+                <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.amber }}>{` + ${formatRand(travelOwedTotal)} travel`}</Text>
+              ) : null}
             </Text>
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -213,7 +218,7 @@ export function MoneyInView() {
               {travelOwed.map(r => (
                 <TouchableOpacity
                   key={r.student_id}
-                  onPress={() => go(r.archived ? `/student/${r.student_id}` : `/student/${r.student_id}/travel`)}
+                  onPress={() => go(r.archived ? `/student/${r.student_id}?from=MONEY` : `/student/${r.student_id}/travel`)}
                   activeOpacity={0.7}
                   accessibilityRole="button"
                   accessibilityLabel={`${r.full_name}${r.archived ? ', archived,' : ''} travel owed ${formatRand(r.amount)}`}
@@ -322,8 +327,8 @@ export function MoneyInView() {
           <View>
             <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}>
               <Text style={[EYEBROW, { flex: 1, marginBottom: 0 }]}>Subject</Text>
-              <Text style={[EYEBROW, { width: 56, textAlign: 'right', marginBottom: 0 }]}>Stdnts</Text>
-              <Text style={[EYEBROW, { width: 44, textAlign: 'right', marginBottom: 0 }]}>Lsns</Text>
+              <Text style={[EYEBROW, { width: 76, textAlign: 'right', marginBottom: 0 }]}>Students</Text>
+              <Text style={[EYEBROW, { width: 64, textAlign: 'right', marginBottom: 0 }]}>Lessons</Text>
               <Text style={[EYEBROW, { width: 72, textAlign: 'right', marginBottom: 0 }]}>Hours</Text>
             </View>
             {aggregateBySubject(summary.perSubject).map(r => (
@@ -334,8 +339,8 @@ export function MoneyInView() {
                 style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}
               >
                 <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{r.subject}</Text>
-                <Text style={{ width: 56, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.students}</Text>
-                <Text style={{ width: 44, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.sessions}</Text>
+                <Text style={{ width: 76, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.students}</Text>
+                <Text style={{ width: 64, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.sessions}</Text>
                 <Text style={{ width: 72, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{formatHours(r.hours)}</Text>
               </View>
             ))}
@@ -349,21 +354,21 @@ export function MoneyInView() {
           <View>
             <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}>
               <Text style={[EYEBROW, { flex: 1, marginBottom: 0 }]}>Student</Text>
-              <Text style={[EYEBROW, { width: 44, textAlign: 'right', marginBottom: 0 }]}>Lsns</Text>
+              <Text style={[EYEBROW, { width: 64, textAlign: 'right', marginBottom: 0 }]}>Lessons</Text>
               <Text style={[EYEBROW, { width: 64, textAlign: 'right', marginBottom: 0 }]}>Hours</Text>
               <Text style={[EYEBROW, { width: 96, textAlign: 'right', marginBottom: 0 }]}>Cash</Text>
             </View>
             {summary.perStudent.map(r => (
               <TouchableOpacity
                 key={r.studentId}
-                onPress={() => go(`/student/${r.studentId}`)}
+                onPress={() => go(`/student/${r.studentId}?from=MONEY`)}
                 activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel={`${r.name}: ${r.sessions} lessons, ${formatHours(r.hours)}, ${formatRand(r.cashRand)}`}
                 style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}
               >
                 <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{r.name}</Text>
-                <Text style={{ width: 44, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.sessions}</Text>
+                <Text style={{ width: 64, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.sessions}</Text>
                 <Text style={{ width: 64, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{formatHours(r.hours)}</Text>
                 <Text style={{ width: 96, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }} numberOfLines={1}>
                   {formatRand(r.cashRand)}

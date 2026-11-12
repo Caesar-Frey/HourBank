@@ -328,6 +328,11 @@ export function listArchivedStudents(): Array<Student & { current_balance: numbe
   `).map(r => ({ ...r, current_balance: normaliseHours(r.current_balance) }));
 }
 
+/** Stamp that a top-up reminder was opened in WhatsApp for this student. */
+export function markReminded(id: string, at: Date = new Date()): void {
+  getDb().runSync('UPDATE students SET last_reminded_at = ? WHERE id = ?', [at.toISOString(), id]);
+}
+
 /** Un-archive: archived → active. Lessons cancelled by the archive are NOT restored. */
 export function restoreStudent(id: string): void {
   const result = getDb().runSync(

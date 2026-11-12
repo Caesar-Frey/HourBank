@@ -416,7 +416,7 @@ export default function LessonDetailScreen() {
         </View>
 
         <TouchableOpacity
-          onPress={() => router.push(`/student/${session.student_id}`)}
+          onPress={() => router.push(`/student/${session.student_id}?from=LESSON`)}
           accessibilityRole="link"
           accessibilityLabel={`Open ${studentName}'s profile`}
           style={{ alignSelf: 'flex-start', minHeight: MIN_TOUCH, justifyContent: 'center' }}

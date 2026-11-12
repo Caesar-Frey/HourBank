@@ -25,6 +25,8 @@ export type Student = {
   parent_travel_flat_fee?: number;
   /** Parent travel charge per km when mode is 'per_km' (rand/km). Migration 009. */
   parent_travel_per_km?: number;
+  /** When a top-up reminder was last opened in WhatsApp (migration 013). */
+  last_reminded_at?: string | null;
 };
 
 export type PreferredContact = 'parent' | 'student';

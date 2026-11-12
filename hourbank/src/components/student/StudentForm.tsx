@@ -6,12 +6,11 @@
  */
 import React, { useEffect, useState } from 'react';
 import { ScrollView, Text, TextInput, TextStyle, TouchableOpacity, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { F, hitSlopFor } from '../../theme/fonts';
 import { COLORS } from '../../theme/colors';
 import { getTutorProfile } from '../../db/tutorProfile';
 import { listCurricula, listSubjects } from '../../db/catalog';
-import { SHOW_ALL_GRADES_KEY, SUBJECT_SUGGESTIONS } from '../../config';
+import { SUBJECT_SUGGESTIONS } from '../../config';
 import { Student } from '../../db/schema';
 import { formatRand, parseDecimal } from '../../utils/format';
 import { FieldError, FieldHint, SectionLabel } from './ui';
@@ -26,8 +25,8 @@ import type { ParentTravelMode, PreferredContact } from '../../db/schema';
 import { SubjectsEditor } from './SubjectsEditor';
 import { newSubjectDraft, SubjectDraft } from './subjectLogic';
 
+/** Every grade the database accepts (1–12), always shown (C5). */
 const ALL_GRADES = Array.from({ length: 12 }, (_, i) => i + 1);
-const HS_GRADES = [8, 9, 10, 11, 12];
 const DEFAULT_CURRICULA: Student['curriculum'][] = ['CAPS', 'IEB', 'Cambridge', 'Other'];
 
 export type StudentFormOptions = {
@@ -90,19 +89,14 @@ function readTutorTravel(): { travelMode: 'flat' | 'distance'; perKmRate: number
   }
 }
 
-/** Catalog subjects/curricula, grade range preference and tutor travel config. */
+/** Catalog subjects/curricula, grades and tutor travel config. */
 export function useStudentFormOptions(): StudentFormOptions {
-  const [showAllGrades, setShowAllGrades] = useState(false);
   const [subjects, setSubjects] = useState<string[]>(SUBJECT_SUGGESTIONS);
   const [curricula, setCurricula] = useState<Student['curriculum'][]>(DEFAULT_CURRICULA);
   // Read synchronously so the New form's parent-travel defaults are right on first render.
   const [travel] = useState(readTutorTravel);
 
   useEffect(() => {
-    let cancelled = false;
-    AsyncStorage.getItem(SHOW_ALL_GRADES_KEY)
-      .then(v => { if (!cancelled) setShowAllGrades(v === 'true'); })
-      .catch(() => {});
     try {
       const dbSubjects = listSubjects().map(s => s.name);
       if (dbSubjects.length > 0) {
@@ -113,10 +107,9 @@ export function useStudentFormOptions(): StudentFormOptions {
         .filter((n): n is Student['curriculum'] => (DEFAULT_CURRICULA as string[]).includes(n));
       if (valid.length > 0) setCurricula(valid);
     } catch { /* defaults */ }
-    return () => { cancelled = true; };
   }, []);
 
-  return { grades: showAllGrades ? ALL_GRADES : HS_GRADES, subjects, curricula, ...travel };
+  return { grades: ALL_GRADES, subjects, curricula, ...travel };
 }
 
 const INPUT: TextStyle = {

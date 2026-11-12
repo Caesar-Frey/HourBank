@@ -4,7 +4,7 @@ import { F, MIN_TOUCH } from '../../theme/fonts';
 import { COLORS } from '../../theme/colors';
 import { balanceColour, balanceStatus } from '../../utils/balance';
 import { formatHours, formatScheduledTime } from '../../utils/format';
-import { rosterBalanceLine, rosterSubjectBalances, type RosterStudent } from './homeLogic';
+import { rosterBalanceLine, rosterStatusWord, rosterSubjectBalances, type RosterStudent } from './homeLogic';
 
 interface Props {
   student: RosterStudent;
@@ -93,16 +93,16 @@ export function RosterStudentCard({ student, onPress, paused = false }: Props) {
           minWidth: 76,
         }}
       >
+        {/* Status word, never truncated (C2); the subject detail lives in the balance line. */}
         <Text
           style={{
             fontFamily: F.mono,
-            fontSize: 9,
-            color: owes && !paused ? COLORS.oxblood : COLORS.inkFaint,
-            textTransform: 'uppercase',
-            letterSpacing: 0.5,
+            fontSize: 12,
+            color: paused || status === 'ok' || status === 'warn' ? COLORS.inkFaint : colour,
+            letterSpacing: 1,
           }}
         >
-          {multi ? `${owes ? 'OWES · ' : 'LOWEST · '}${worst.subject}`.slice(0, 18) : owes ? 'OWES' : 'BALANCE'}
+          {rosterStatusWord(status)}
         </Text>
         <Text style={{ fontFamily: F.mono, fontSize: 20, color: colour }}>
           {formatHours(Math.abs(shown))}

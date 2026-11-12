@@ -275,10 +275,7 @@ export default function SessionScreen() {
   }
 
   function handleEndSession() {
-    if (selectedTopics.length < 1) {
-      Alert.alert('Select a topic', 'Select at least one topic before ending the lesson.');
-      return;
-    }
+    // Topics are optional, as on the Record form (C6).
     // Timer keeps running: Back from the review returns to a live timer.
     // The end time is frozen here so the review time isn't billed.
     const topicsParam = encodeURIComponent(JSON.stringify(selectedTopics));

@@ -154,9 +154,9 @@ test('Money tab: In shows outstanding owed hours; Out shows plain-language pool'
   expect(screen.getByText('Owed by 1 student')).toBeTruthy();
   expect(screen.getAllByText('1h 30m').length).toBeGreaterThan(0);
 
-  fireEvent.press(screen.getByText('Out'));
+  fireEvent.press(screen.getByText('My claims'));
   await flush();
-  expect(screen.getByText('1 lesson taught but not yet claimed')).toBeTruthy();
+  expect(screen.getByText('1 lesson you have taught and not paid yourself for.')).toBeTruthy();
 });
 
 test('New claim: still on the starter rate → nudge to confirm, or finalise anyway (A5)', async () => {
