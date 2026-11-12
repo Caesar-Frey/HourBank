@@ -2,7 +2,7 @@
 
 Audience: the implementing agent (Opus). Source: a five-track audit on `main` @ 8e05691 (money/ledger data layer, lesson lifecycle, all other screens, June screenshots + May QA report, build/tests). Every item below was confirmed by reading the code, and the money items by throwaway tests. File:line references are relative to `hourbank/`.
 
-Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbincJqvxH (boards 1 to 6, referenced below as **M1..M6**). **Design items are marked `[DESIGN — needs owner approval]`; do not build those until the owner has approved the mockups.** Everything else is ready to build.
+Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbincJqvxH (boards 1 to 6, referenced below as **M1..M6**). **The owner approved mockups M1–M6 on 2026-11-12.** M7 (charge an item), M8 (invoice) and M9 (invoice settings) are new and still need approval; they are marked.
 
 ## 0. Ground rules (read first)
 
@@ -28,6 +28,21 @@ Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbinc
 
 ---
 
+## 0a. Owner decisions (2026-11-12, evening) — these override anything below that conflicts
+
+1. **Mockups M1–M6 approved.** Build them as drawn.
+2. **Recording after the lesson is THE way to log a lesson.** The tutor enters the length (for example 1h 30m), topics and notes afterwards. The timer is optional and must never be the loud option: on every screen "Record lesson" is the primary button and "Start timer" is a quiet secondary. Completed lessons stay editable afterwards (already true). When in doubt on any layout question, favour the record path.
+3. **Lesson lengths move in fixed increments. Default 30 minutes; the tutor may switch to 15 in Settings. Nothing finer.**
+   - `BILLING_ROUND_OPTIONS` (`src/components/settings/settingsLogic.ts:9`) becomes `[15, 30]`; default for new profiles 30 (`tutorProfile.ts:90,115`). Migration 011: profiles on 5 or 10 move to 15; profiles on 15 stay on 15 (do not silently change an existing tutor's setting); 30 stays. Settings label: "Lesson length steps".
+   - Everywhere a billed length is entered (record form, edit form, timer review, no-show charge, booking duration) use a stepper that moves by the increment, minimum one increment. Remove free-typed minutes (`end-session.tsx` billed input, maxLength 3). Presets on the record form: 30m · 1h · 1h 30m · 2h, plus the stepper.
+   - Timer: taught time still shows the true elapsed time, but the default billed length is the booked length if within tolerance, else elapsed rounded to the nearest increment (existing `defaultBilledMinutes`, now fed 30 by default).
+   - Existing lessons with off-grid lengths (for example 50m) keep their value and display it as is. Opening one in the edit form shows the stored value; the stepper snaps to the grid only when the tutor changes it.
+4. **No-shows carry no travel by default (A7 resolved).** The no-show sheet (`lesson/[sessionId].tsx`) gets a second switch under "Charge for this lesson": **"Include travel"**, off by default, shown only for in-person lessons. Store it on the lesson (migration 011: `sessions.no_show_travel INTEGER NOT NULL DEFAULT 0`). Off: no parent travel charge and no tutor travel allowance in claims (`claims.ts priceLine` must zero travel for no-shows unless the flag is set). On: parent travel is charged at the snapshotted terms and the tutor's claim includes the travel allowance. Editable later from the lesson edit form. Existing charged no-shows default to off, which removes the allowance from any that are still unclaimed; lines already in a finalised claim are frozen and do not change.
+5. **Charge an item to credit (new feature) `[DESIGN — needs owner approval: M7]`.** The tutor can take credit for something sold other than a lesson (study pack, exam paper pack, materials). See item **F1**.
+6. **Invoice template (new feature) `[DESIGN — needs owner approval: M8, M9]`.** Modelled on the owner's example. See item **F2**.
+
+---
+
 ## A. Work package A — wrong money or hours (do first)
 
 ### A1. Timer mode toggle is thrown away; online lessons get charged travel
@@ -35,7 +50,7 @@ Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbinc
 - Scenario: scheduled in-person lesson, tutor taps the toggle to ONLINE, ends. Review shows In-person with km; saving writes `parent_travel_fee`. Expected: online, no travel.
 - Fix: add `setInFlightMode(sessionId, mode)` (guarded `WHERE status IN ('active','paused')`), call it on toggle (optimistic UI, revert + toast on error). Make mode editable on the review (segmented control, see **M2**) and have `endSession` accept `mode` and price travel from it. Tests: toggle persists across `resumeFromDb`; ending as online gives `parent_travel_fee` 0/null and `travel_km` null.
 
-### A2. A forgotten timer bills the whole span and the real duration can never be fixed `[DESIGN — needs owner approval: M1, M2]`
+### A2. A forgotten timer bills the whole span and the real duration can never be fixed
 - `end-session.tsx:94-100` feeds raw elapsed minutes to `defaultBilledMinutes` (`src/utils/duration.ts:11-25`), which has no ceiling; `shouldWarnBilledDeviation` only fires when the tutor changed the value. Orphan prompt (`app/_layout.tsx:178-225`) is a native Alert offering only Continue / Discard. `editLesson` never changes `duration_minutes`; `ended_at` stays wrong, and claims date lessons by `ended_at` (`src/db/claims.ts:45`).
 - Scenario: start 1h timer at 15:00, app killed, reopen next day 13:14, Continue, End. Review says "Save lesson · deduct 22h" with no warning.
 - Build:
@@ -54,7 +69,7 @@ Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbinc
 - `ledger.ts:37-50` stores `-(billed/60)` floats; `students.ts:22-26` returns raw `SUM`; `balance.ts:4` is `hours < 0`. 5h top-up then six 50-minute lessons gives −2.2e-16 → "OWES 0m", oxblood stripe, wrong sort.
 - Fix (no schema change): normalise at the read boundary to whole minutes — one helper `normaliseHours(h) = Math.round(h * 60) / 60` applied in `students.ts` row mapping, `ledger.ts currentBalance`, `subjects.ts` (replace `round6`), and inside `balanceStatus`. `formatHours` must never print "−0m"/"-0". Tests: the 6×50 min and 15×20 min cases give exactly 0 and status `low`.
 
-### A5. Placeholder rates and missing bank details go out silently `[DESIGN — needs owner approval: M3 setup card]`
+### A5. Placeholder rates and missing bank details go out silently
 - `tutorProfile.ts:103-114` seeds blank name, R600 payout rate, R600 parent price, three sample package tiers, null payment details. Nothing prompts for them. A claim finalises at R600/h; `parentMessages.ts:195-199` drops the payment details *and* the reference line when details are empty; receipts print "HourBank" / "Tutor" as the tutor name.
 - Build:
   1. Migration 011: `tutor_profile.rates_confirmed_at TEXT NULL`. Backfill to now for any profile where name is non-empty OR any claim/package exists (existing users are not nagged about rates); else null. Set it when the tutor saves either rate in Settings.
@@ -69,9 +84,9 @@ Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbinc
   2. **Remove lesson** in the lesson summary ··· menu (completed lessons and charged no-shows): confirm explains "The lesson is struck from history and 1h goes back to Amahle's Maths credit." Implementation: migration 011 adds `sessions.removed_at TEXT NULL`; in one transaction append a ledger `adjustment` entry of +billed hours, same subject, reason "Lesson removed" linked to the session, set `removed_at`, zero `parent_travel_fee`. Removed lessons are excluded from `billableSessionSql` (claims), reports and travel owed, and render struck-through like cancelled. If the lesson is in a non-voided claim: block with "This lesson is in a claim. Void the claim first." (blocking is right here because the claim snapshot would otherwise pay for a lesson that no longer exists; a void is one tap away).
 - Tests: remove restores the subject balance exactly; removed lesson leaves the pool and month reports; blocked while claimed.
 
-### A7. Charged no-show pays the tutor a travel allowance `[OWNER DECISION PENDING]`
+### A7. Charged no-show pays the tutor a travel allowance
 - `claims.ts:40,112-118`: a charged no-show keeps `mode='in_person'` and gets a tutor travel fee, while parent travel excludes it (`travel.ts:73`) and the code comment at `sessions.ts:769` says nobody travelled.
-- Recommended: zero tutor travel for no-shows (`status='cancelled'`). Wait for the owner's answer; if they did travel to the no-show they may want both sides charged instead.
+- Resolved: see decision 4 in section 0a (no travel by default, per-lesson "Include travel" switch).
 
 ### A8. Test suite is time-dependent
 - 12 tests fail unless `TZ=Africa/Johannesburg`; 2 in `src/db/__tests__/travel.test.ts` (`:171`, `:196`) fail in any zone because they create top-ups "now" and query October 2026.
@@ -82,7 +97,7 @@ Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbinc
 ## B. Work package B — accuracy and trust, second tier
 
 - **B1. Top-up has no payment date.** `packages.ts:35` hard-codes now. Add a "Paid on" date field to `top-up.tsx` (default today, no future dates), stored on the package and its ledger entry date, so Money > Cash and the receipt land in the right month.
-- **B2. Top-up saved screen `[DESIGN — needs owner approval: M5]`.** Replace the 8-second toast (`top-up.tsx:218-230`) with the confirmation screen in M5: summary rows, credit before → after, "Send confirmation on WhatsApp", "Share PDF receipt", "Done". `router.replace` so Back returns to the student page. Wrap `createPackage` + `settleTravel` in one transaction (`top-up.tsx:182-215`).
+- **B2. Top-up saved screen.** Replace the 8-second toast (`top-up.tsx:218-230`) with the confirmation screen in M5: summary rows, credit before → after, "Send confirmation on WhatsApp", "Share PDF receipt", "Done". `router.replace` so Back returns to the student page. Wrap `createPackage` + `settleTravel` in one transaction (`top-up.tsx:182-215`).
 - **B3. Back from the lesson summary bounces.** After saving a timer lesson started from Home the stack is [(app), session, summary]; Back re-enters session, which redirects to the summary without `justSaved` (`lessonNav.ts:84-110`, `session.tsx:163-167`). Fix: dismiss the session route before replacing (reset the stack to [(app), summary]). Update `lessonNav.test.ts:92-98`.
 - **B4. Edited-after-claim lessons diverge silently.** Keep the nudge (owner decision) but make it honest: in the edit confirm, state the rand effect ("This lesson is in the October claim. The claim stays at R 300.00; the extra R 300.00 is only paid if you void and re-claim."). On claim detail, show "1 lesson edited since this claim" with the lesson linked.
 - **B5. Claim report is not auditable.** `claimReport.ts:83-121`: add claim number (short id), created date, period, lesson count, total hours, and the rate used per line (add `rate` to `claim_lines` in migration 011; backfill from header rate / student override where derivable, else null and print "—"). Header shows "Payout rate" only when all lines share it. Replace `rgba(200,0,0,.14)`/named colours at `:68-71` with token values.
@@ -94,7 +109,7 @@ Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbinc
 
 ---
 
-## C. Work package C — the tutor's daily tasks `[DESIGN — needs owner approval: M3, M4, M6]`
+## C. Work package C — the tutor's daily tasks
 
 **One vocabulary everywhere:** "Record lesson" (enter a lesson that happened; the main path), "Start timer" (live), "Book lesson" (future), "Top up". Remove "Log past lesson", "Start lesson now", "New lesson — record or time one".
 
@@ -128,9 +143,29 @@ Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbinc
 - **E7. Dead code.** Delete unused `components/LedgerRow.tsx`, `StudentCard.tsx`, `BalanceBadge.tsx`, `VERIFICATION_WINDOW_HOURS` in `src/config.ts`, the deprecated `roundToBilledMinutes`. Replace rgba literals in `useDarkTabBar.ts:6-7` with `COLORS.paper12`/`paper40`.
 - **E8. Docs (public repo).** Rewrite `CLAUDE.md` from section 0 above. Fix `README.md`, `hourbank/README.md` (remove Supabase, verification, NativeWind claims; describe SQLite, the ledger rules as they are, tests). Move `hourbank_claude_code_prompt.md` to `docs/history/` with a one-line "original brief, superseded" header. `scripts/README.md` has absolute `/Users/...` paths: make them relative. Update `FUTURE_TODOS.md`.
 
+## F. Work package F — new features from the owner (after A–C)
+
+### F1. Charge an item to credit `[DESIGN — needs owner approval: M7]`
+- Purpose: the tutor sold something that is paid for out of the student's prepaid credit. It must reduce the credit, show as its own line in history and on documents, and never count as a lesson.
+- Entry point: student page ··· menu and the Top up / Book row's overflow, labelled "Charge an item". Screen (M7): subject picker (multi-subject students only), item name (free text, with the last five used names as chips), optional price in rand for the record, **"Take from credit"** stepper in the lesson-length increment (when a price is entered, suggest price ÷ parent hourly price rounded to the nearest increment, and say so: "R 450.00 is about 1h at R 450.00/h"), date (default today), optional note, credit before → after preview, primary "Charge 1h to credit".
+- Data: migration 011 adds ledger entry type `item_charge` (allowed by the existing type check) with `item_name TEXT`, `item_price_rand REAL NULL`. Append-only, never edited. Correct a mistake with "Remove charge" on its detail screen, which appends a reversing `adjustment` (+hours, reason "Item charge removed") linked to it and marks the pair struck-through in history.
+- Rules: excluded from claims, lesson counts, hours-taught reports and travel. Included in the student's history ("Study pack" with −1h), the transaction detail screen, Money > From parents (a separate "Items" line under hours taught, value in hours and rand where a price was entered), receipts/statements, and the reminder's balance. The over-owe nudge applies as for lessons.
+- Tests: balance after charge; removal restores exactly; not in claimable pool; month report separates item hours from lesson hours.
+
+### F2. Invoice template `[DESIGN — needs owner approval: M8, M9]`
+The owner supplied a real invoice as the model (not stored in this public repo; M8 reproduces its layout with placeholders). **No business details, logo, bank details or amounts are ever hard-coded or committed: the tutor enters them in Settings.**
+
+- **Layout (M8, A4 portrait, black on white, Geist):** logo top left, "INVOICE" top right, rule. "BILLED TO:" block left (parent name, Cell, Student Name, Grade); right-aligned Invoice No., date (long form, "12 November 2026"), Reference (the student's payment reference from the existing template). Rule. Table with headers above a single bordered box with column rules: Item · Description · QTY (Hrs) · Rate · Amount Due; the box keeps a fixed minimum height so short invoices look like the example. Below: "Please make payment to:" (account holder, bank, account no., branch code, BIC/SWIFT only if set) left; "Total Amount" and the total right. Centred "TERMS & CONDITIONS" with "Full payment due on <date>". Footer rule, business name (+ registration number if set) left, phone / email / address right.
+- **Money format on documents** follows the example: `R2 000` (no space after R, space thousands, cents only when non-zero). Add `formatRandDocument`; in-app screens keep `formatRand`.
+- **Lines:** one "Tutoring" line per subject being bought (Description "<Subject> Lesson", QTY = hours, Rate = amount ÷ hours, Amount). Optional "Travel" line when the tutor includes travel owed (Description "N in-person lessons", QTY and Rate "—"). A package with a discount still shows the effective rate so QTY × Rate = Amount.
+- **Flow:** an invoice asks for payment before it arrives, so it is created *from the top-up screen*: after choosing a package, a secondary button "Send invoice first" sits under "Add 10h · R …". It saves an invoice (no credit added), opens the PDF share sheet, and returns to the student page, which now shows an "INVOICES" block: number, amount, due date, status UNPAID / PAID / CANCELLED. Tapping an unpaid invoice offers "Record payment" (opens the top-up screen prefilled and linked; saving marks it PAID and credits the hours), "Share again", "Cancel invoice" (append-only: status change with timestamp, number is never reused). Recording a top-up without an invoice keeps working exactly as today. The Home needs-attention card lists invoices past their due date.
+- **Data (migration 011):** `invoices` (id, number INTEGER UNIQUE, student_id, issued_at, due_at, status, package_id NULL, total_rand, snapshot fields for every printed business/bank/parent/student value so a re-shared invoice never changes), `invoice_lines` (invoice_id, item, description, qty_hours NULL, rate_rand NULL, amount_rand). `tutor_profile` gains: `business_name`, `business_reg_no`, `business_phone`, `business_email`, `business_address`, `logo_path`, `bank_account_holder`, `bank_name`, `bank_account_no`, `bank_branch_code`, `bank_swift`, `invoice_next_number` (default 1), `invoice_due_days` (default 7), `invoice_terms` (default "Full payment due on {due_date}"). Existing free-text `payment_details` stays for WhatsApp messages; if the structured bank fields are filled, generate the message block from them instead. Include `invoices`, `invoice_lines` and the logo file in backup/restore.
+- **Settings (M9):** new "Invoice details" screen reached from Settings: logo picker (expo-image-picker, stored in the app's document directory), business name, phone, email, address, payment-to fields, next invoice number (editable so the tutor can continue an existing sequence; never allow a number at or below the highest issued), payment due after N days, "Preview a sample invoice". The Home setup card's "Add your bank details" row (A5) links here.
+- **One document family:** restyle the receipt PDF (`src/utils/receipt.ts`), top-up confirmation and claim report (`src/utils/claimReport.ts`) to the same frame: same header with logo and a document title ("RECEIPT", "CLAIM REPORT"), same meta block, same bordered table, same footer. Extract a shared `src/utils/documentHtml.ts` (header, meta, table, totals, footer builders) and build all three plus the invoice from it. Claim reports are the tutor's own record, so they omit "BILLED TO" and bank details.
+- Tests: numbering is gapless and unique, snapshot immutability after Settings change, QTY × Rate = Amount for discounted packages, record-payment links and marks paid, HTML snapshot test per document.
+
 ## Checked and already fixed (no work)
 All 19 June screenshot items are fixed in current code except two that need a phone to confirm (keyboard covering the Topics input on the schedule form; native dialog button styling). 13 of the 22 May QA issues are fixed and 4 are obsolete; the remainder are covered by C1 (back label) and A5 (tutor name).
 
 ## Open owner decisions
-1. Approve mockups M1–M6 (or mark changes).
-2. A7: should a charged no-show pay tutor travel? Recommended: no.
+1. Approve mockups M7 (charge an item), M8 (invoice), M9 (invoice details in Settings).
