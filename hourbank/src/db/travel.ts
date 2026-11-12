@@ -117,14 +117,25 @@ export function getTravelOwed(studentId: string): TravelOwed {
  * top-up (packageId of the same student; method defaults to the package's).
  * Partial payments are fine; paying more than is owed throws EXCEEDS_OWED.
  */
-export function settleTravel(data: {
+export interface SettleTravelInput {
   studentId: string;
   amount: number;
   packageId?: string | null;
   method?: CreditPackage['payment_method'];
   note?: string | null;
   now?: Date;
-}): TravelSettlement {
+}
+
+export function settleTravel(data: SettleTravelInput): TravelSettlement {
+  let result: TravelSettlement | null = null;
+  getDb().withTransactionSync(() => {
+    result = settleTravelInTx(data);
+  });
+  return result!;
+}
+
+/** settleTravel for use inside an existing transaction (e.g. a top-up). */
+export function settleTravelInTx(data: SettleTravelInput): TravelSettlement {
   const db = getDb();
   if (!Number.isFinite(data.amount) || data.amount <= 0) {
     throw new TravelError('INVALID_INPUT', 'Travel payment must be greater than zero');
@@ -132,7 +143,7 @@ export function settleTravel(data: {
   const amount = round2(data.amount);
   let result: TravelSettlement | null = null;
 
-  db.withTransactionSync(() => {
+  {
     const student = db.getFirstSync<{ id: string }>('SELECT id FROM students WHERE id = ?', [data.studentId]);
     if (!student) throw new TravelError('NOT_FOUND', `Student ${data.studentId} not found`);
 
@@ -168,7 +179,7 @@ export function settleTravel(data: {
       [row.id, row.student_id, row.amount, row.payment_method, row.package_id, row.note, row.created_at]
     );
     result = row;
-  });
+  }
 
   return result!;
 }
@@ -193,17 +204,20 @@ export function listTravelSettlementsForPackage(packageId: string): TravelSettle
   );
 }
 
-/** Non-archived students with travel owed > 0, largest first. */
-export function listTravelOwedByStudent(): Array<{ student_id: string; full_name: string; amount: number; lessonCount: number }> {
-  const ids = getDb().getAllSync<{ id: string; full_name: string }>(
-    `SELECT DISTINCT st.id, st.full_name FROM students st
+/**
+ * Students with travel owed > 0, largest first. Archived students are kept
+ * (flagged) — archiving doesn't cancel what a parent owes (B6).
+ */
+export function listTravelOwedByStudent(): Array<{ student_id: string; full_name: string; amount: number; lessonCount: number; archived: boolean }> {
+  const ids = getDb().getAllSync<{ id: string; full_name: string; status: string }>(
+    `SELECT DISTINCT st.id, st.full_name, st.status FROM students st
      JOIN sessions s ON s.student_id = st.id
-     WHERE st.status != 'archived' AND ${TRAVEL_CHARGEABLE} AND s.mode = 'in_person' AND COALESCE(s.parent_travel_fee, 0) > 0`
+     WHERE ${TRAVEL_CHARGEABLE} AND s.mode = 'in_person' AND COALESCE(s.parent_travel_fee, 0) > 0`
   );
   return ids
     .map(r => {
       const o = getTravelOwed(r.id);
-      return { student_id: r.id, full_name: r.full_name, amount: o.amount, lessonCount: o.lessonCount };
+      return { student_id: r.id, full_name: r.full_name, amount: o.amount, lessonCount: o.lessonCount, archived: r.status === 'archived' };
     })
     .filter(r => r.amount > 0)
     .sort((a, b) => b.amount - a.amount || a.full_name.localeCompare(b.full_name));

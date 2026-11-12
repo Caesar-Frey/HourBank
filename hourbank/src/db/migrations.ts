@@ -83,11 +83,7 @@ export function runMigrations(migrations: Migration[]): void {
   }
 }
 
-export const MIGRATION_002: Migration = {
-  version: '002_post_grilling',
-  // Rebuilds `sessions`; FKs must be off or DROP TABLE nulls ledger_entries.related_session_id.
-  foreignKeysOff: true,
-  sql: `
+const MIGRATION_002_SQL = `
     CREATE TABLE IF NOT EXISTS sessions_v2 (
       id TEXT PRIMARY KEY,
       student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
@@ -109,11 +105,7 @@ export const MIGRATION_002: Migration = {
       tutor_id TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-    INSERT INTO sessions_v2 (id, student_id, mode, scheduled_for, estimated_duration_minutes, started_at, ended_at, paused_seconds, duration_minutes, topics, session_notes, status, verified_at, created_at)
-      SELECT id, student_id, mode, scheduled_for, estimated_duration_minutes, started_at, ended_at, paused_seconds, duration_minutes, topics, session_notes,
-        CASE status WHEN 'pending_verification' THEN 'completed' WHEN 'verified' THEN 'completed' WHEN 'disputed' THEN 'cancelled' ELSE status END,
-        verified_at, created_at
-      FROM sessions;
+    __COPY_SESSIONS__;
     DROP TABLE sessions;
     ALTER TABLE sessions_v2 RENAME TO sessions;
     CREATE INDEX IF NOT EXISTS idx_sessions_student_status ON sessions(student_id, status);
@@ -169,7 +161,41 @@ export const MIGRATION_002: Migration = {
       shared_at TEXT,
       created_at TEXT NOT NULL
     )
-  `,
+`;
+
+/** Columns a pre-002 `sessions` table may already carry; copied when present (B8). */
+const MIGRATION_002_OPTIONAL_COLUMNS = ['billed_minutes', 'paused_at', 'cancel_reason'] as const;
+
+export const MIGRATION_002: Migration = {
+  version: '002_post_grilling',
+  // Rebuilds `sessions`; FKs must be off or DROP TABLE nulls ledger_entries.related_session_id.
+  foreignKeysOff: true,
+  run: (db) => {
+    const statements = MIGRATION_002_SQL.split(';').map(st => st.trim()).filter(st => st.length > 0);
+    for (const stmt of statements) {
+      if (stmt !== '__COPY_SESSIONS__') {
+        db.runSync(stmt);
+        continue;
+      }
+      // Copy every column the old table has, so a restored pre-002 backup keeps
+      // billed lengths, pauses, cancel reasons and lesson types.
+      const extra: string[] = MIGRATION_002_OPTIONAL_COLUMNS.filter(c => hasColumn(db, 'sessions', c));
+      if (hasColumn(db, 'sessions', 'session_type') && !hasColumn(db, 'sessions_v2', 'session_type')) {
+        db.runSync(
+          `ALTER TABLE sessions_v2 ADD COLUMN session_type TEXT NOT NULL DEFAULT 'general' CHECK (session_type IN ('general','review','test_prep','exam_prep'))`
+        );
+        extra.push('session_type');
+      }
+      const cols = ['id', 'student_id', 'mode', 'scheduled_for', 'estimated_duration_minutes', 'started_at', 'ended_at',
+        'paused_seconds', 'duration_minutes', 'topics', 'session_notes', 'status', 'verified_at', 'created_at', ...extra];
+      const select = cols.map(c => (c === 'status'
+        ? `CASE status WHEN 'pending_verification' THEN 'completed' WHEN 'verified' THEN 'completed' WHEN 'disputed' THEN 'cancelled' ELSE status END`
+        : c === 'session_type'
+          ? `CASE WHEN session_type IN ('general','review','test_prep','exam_prep') THEN session_type ELSE 'general' END`
+          : c));
+      db.runSync(`INSERT INTO sessions_v2 (${cols.join(', ')}) SELECT ${select.join(', ')} FROM sessions`);
+    }
+  },
 };
 
 export const MIGRATION_003_SESSION_TYPE: Migration = {
@@ -717,6 +743,24 @@ export const MIGRATION_011_POLISH_A: Migration = {
   },
 };
 
+/**
+ * Migration 012 — polish package B.
+ * - claim_lines.rate: the payout rate each frozen line was priced at, so the
+ *   claim report is auditable (B5). Backfilled from lesson_fee ÷ billed_hours,
+ *   which is exactly how the line was priced; NULL when hours are zero.
+ */
+export const MIGRATION_012_POLISH_B: Migration = {
+  version: '012_polish_b',
+  run: (db) => {
+    if (hasTable(db, 'claim_lines') && !hasColumn(db, 'claim_lines', 'rate')) {
+      db.runSync(`ALTER TABLE claim_lines ADD COLUMN rate REAL`);
+      db.runSync(
+        `UPDATE claim_lines SET rate = ROUND(lesson_fee / billed_hours, 2) WHERE rate IS NULL AND billed_hours > 0`
+      );
+    }
+  },
+};
+
 /** Ordered migration chain run at app boot (app/_layout.tsx) and by test DBs. */
 export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_002,
@@ -729,4 +773,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_009_SUBJECTS_TRAVEL,
   MIGRATION_010_TRAVEL_RATE_SNAPSHOT,
   MIGRATION_011_POLISH_A,
+  MIGRATION_012_POLISH_B,
 ];

@@ -172,7 +172,7 @@ test('restore: pick → summary → type RESTORE → restore, reset timer, go ho
     cancel: jest.fn(async () => {}),
   });
   const screen = render(<SettingsScreen />);
-  fireEvent.press(screen.getByText('Restore from backup'));
+  fireEvent.press(screen.getByText('Restore from a backup file…'));
   await waitFor(() => screen.getByText('Restore this backup?'));
   expect(importBackup).toHaveBeenCalledWith('file:///b.db', [{ version: '001' }]);
   expect(screen.getByText('4 (3 active)')).toBeTruthy();
@@ -194,14 +194,14 @@ test('restore: cancelled picker does nothing; bad file gets friendly copy', asyn
   (DocumentPicker.getDocumentAsync as jest.Mock).mockResolvedValueOnce({ canceled: true, assets: null });
   const screen = render(<SettingsScreen />);
   await act(async () => {
-    fireEvent.press(screen.getByText('Restore from backup'));
+    fireEvent.press(screen.getByText('Restore from a backup file…'));
   });
   expect(importBackup).not.toHaveBeenCalled();
 
   (DocumentPicker.getDocumentAsync as jest.Mock).mockResolvedValueOnce({ canceled: false, assets: [{ uri: 'file:///x.pdf' }] });
   (importBackup as jest.Mock).mockRejectedValueOnce(Object.assign(new Error('nope'), { name: 'BackupError', code: 'NOT_SQLITE' }));
   await act(async () => {
-    fireEvent.press(screen.getByText('Restore from backup'));
+    fireEvent.press(screen.getByText('Restore from a backup file…'));
   });
   expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
     kind: 'error',

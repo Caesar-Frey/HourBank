@@ -133,7 +133,7 @@ export default function LessonDetailScreen() {
       setData({
         state: 'ready',
         session,
-        student: getStudent(session.student_id),
+        student: getStudent(session.student_id, { includeArchived: true }),
         entry,
         balanceNow: subject.balance,
         subjectName: subject.name,

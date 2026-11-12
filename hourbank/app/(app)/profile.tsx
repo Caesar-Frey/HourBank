@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, TouchableOpacity, Alert, Switch, TextInput, Modal, ActivityIndicator, ScrollView } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
@@ -688,7 +689,10 @@ export default function SettingsScreen() {
       {/* ── Backup & restore ──────────────────────────────────────────── */}
       <SectionLabel>Backup & restore</SectionLabel>
       <View style={[ROW_CONTAINER, { flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH }]}>
-        <Text style={{ flex: 1, fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>Last backup created</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>Last backup exported</Text>
+          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>Check it reached Drive or WhatsApp</Text>
+        </View>
         <Text
           testID="last-backup"
           style={{ fontFamily: F.mono, fontSize: 13, color: backupAge === 'Never' ? COLORS.crimson : COLORS.ink }}
@@ -704,14 +708,22 @@ export default function SettingsScreen() {
         busy={backupBusy !== null}
         trailing={backupBusy === 'export' ? <ActivityIndicator color={COLORS.inkSoft} /> : undefined}
       />
-      <SettingsLinkRow
-        icon="download-cloud"
-        title={backupBusy === 'inspect' ? 'Checking backup…' : 'Restore from backup'}
-        subtitle="Replace the data on this phone with a backup file"
+      {/* Restore is rare and replaces everything: a quiet link, not a row like Back up (B7). */}
+      <TouchableOpacity
         onPress={handlePickRestore}
-        busy={backupBusy !== null}
-        trailing={backupBusy === 'inspect' ? <ActivityIndicator color={COLORS.inkSoft} /> : undefined}
-      />
+        disabled={backupBusy !== null}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel="Restore from backup"
+        accessibilityHint="Replaces the data on this phone with a backup file"
+        testID="restore-from-backup"
+        style={{ minHeight: MIN_TOUCH, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4, marginBottom: 8, opacity: backupBusy !== null && backupBusy !== 'inspect' ? 0.5 : 1 }}
+      >
+        {backupBusy === 'inspect' ? <ActivityIndicator size="small" color={COLORS.inkSoft} /> : <Feather name="download-cloud" size={14} color={COLORS.inkSoft} />}
+        <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft, textDecorationLine: 'underline' }}>
+          {backupBusy === 'inspect' ? 'Checking backup…' : 'Restore from a backup file…'}
+        </Text>
+      </TouchableOpacity>
 
       {/* ── Dev tools ─────────────────────────────────────────────────── */}
       {__DEV__ && (
@@ -757,6 +769,8 @@ export default function SettingsScreen() {
         lessonInProgress={timerStatus !== 'idle'}
         onCancel={cancelRestore}
         onConfirm={confirmRestore}
+        onBackupFirst={handleBackup}
+        backingUp={backupBusy === 'export'}
       />
 
       <Modal

@@ -161,6 +161,8 @@ export type ClaimLine = {
   lesson_fee: number;
   travel_fee: number;
   created_at: string;
+  /** Payout rate (R/h) used for this line (migration 012); null when not derivable. */
+  rate?: number | null;
 };
 
 export type Topic = {

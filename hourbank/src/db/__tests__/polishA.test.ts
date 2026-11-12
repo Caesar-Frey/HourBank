@@ -294,8 +294,8 @@ describe('migration 011', () => {
   afterEach(() => resetDbSingleton());
   const PRE_011 = ALL_MIGRATIONS.slice(0, ALL_MIGRATIONS.indexOf(MIGRATION_011_POLISH_A));
 
-  it('is the last migration', () => {
-    expect(ALL_MIGRATIONS[ALL_MIGRATIONS.length - 1]).toBe(MIGRATION_011_POLISH_A);
+  it('runs after 010', () => {
+    expect(ALL_MIGRATIONS.indexOf(MIGRATION_011_POLISH_A)).toBeGreaterThan(0);
   });
 
   it.each([

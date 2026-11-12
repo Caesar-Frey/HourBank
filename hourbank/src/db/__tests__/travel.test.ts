@@ -147,7 +147,7 @@ describe('travel owed + settlements', () => {
     expect(back).toMatchObject({ parent_travel_fee: 60, parent_travel_per_km_snapshot: 5 });
   });
 
-  it('lists students with travel owed (archived excluded)', () => {
+  it('lists students with travel owed (archived kept, flagged — B6)', () => {
     const a = student();
     const b = createStudent({ ...base, fullName: 'Bongani', parentTravelMode: 'flat', parentTravelFlatFee: 80 });
     const c = student();
@@ -155,9 +155,10 @@ describe('travel owed + settlements', () => {
     lesson(b.id, '2026-10-01T12:00:00.000Z');
     lesson(c.id, '2026-10-01T14:00:00.000Z');
     archiveStudent(c.id);
-    expect(listTravelOwedByStudent().map(r => [r.full_name, r.amount, r.lessonCount])).toEqual([
-      ['Bongani', 80, 1],
-      ['Amahle Dlamini', 50, 1],
+    expect(listTravelOwedByStudent().map(r => [r.full_name, r.amount, r.lessonCount, r.archived])).toEqual([
+      ['Bongani', 80, 1, false],
+      ['Amahle Dlamini', 50, 1, false],
+      ['Amahle Dlamini', 50, 1, true],
     ]);
   });
 

@@ -226,6 +226,42 @@ export function claimWarning(inClaim: boolean, claimLabel?: string | null): stri
   return `This lesson is in ${which}. You can still edit it, but the submitted claim won’t change.`;
 }
 
+/**
+ * Edit confirm for a lesson inside a finalised claim (B4): the claim stays
+ * frozen, so say what that means in rand. null when nothing priced changed.
+ */
+export function claimEditEffect(a: {
+  claimLabel: string | null;
+  claimTotal: number;
+  claimedHours: number;
+  claimedMode: 'in_person' | 'online';
+  claimedTravel: number;
+  rate: number | null;
+  newBilledMinutes: number;
+  newMode: 'in_person' | 'online';
+  formatRand: (n: number) => string;
+}): { title: string; message: string } | null {
+  const hoursChanged = Math.round(a.claimedHours * 60) !== Math.round(a.newBilledMinutes);
+  const modeChanged = a.claimedMode !== a.newMode;
+  if (!hoursChanged && !modeChanged) return null;
+  const which = a.claimLabel ? `the ${a.claimLabel} claim` : 'a claim';
+  const stays = `The claim stays at ${a.formatRand(a.claimTotal)}`;
+  let diff = a.rate != null ? Math.round((a.newBilledMinutes / 60 - a.claimedHours) * a.rate * 100) / 100 : null;
+  if (diff != null && modeChanged && a.newMode === 'online') diff = Math.round((diff - a.claimedTravel) * 100) / 100;
+  const travelUnknown = modeChanged && a.newMode === 'in_person';
+  let tail: string;
+  if (diff == null || (diff === 0 && travelUnknown)) {
+    tail = 'the change is only paid if you void and re-claim.';
+  } else if (diff > 0) {
+    tail = `the extra ${a.formatRand(diff)}${travelUnknown ? ' (plus travel)' : ''} is only paid if you void and re-claim.`;
+  } else if (diff < 0) {
+    tail = `it pays ${a.formatRand(-diff)} more than this lesson is now worth until you void and re-claim.`;
+  } else {
+    tail = 'nothing changes in rand.';
+  }
+  return { title: 'Already claimed', message: `This lesson is in ${which}. ${stays}; ${tail}` };
+}
+
 // ─── Timer review (end-session) ──────────────────────────────────────────────
 
 export type TimerReviewOverrides = { subjectId?: string; travelKm?: number | null };

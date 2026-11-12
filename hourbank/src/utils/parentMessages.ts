@@ -77,7 +77,7 @@ export function buildLessonReceiptText(i: LessonReceiptTextInput): string {
     lines.push(`Travel: ${formatRand(i.travelCharge)}${km ? ` (${km})` : ''}`);
   }
   const balLabel = subject
-    ? (student ? `Your ${subject} balance remaining` : `${subject} balance remaining`)
+    ? (student ? `Your ${subject} credit` : `${subject} credit`)
     : (student ? 'Your balance remaining' : 'Balance remaining');
   lines.push(
     balanceLine(i.balanceAfter, balLabel),
@@ -115,7 +115,7 @@ export function buildTopUpText(i: TopUpTextInput): string {
   lines.push(`Hours added: ${formatHours(i.hoursAdded)}${subject ? ` ${subject}` : ''}`);
   if (travel > 0) {
     lines.push(
-      `Lessons: ${formatRand(i.amountPaid)}`,
+      `Top-up: ${formatRand(i.amountPaid)}`,
       `Travel settled: ${formatRand(travel)}`,
       `Total received: ${formatRand(i.amountPaid + travel)}`
     );
@@ -123,7 +123,7 @@ export function buildTopUpText(i: TopUpTextInput): string {
     lines.push(`Amount: ${formatRand(i.amountPaid)}`);
   }
   const balLabel = subject
-    ? (student ? `Your ${subject} balance` : `${subject} balance`)
+    ? (student ? `Your ${subject} credit` : `${subject} credit`)
     : (student ? 'Your new balance' : 'New balance');
   lines.push(balanceLine(i.newBalance, balLabel));
   if (i.travelStillOwed && i.travelStillOwed > 0) lines.push(`Travel still owed: ${formatRand(i.travelStillOwed)}`);

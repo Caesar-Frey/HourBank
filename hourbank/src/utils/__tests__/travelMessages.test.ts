@@ -75,7 +75,7 @@ describe('lesson receipt with subject + travel', () => {
     });
     expect(t).toContain('Subject: Maths');
     expect(t).toContain(`Travel: ${R(60)} (12 km)`);
-    expect(t).toContain('Maths balance remaining: 4h');
+    expect(t).toContain('Maths credit: 4h');
   });
 
   it('student audience wording', () => {
@@ -83,7 +83,7 @@ describe('lesson receipt with subject + travel', () => {
       studentName: 'Amahle', audience: 'student', startedAt: '2026-10-09T07:30:00.000Z',
       billedMinutes: 60, balanceAfter: 4, subjectName: 'Maths',
     });
-    expect(t).toContain('Your Maths balance remaining: 4h');
+    expect(t).toContain('Your Maths credit: 4h');
     expect(t).not.toContain('Travel');
   });
 });
@@ -95,10 +95,10 @@ describe('top-up confirmation with subject + travel', () => {
       subjectName: 'Maths', travelSettled: 360, travelStillOwed: 40,
     });
     expect(t).toContain('Hours added: 10h Maths');
-    expect(t).toContain(`Lessons: ${R(5500)}`);
+    expect(t).toContain(`Top-up: ${R(5500)}`);
     expect(t).toContain(`Travel settled: ${R(360)}`);
     expect(t).toContain(`Total received: ${R(5860)}`);
-    expect(t).toContain('Maths balance: 11h');
+    expect(t).toContain('Maths credit: 11h');
     expect(t).toContain(`Travel still owed: ${R(40)}`);
   });
 

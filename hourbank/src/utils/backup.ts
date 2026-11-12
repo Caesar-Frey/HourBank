@@ -31,7 +31,13 @@ export { BACKUP_NUDGE_DISMISSED_TIER_KEY };
 /** Tables embedded in an exported snapshot (dropped again after restore). */
 const BLOBS_TABLE = 'backup_blobs';
 const META_TABLE = 'backup_meta';
-const TEMP_PREFIXES = ['hourbank_backup_', 'restore_', 'pre_restore_'];
+const TEMP_PREFIXES = ['hourbank_backup_', 'HourBank-backup-', 'restore_', 'pre_restore_'];
+
+/** "HourBank-backup-2026-11-12-1743.db" — readable in Drive / WhatsApp (B7). */
+export function backupFilename(at: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `HourBank-backup-${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}-${p(at.getHours())}${p(at.getMinutes())}.db`;
+}
 
 /**
  * Data tables every HourBank build has had since the first schema (f6e302b).
@@ -95,6 +101,8 @@ async function embedProofImages(dest: SQLiteDatabase): Promise<number> {
     `CREATE TABLE IF NOT EXISTS ${BLOBS_TABLE} (package_id TEXT PRIMARY KEY, ext TEXT NOT NULL, data TEXT NOT NULL)`
   );
   if (!tableExistsSync('credit_packages')) return 0;
+  // Only ids and paths are listed; each photo is read, written and released
+  // before the next one, so memory holds one photo at a time.
   const rows = getDb().getAllSync<{ id: string; proof_image_uri: string }>(
     `SELECT id, proof_image_uri FROM credit_packages WHERE proof_image_uri IS NOT NULL AND proof_image_uri != ''`
   );
@@ -131,8 +139,9 @@ export async function exportDatabase(): Promise<{ uri: string; proofImages: numb
 
   // A raw file copy omits committed data in the live database's WAL.
   // Use a fresh destination so each export is a self-contained snapshot.
-  const backupName = `hourbank_backup_${randomUUID()}.db`;
+  const backupName = backupFilename();
   const tempUri = cacheDirectory + backupName;
+  await deleteDbFiles(tempUri);
   let proofImages = 0;
   const destination = await openDatabaseAsync(backupName, {}, cacheDirectory);
   try {
@@ -380,13 +389,18 @@ function reopenAndMigrate(migrations: Migration[]): void {
 async function extractProofImages(): Promise<number> {
   if (!tableExistsSync(BLOBS_TABLE)) return 0;
   const db = getDb();
-  const rows = db.getAllSync<{ package_id: string; ext: string; data: string }>(
-    `SELECT package_id, ext, data FROM ${BLOBS_TABLE}`
-  );
+  // List ids first, then load one photo's data at a time (B7): a backup with
+  // many photos must not be read into memory all at once.
+  const ids = db.getAllSync<{ package_id: string }>(`SELECT package_id FROM ${BLOBS_TABLE}`);
   let restored = 0;
-  if (rows.length > 0) {
+  if (ids.length > 0) {
     const dir = await ensureProofsDirectory();
-    for (const r of rows) {
+    for (const { package_id } of ids) {
+      const r = db.getFirstSync<{ package_id: string; ext: string; data: string }>(
+        `SELECT package_id, ext, data FROM ${BLOBS_TABLE} WHERE package_id = ?`,
+        [package_id]
+      );
+      if (!r) continue;
       const dest = `${dir}${r.package_id}.${r.ext}`;
       await FileSystem.writeAsStringAsync(dest, r.data, { encoding: 'base64' });
       db.runSync('UPDATE credit_packages SET proof_image_uri = ? WHERE id = ?', [dest, r.package_id]);

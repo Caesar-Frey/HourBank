@@ -23,6 +23,8 @@ type AppendEntryInput = {
   reason?: string;
   /** Subject balance to move; omitted = the student's primary subject. */
   subjectId?: string | null;
+  /** Entry date; omitted = now. A top-up uses the day the parent paid (B1). */
+  createdAt?: string;
 };
 
 // Use this inside an existing withTransactionSync block to avoid nesting.
@@ -32,7 +34,7 @@ export function appendEntryInTx(entry: AppendEntryInput): LedgerEntry {
   const subjectId = resolveSubjectIdInTx(entry.studentId, entry.subjectId);
   const balanceAfter = getSubjectBalance(entry.studentId, subjectId) + entry.hoursDelta;
   const id = newId();
-  const createdAt = new Date().toISOString();
+  const createdAt = entry.createdAt ?? new Date().toISOString();
 
   db.runSync(
     `INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_session_id, related_package_id, reason, created_at, subject_id)
@@ -84,7 +86,7 @@ export function getBalanceAt(studentId: string, isoTimestamp: string): number {
 
 /**
  * Ledger read columns. `balance_after` is recomputed LIVE as the running
- * balance of the row's subject (insert order), so it stays correct after a past
+ * balance of the row's subject (date order, then insert order — a backdated top-up sits where it was paid), so it stays correct after a past
  * lesson's deduction is edited — the stored column is only an insert-time snapshot.
  * `subject_id` is the effective subject (legacy NULL → primary).
  */
@@ -95,7 +97,8 @@ function ledgerSelectSql(alias: string): string {
     ${eff} AS subject_id,
     (SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${eff}) AS subject_name,
     (SELECT COALESCE(SUM(l2.hours_delta), 0) FROM ledger_entries l2
-      WHERE l2.student_id = ${alias}.student_id AND l2.rowid <= ${alias}.rowid
+      WHERE l2.student_id = ${alias}.student_id
+        AND (l2.created_at < ${alias}.created_at OR (l2.created_at = ${alias}.created_at AND l2.rowid <= ${alias}.rowid))
         AND ${effectiveSubjectIdSql('l2')} IS ${eff}) AS balance_after`;
 }
 

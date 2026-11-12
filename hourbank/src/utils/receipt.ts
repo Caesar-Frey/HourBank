@@ -39,7 +39,9 @@ function receiptFilename(prefix: string, studentName: string, date: Date): strin
   const d = String(date.getDate()).padStart(2, '0');
   const m = MONTH_ABBR[date.getMonth()];
   const y = date.getFullYear();
-  return `${prefix}_${sanitized}_${d}${m}${y}.pdf`;
+  const hm = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}`;
+  // -HHmm: two documents for one student on one day no longer overwrite each other (B10).
+  return `${prefix}_${sanitized}_${d}${m}${y}-${hm}.pdf`;
 }
 
 type ReceiptRow = {
@@ -81,14 +83,15 @@ function upsertReceiptRow(
   }
 }
 
-/** Ledger-derived balance immediately after a given entry (append-only ⇒ rowid order). */
+/** Ledger-derived balance immediately after a given entry (date order, then insert order — as history shows it). */
 function balanceThroughEntry(studentId: string, entryId: string | null): number {
   const db = getDb();
   const row = entryId
     ? db.getFirstSync<{ bal: number | null }>(
-        `SELECT SUM(hours_delta) AS bal FROM ledger_entries
-         WHERE student_id = ? AND rowid <= (SELECT rowid FROM ledger_entries WHERE id = ?)`,
-        [studentId, entryId]
+        `SELECT SUM(l.hours_delta) AS bal FROM ledger_entries l, ledger_entries e
+         WHERE e.id = ? AND l.student_id = ?
+           AND (l.created_at < e.created_at OR (l.created_at = e.created_at AND l.rowid <= e.rowid))`,
+        [entryId, studentId]
       )
     : db.getFirstSync<{ bal: number | null }>(
         'SELECT SUM(hours_delta) AS bal FROM ledger_entries WHERE student_id = ?',
@@ -176,7 +179,7 @@ export function buildSessionReceiptHtml(d: SessionReceiptData): string {
         ${d.notes?.trim() ? row('Notes', escapeHtmlMultiline(d.notes.trim()), false) : ''}
         ${row('Credits used', escapeHtml(formatHours(d.creditsUsedHours)))}
         ${d.travelCharge && d.travelCharge > 0 ? row('Travel', escapeHtml(travelChargeLabel(d.travelCharge, d.travelKm))) : ''}
-        ${row(d.subjectName ? `${escapeHtml(d.subjectName)} balance` : 'Balance after', balanceHtml(d.balanceAfter))}
+        ${row(d.subjectName ? `${escapeHtml(d.subjectName)} credit` : 'Balance after', balanceHtml(d.balanceAfter))}
       </table>
     </body>
     </html>
@@ -214,7 +217,7 @@ export function buildTopUpReceiptHtml(d: TopUpReceiptData): string {
         ${travel > 0 ? row('Travel settled', escapeHtml(formatRand(travel))) : ''}
         ${travel > 0 ? row('Total paid', escapeHtml(formatRand(d.amountPaid + travel))) : ''}
         ${d.paymentMethod ? row('Method', escapeHtml(PAYMENT_LABEL[d.paymentMethod] ?? d.paymentMethod), false) : ''}
-        ${row(d.subjectName ? `${escapeHtml(d.subjectName)} balance` : 'New balance', balanceHtml(d.newBalance))}
+        ${row(d.subjectName ? `${escapeHtml(d.subjectName)} credit` : 'New balance', balanceHtml(d.newBalance))}
         ${d.travelStillOwed && d.travelStillOwed > 0 ? row('Travel still owed', escapeHtml(formatRand(d.travelStillOwed))) : ''}
       </table>
     </body>
@@ -409,7 +412,7 @@ export function buildTravelPaymentHtml(d: TravelPaymentReceiptData): string {
 function loadTravelPaymentData(settlementId: string): TravelPaymentReceiptData | null {
   const t = getTravelSettlement(settlementId);
   if (!t) return null;
-  const student = getStudent(t.student_id);
+  const student = getStudent(t.student_id, { includeArchived: true });
   if (!student) return null;
   return {
     tutorName: tutorName(),

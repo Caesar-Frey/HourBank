@@ -416,3 +416,19 @@ export function ledgerRowHref(entry: { id: string; type: LedgerLike['type']; rel
   if (entry.related_session_id) return `/lesson/${entry.related_session_id}`;
   return `/transaction/${entry.id}`;
 }
+
+/**
+ * Top-up "Paid on" (B1) → stored timestamp. Today keeps the current time (so
+ * the entry sorts after today's lessons); an earlier day is stamped at 12:00
+ * local so it lands in that day and month. Future days clamp to now.
+ */
+export function paidAtIso(paidOn: Date, now: Date = new Date()): string {
+  const sameDay =
+    paidOn.getFullYear() === now.getFullYear() &&
+    paidOn.getMonth() === now.getMonth() &&
+    paidOn.getDate() === now.getDate();
+  if (sameDay || paidOn.getTime() > now.getTime()) return now.toISOString();
+  const d = new Date(paidOn);
+  d.setHours(12, 0, 0, 0);
+  return d.toISOString();
+}

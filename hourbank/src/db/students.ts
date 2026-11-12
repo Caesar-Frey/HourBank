@@ -186,8 +186,13 @@ export function listPausedStudents(): StudentListRow[] {
   return mapRows(rows);
 }
 
-export function getStudent(id: string): Student | null {
+/**
+ * One student. Archived students are hidden unless `includeArchived` (read-only
+ * views: the student page, history, lesson and transaction detail — B6).
+ */
+export function getStudent(id: string, opts: { includeArchived?: boolean } = {}): Student | null {
   const db = getDb();
+  if (opts.includeArchived) return db.getFirstSync<Student>('SELECT * FROM students WHERE id = ?', [id]) ?? null;
   return db.getFirstSync<Student>("SELECT * FROM students WHERE id = ? AND status != 'archived'", [id]) ?? null;
 }
 

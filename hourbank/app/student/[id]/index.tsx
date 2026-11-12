@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Alert, View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { F, MIN_TOUCH, hitSlopFor } from '../../../src/theme/fonts';
 import { COLORS } from '../../../src/theme/colors';
 import { useStudent } from '../../../src/hooks/useStudent';
@@ -11,7 +12,7 @@ import { useToast } from '../../../src/components/Toast';
 import { formatHours, formatScheduledTime } from '../../../src/utils/format';
 import { balanceColour, balanceStatus } from '../../../src/utils/balance';
 import { LedgerEntry, PreferredContact } from '../../../src/db/schema';
-import { reactivateStudent } from '../../../src/db/students';
+import { reactivateStudent, restoreStudent } from '../../../src/db/students';
 import { getPrimarySubjectId, getSubjectBalances, listStudentSubjects, SubjectBalance } from '../../../src/db/subjects';
 import type { LedgerRow } from '../../../src/db/ledger';
 import { SubjectBalanceCard } from '../../../src/components/student/SubjectBalanceCard';
@@ -76,6 +77,8 @@ export default function StudentDetailScreen() {
   if (!student) return <NotFoundState title="Student not found" onBack={() => router.back()} />;
 
   const name = student.full_name.trim();
+  // Archived students open read-only (B6): history stays reachable, actions hidden.
+  const archived = student.status === 'archived';
   const isOwes = Math.round(balance * 60) < 0;
   const statusColour = balanceColour(balanceStatus(balance));
   const nextLesson = upcomingProjected[0];
@@ -118,6 +121,16 @@ export default function StudentDetailScreen() {
       },
       onError: showError,
     });
+  }
+
+  function handleRestore() {
+    try {
+      restoreStudent(id);
+      toast.show({ kind: 'success', message: `${student!.full_name.trim().split(/\s+/)[0]} restored` });
+      reloadAll();
+    } catch {
+      showError('Couldn’t restore this student. Try again.');
+    }
   }
 
   function handlePause() {
@@ -198,9 +211,9 @@ export default function StudentDetailScreen() {
       <ScreenHeader
         backLabel={from ?? 'BACK'}
         onBack={() => router.back()}
-        right={
+        right={archived ? undefined : (
           <HeaderIconButton icon="more-horizontal" accessibilityLabel="Student actions" onPress={() => setShowMenu(true)} />
-        }
+        )}
       />
 
       <ScrollView
@@ -229,6 +242,24 @@ export default function StudentDetailScreen() {
           </Text>
         </View>
 
+        {archived ? (
+          <View
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: COLORS.paperEdge, backgroundColor: COLORS.cardFill, borderRadius: 12, paddingLeft: 14, marginBottom: 16 }}
+            testID="student-archived-banner"
+          >
+            <Feather name="archive" size={16} color={COLORS.inkSoft} />
+            <Text style={{ flex: 1, fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, letterSpacing: 0.5 }}>ARCHIVED</Text>
+            <TouchableOpacity
+              onPress={handleRestore}
+              accessibilityRole="button"
+              accessibilityLabel={`Restore ${name}`}
+              style={{ minHeight: MIN_TOUCH, paddingHorizontal: 14, justifyContent: 'center' }}
+            >
+              <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood }}>Restore</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {multiSubject ? (
           <View style={{ gap: 10 }}>
             {subjects.map(sub => (
@@ -237,9 +268,9 @@ export default function StudentDetailScreen() {
                 subject={sub.subject}
                 balanceHours={sub.balance_hours}
                 archived={sub.status === 'archived'}
-                onTopUp={() => router.push(`/student/${id}/top-up?${subjectQuery(sub.id)}`)}
-                onRecord={() => router.push(`/student/${id}/log-past?${subjectQuery(sub.id)}`)}
-                onBook={() => router.push(`/student/${id}/schedule?${subjectQuery(sub.id)}`)}
+                onTopUp={archived ? undefined : () => router.push(`/student/${id}/top-up?${subjectQuery(sub.id)}`)}
+                onRecord={archived ? undefined : () => router.push(`/student/${id}/log-past?${subjectQuery(sub.id)}`)}
+                onBook={archived ? undefined : () => router.push(`/student/${id}/schedule?${subjectQuery(sub.id)}`)}
               />
             ))}
             {nextLesson?.scheduled_for ? (
@@ -280,6 +311,7 @@ export default function StudentDetailScreen() {
         )}
 
         {/* Primary actions */}
+        {archived ? null : (
         <View style={{ marginTop: 16, gap: 10 }}>
           <Button label="Start lesson now" icon="play" onPress={() => router.push(`/start-lesson?studentId=${id}`)} />
           {multiSubject ? null : (
@@ -307,10 +339,14 @@ export default function StudentDetailScreen() {
           ) : null}
         </View>
 
+        )}
+
         {/* Parent travel owed (B3) */}
-        <View style={{ marginTop: 16 }}>
-          <TravelOwedCard studentId={id} onChanged={reloadAll} />
-        </View>
+        {archived ? null : (
+          <View style={{ marginTop: 16 }}>
+            <TravelOwedCard studentId={id} onChanged={reloadAll} />
+          </View>
+        )}
 
         {/* Contacts */}
         <View style={{ marginTop: 28 }}>
@@ -358,7 +394,7 @@ export default function StudentDetailScreen() {
                       <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.crimson, marginTop: 2 }}>{warn}</Text>
                     ) : null}
                   </TouchableOpacity>
-                  <TouchableOpacity
+                  {archived ? null : <TouchableOpacity
                     onPress={() => router.push(`/student/${id}/schedule?sessionId=${session.id}`)}
                     activeOpacity={0.7}
                     hitSlop={hitSlopFor(24)}
@@ -367,7 +403,7 @@ export default function StudentDetailScreen() {
                     style={{ paddingLeft: 12, minHeight: MIN_TOUCH, justifyContent: 'center' }}
                   >
                     <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft }}>MOVE</Text>
-                  </TouchableOpacity>
+                  </TouchableOpacity>}
                 </View>
               );
             })

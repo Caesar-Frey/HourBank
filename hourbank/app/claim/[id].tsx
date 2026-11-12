@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { F } from '../../src/theme/fonts';
 import { COLORS } from '../../src/theme/colors';
-import { getClaim, getClaimLines, voidClaim, isClaimVoided } from '../../src/db/claims';
+import { getClaim, getClaimLines, voidClaim, isClaimVoided, listEditedClaimLines, EditedClaimLine } from '../../src/db/claims';
 import { getSessionWithStudent } from '../../src/db/sessions';
 import { shareClaimReport } from '../../src/utils/claimReport';
 import { Claim, ClaimLine } from '../../src/db/schema';
@@ -37,6 +37,7 @@ export default function ClaimDetailScreen() {
   const router = useRouter();
   const [claim, setClaim] = useState<Claim | null | undefined>(undefined);
   const [lines, setLines] = useState<DetailLine[]>([]);
+  const [edited, setEdited] = useState<EditedClaimLine[]>([]);
   const [voidModalVisible, setVoidModalVisible] = useState(false);
   const keyboardOverlap = useKeyboardOverlap();
   const [voidReason, setVoidReason] = useState('');
@@ -59,6 +60,11 @@ export default function ClaimDetailScreen() {
         };
       });
       setLines(enriched);
+      try {
+        setEdited(listEditedClaimLines(id));
+      } catch {
+        setEdited([]);
+      }
       setLoadError(false);
     } catch {
       setLoadError(true);
@@ -148,6 +154,37 @@ export default function ClaimDetailScreen() {
             ) : null}
           </View>
         )}
+
+        {/* Lessons edited after the claim was made (B4): the claim stays frozen. */}
+        {!isVoid && edited.length > 0 ? (
+          <View
+            style={{ borderWidth: 1, borderColor: COLORS.amber, borderRadius: 10, padding: 12, marginBottom: 20, backgroundColor: COLORS.warnFill, gap: 6 }}
+            testID="claim-edited-lessons"
+          >
+            <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }}>
+              <Text style={{ fontFamily: F.mono }}>{edited.length}</Text>
+              {` ${edited.length === 1 ? 'lesson' : 'lessons'} edited since this claim`}
+            </Text>
+            <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>
+              The claim keeps what it was made with. Void and re-claim to pay the new amounts.
+            </Text>
+            {edited.map(e => (
+              <TouchableOpacity
+                key={e.session_id}
+                onPress={() => router.push(`/lesson/${e.session_id}`)}
+                accessibilityRole="link"
+                accessibilityLabel={`Open ${e.student_full_name}'s edited lesson`}
+                style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 }}
+              >
+                <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 15, color: COLORS.ink }}>{e.student_full_name}</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft }}>
+                  {`${formatHours(e.claimed_hours)} → ${formatHours(e.current_hours)}${e.difference !== 0 ? ` · ${e.difference > 0 ? '+' : '−'}${formatRand(Math.abs(e.difference))}` : ''}`}
+                </Text>
+                <Feather name="chevron-right" size={16} color={COLORS.inkFaint} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
 
         {DIVIDER}
 

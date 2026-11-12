@@ -19,7 +19,7 @@ import {
 } from '../../db/reports';
 import { listTravelOwedByStudent } from '../../db/travel';
 import { aggregateBySubject, kmLabel } from '../../utils/travelBilling';
-import { listActiveStudents, listPausedStudents } from '../../db/students';
+import { listActiveStudents, listArchivedStudents, listPausedStudents } from '../../db/students';
 import { formatHours, formatLedgerDate, formatRand, pluralize } from '../../utils/format';
 import { SegmentedControl } from '../../components/calendar/SegmentedControl';
 import { modeLabel, paymentMethodLabel, sessionTypeLabel } from '../schedule/labels';
@@ -40,7 +40,7 @@ import {
 
 type List = 'cash' | 'lessons' | 'students' | 'subjects';
 
-type TravelOwedRow = { student_id: string; full_name: string; amount: number; lessonCount: number };
+type TravelOwedRow = { student_id: string; full_name: string; amount: number; lessonCount: number; archived?: boolean };
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -104,7 +104,11 @@ export function MoneyInView() {
       setSummary(getMonthSummary(year, monthIdx));
       setCashRows(mergeCashRows(listTopUpsForMonth(year, monthIdx), listTravelSettlementsForMonth(year, monthIdx)));
       setLessons(listSessionsForMonth(year, monthIdx));
-      const balances = [...listActiveStudents(), ...listPausedStudents()].map(s => s.current_balance);
+      // Archived students who still owe hours stay in what is owed (B6).
+      const balances = [
+        ...[...listActiveStudents(), ...listPausedStudents()].map(s => s.current_balance),
+        ...listArchivedStudents().map(s => s.current_balance).filter(b => b < 0),
+      ];
       setOutstanding(outstandingFromBalances(balances));
       setTravelOwed(listTravelOwedByStudent());
       setError(false);
@@ -209,13 +213,16 @@ export function MoneyInView() {
               {travelOwed.map(r => (
                 <TouchableOpacity
                   key={r.student_id}
-                  onPress={() => go(`/student/${r.student_id}/travel`)}
+                  onPress={() => go(r.archived ? `/student/${r.student_id}` : `/student/${r.student_id}/travel`)}
                   activeOpacity={0.7}
                   accessibilityRole="button"
-                  accessibilityLabel={`${r.full_name} travel owed ${formatRand(r.amount)}`}
+                  accessibilityLabel={`${r.full_name}${r.archived ? ', archived,' : ''} travel owed ${formatRand(r.amount)}`}
                   style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, gap: 8 }}
                 >
                   <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{r.full_name}</Text>
+                  {r.archived ? (
+                    <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, letterSpacing: 0.5 }}>ARCHIVED</Text>
+                  ) : null}
                   <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>
                     {`${r.lessonCount} ${pluralize(r.lessonCount, 'lesson')}`}
                   </Text>

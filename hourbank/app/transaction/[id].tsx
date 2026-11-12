@@ -233,7 +233,7 @@ export default function TransactionDetailScreen() {
   const student = useMemo(() => {
     if (!studentId) return null;
     try {
-      return getStudent(studentId);
+      return getStudent(studentId, { includeArchived: true });
     } catch {
       return null;
     }

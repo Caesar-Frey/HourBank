@@ -22,7 +22,7 @@ export function useStudent(id: string) {
 
   const load = useCallback(() => {
     try {
-      const s = getStudent(id);
+      const s = getStudent(id, { includeArchived: true });
       if (!s) {
         setStudent(null);
         return;

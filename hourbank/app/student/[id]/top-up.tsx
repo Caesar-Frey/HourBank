@@ -12,25 +12,24 @@ import { useToast } from '../../../src/components/Toast';
 import { getStudent } from '../../../src/db/students';
 import { createPackage } from '../../../src/db/packages';
 import { getPrimarySubjectId, getSubjectBalances, isSubjectError, SubjectBalance } from '../../../src/db/subjects';
-import { getTravelOwed, listTravelSettlementsForPackage, settleTravel } from '../../../src/db/travel';
+import { getTravelOwed, isTravelError } from '../../../src/db/travel';
 import {
-  topUpCtaWithTravel, topUpGrandTotal, topUpSuccessMessage, topUpTravelAmount, topUpTravelToggleLabel,
+  topUpCtaWithTravel, topUpGrandTotal, topUpTravelAmount, topUpTravelToggleLabel,
 } from '../../../src/utils/travelBilling';
 import { newId } from '../../../src/db/uuid';
 import { getOrCreateTutorProfile, PackageTier, TutorProfile } from '../../../src/db/tutorProfile';
 import { CreditPackage, Student } from '../../../src/db/schema';
-import { formatRand } from '../../../src/utils/format';
+import { formatDateLong, formatRand } from '../../../src/utils/format';
 import { persistProofImage } from '../../../src/utils/proofImages';
-import { getTopUpReceiptText } from '../../../src/utils/receipt';
-import { openWhatsApp } from '../../../src/utils/whatsapp';
 import { resolveRecipient } from '../../../src/utils/recipient';
+import { DateTimeField } from '../../../src/components/student/DateTimeField';
 import { RecipientChooser } from '../../../src/components/student/RecipientChooser';
 import type { PreferredContact } from '../../../src/db/schema';
 import {
   Button, ChoicePills, FieldHint, LoadingState, NotFoundState, PageHeading, SectionLabel,
 } from '../../../src/components/student/ui';
 import {
-  balanceReviewLine, decimalPreview, formatBalance, tierSavings,
+  balanceReviewLine, decimalPreview, formatBalance, paidAtIso, tierSavings,
 } from '../../../src/components/student/flowLogic';
 
 type PaymentMethod = CreditPackage['payment_method'];
@@ -89,6 +88,7 @@ export default function TopUpScreen() {
   const [proofUri, setProofUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
+  const [paidOn, setPaidOn] = useState(() => new Date());
 
   useEffect(() => {
     try {
@@ -149,16 +149,6 @@ export default function TopUpScreen() {
 
   const recipient = resolveRecipient(student, sendTo);
 
-  async function sendConfirmation(pkgId: string) {
-    try {
-      const text = getTopUpReceiptText(pkgId, { recipientName: recipient.name, audience: recipient.who });
-      if (!text) throw new Error('missing package');
-      await openWhatsApp(recipient.phone, text);
-    } catch {
-      toast.show({ kind: 'error', message: "Couldn't prepare the confirmation" });
-    }
-  }
-
   async function handleConfirm() {
     if (savingRef.current || !ready || hours === null || price === null) return;
     savingRef.current = true;
@@ -179,6 +169,7 @@ export default function TopUpScreen() {
 
     let created: ReturnType<typeof createPackage>;
     try {
+      // Package, ledger entry and travel settlement in ONE transaction (B2).
       created = createPackage({
         id: packageId,
         studentId: id,
@@ -188,6 +179,8 @@ export default function TopUpScreen() {
         paymentMethod,
         paymentRef: reference.trim() || undefined,
         proofImageUri: storedProof,
+        paidAt: paidAtIso(paidOn),
+        travelAmount: travel > 0 ? travel : undefined,
       });
     } catch (e) {
       savingRef.current = false;
@@ -196,39 +189,17 @@ export default function TopUpScreen() {
         kind: 'error',
         message: isSubjectError(e)
           ? 'That subject is no longer available — pick another'
-          : "Couldn't add the top-up — please try again",
+          : isTravelError(e)
+            ? 'Travel owed has changed — check the amount and try again'
+            : "Couldn't add the top-up — please try again",
       });
       return;
     }
 
-    // Travel owed is settled in the same payment (separate rand record, linked to the package).
-    let travelSettled = 0;
-    let travelFailed = false;
-    if (travel > 0) {
-      try {
-        if (listTravelSettlementsForPackage(created.pkg.id).length === 0) {
-          travelSettled = settleTravel({ studentId: id, amount: travel, packageId: created.pkg.id, method: paymentMethod }).amount;
-        }
-      } catch {
-        travelFailed = true;
-      }
-    }
-
-    const pkgId = created.pkg.id;
-    toast.show({
-      kind: travelFailed ? 'info' : 'success',
-      message: topUpSuccessMessage({
-        hours,
-        subjectName,
-        balanceLabel: formatBalance(created.entry.balance_after),
-        travelSettled,
-        travelFailed,
-      }),
-      actionLabel: 'Send confirmation',
-      onAction: () => { void sendConfirmation(pkgId); },
-      durationMs: travelFailed ? 10000 : 8000,
+    router.replace({
+      pathname: '/student/[id]/top-up-saved',
+      params: { id, packageId: created.pkg.id, sendTo: recipient.who },
     });
-    router.back();
   }
 
   return (
@@ -368,6 +339,18 @@ export default function TopUpScreen() {
           />
         </View>
       ) : null}
+
+      <View style={{ marginTop: 24 }}>
+        <SectionLabel>PAID ON</SectionLabel>
+        <DateTimeField
+          mode="date"
+          value={paidOn}
+          onChange={setPaidOn}
+          display={formatDateLong(paidOn)}
+          accessibilityLabel="Date the parent paid"
+          maximumDate={new Date()}
+        />
+      </View>
 
       <View style={{ marginTop: 24 }}>
         <SectionLabel>PAYMENT METHOD</SectionLabel>

@@ -28,10 +28,12 @@ import { isTravelError } from '../../db/travel';
 import { addCustomTopicForSubject } from '../../db/catalog';
 import type { Session, Student } from '../../db/schema';
 import { applyLessonSavedNav, lessonSavedNav } from '../../utils/lessonNav';
-import { formatDateLong, formatDayShort, formatHours, formatMinutes, formatTime, formatTimeRange } from '../../utils/format';
+import { formatDateLong, formatDayShort, formatHours, formatMinutes, formatRand, formatTime, formatTimeRange } from '../../utils/format';
+import { ClaimedLineInfo, getClaimedLineForSession } from '../../db/claims';
 import {
   balancePreview,
   buildEditPatch,
+  claimEditEffect,
   claimWarning,
   defaultRecordMinutes,
   defaultRecordStart,
@@ -72,6 +74,7 @@ type Ctx = {
   movedFromBooking: boolean;
   inClaim: boolean;
   claimLabel: string | null;
+  claimLine: ClaimedLineInfo | null;
 };
 
 function kmText(km: number | null): string {
@@ -212,6 +215,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
         movedFromBooking,
         inClaim,
         claimLabel: inClaim ? claimLabelForSession(session!.id) : null,
+        claimLine: inClaim ? getClaimedLineForSession(session!.id) : null,
       });
     } catch {
       setLoadError('Couldn’t load this lesson.');
@@ -398,7 +402,8 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
       );
     };
 
-    if (over) {
+    const confirmOver = () => {
+      if (!over) return confirmDuplicate();
       Alert.alert(
         `${firstName} will owe ${formatHours(-balance.after)}`,
         `${subjectName} goes past your owing limit. ${isEdit ? 'Save' : 'Record'} anyway and remind the parent to top up?`,
@@ -408,9 +413,31 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
         ],
         { cancelable: true, onDismiss: release },
       );
+    };
+
+    // Lesson inside a finalised claim: keep the nudge, but say the rand effect (B4).
+    const line = ctx?.claimLine ?? null;
+    const effect = isEdit && line
+      ? claimEditEffect({
+          claimLabel: line.periodLabel,
+          claimTotal: line.claimTotal,
+          claimedHours: line.billedHours,
+          claimedMode: line.mode,
+          claimedTravel: line.travelFee,
+          rate: line.rate,
+          newBilledMinutes: billed,
+          newMode: mode,
+          formatRand,
+        })
+      : null;
+    if (effect) {
+      Alert.alert(effect.title, effect.message, [
+        { text: 'Cancel', style: 'cancel', onPress: release },
+        { text: 'Save anyway', onPress: confirmOver },
+      ], { cancelable: true, onDismiss: release });
       return;
     }
-    confirmDuplicate();
+    confirmOver();
   }
 
   const heading = noShow

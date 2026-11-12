@@ -37,6 +37,7 @@ jest.mock('../../components/lesson/lessonFormData', () => ({
   subjectNameFor: () => null,
   billingRoundMinutes: () => 15,
 }));
+jest.mock('../../db/claims', () => ({ getClaimedLineForSession: () => null }));
 jest.mock('../../components/Toast', () => ({ useToast: () => ({ show: mockToast, hide: jest.fn() }) }));
 jest.mock('../../db/sessions', () => {
   const actual = jest.requireActual('../../db/sessions');
