@@ -42,7 +42,7 @@ Approved features deferred from current build. Pick up in future sessions.
 
 ## Billing / documents
 
-- Invoice PDF for clients who need one — needs a design session first: invoice numbering, VAT vs no-VAT, business details shown, which charges appear (lessons, travel, top-ups), and per-period statement vs per-top-up invoice.
+- Invoice PDF: now specified in docs/plans/2026-11-12-polish-handoff.md (F2).
 
 ---
 *Updated by build: 2026-10-12*
