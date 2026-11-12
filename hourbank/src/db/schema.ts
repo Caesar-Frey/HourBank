@@ -77,8 +77,10 @@ export type CreditPackage = {
  * - no_show: student didn't attend (may carry a deduction if charged)
  * - discarded: in-flight timer thrown away (or orphan cleaned by migration 007)
  * - student_archived: future lesson cancelled because the student was archived
+ * - removed: a recorded lesson (or charged no-show) struck from history; its
+ *   hours went back via an `adjustment` (migration 011, see removed_at)
  */
-export type SessionCancelReason = 'cancelled' | 'no_show' | 'discarded' | 'student_archived';
+export type SessionCancelReason = 'cancelled' | 'no_show' | 'discarded' | 'student_archived' | 'removed';
 
 export type Session = {
   id: string;
@@ -113,6 +115,10 @@ export type Session = {
   parent_travel_per_km_snapshot?: number | null;
   /** Set when a past lesson is edited in place. */
   edited_at?: string | null;
+  /** Charged no-show only: 1 = parent travel charged and tutor travel claimed (migration 011, default 0). */
+  no_show_travel?: number;
+  /** Set when a recorded lesson was removed (status → cancelled/removed). Migration 011. */
+  removed_at?: string | null;
 };
 
 export type LedgerEntry = {

@@ -2,6 +2,7 @@ import { getDb } from './client';
 import { Student, Session, LedgerEntry, PreferredContact, ParentTravelMode } from './schema';
 import { appendEntryInTx } from './ledger';
 import { newId } from './uuid';
+import { normaliseHours } from '../utils/balance';
 import { insertSubjectInTx, resolveSubjectIdInTx, getPrimarySubjectId, updateStudentSubjectInTx } from './subjects';
 
 /** Active subject + balance, as carried on student list rows. */
@@ -19,11 +20,11 @@ export type StudentListRow = Student & {
 /** Subselect fields shared by listActiveStudents and listPausedStudents. */
 const STUDENT_SELECT_FIELDS = `
   s.*,
-  COALESCE((
+  ROUND(COALESCE((
     SELECT SUM(le.hours_delta)
     FROM ledger_entries le
     WHERE le.student_id = s.id
-  ), 0) AS current_balance,
+  ), 0) * 60) / 60.0 AS current_balance,
   (
     SELECT json_object(
       'id', se.id, 'student_id', se.student_id, 'mode', se.mode,
@@ -58,11 +59,12 @@ type RawListRow = Student & {
 function mapRows(rows: RawListRow[]): StudentListRow[] {
   return rows.map(({ next_session_json, subject_balances_json, ...row }) => ({
     ...row,
+    current_balance: normaliseHours(row.current_balance),
     next_session: next_session_json ? JSON.parse(next_session_json) as Session : null,
     subject_balances: subject_balances_json
       ? (JSON.parse(subject_balances_json) as StudentSubjectBalanceSummary[]).map(b => ({
           ...b,
-          balance_hours: Math.round(b.balance_hours * 1e6) / 1e6,
+          balance_hours: normaliseHours(b.balance_hours),
         }))
       : [],
   }));
@@ -318,7 +320,7 @@ export function listArchivedStudents(): Array<Student & { current_balance: numbe
     FROM students s
     WHERE s.status = 'archived'
     ORDER BY s.full_name COLLATE NOCASE ASC
-  `);
+  `).map(r => ({ ...r, current_balance: normaliseHours(r.current_balance) }));
 }
 
 /** Un-archive: archived → active. Lessons cancelled by the archive are NOT restored. */

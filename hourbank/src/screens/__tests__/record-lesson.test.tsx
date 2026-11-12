@@ -11,6 +11,7 @@ const mockToast = jest.fn();
 let mockSession: Record<string, unknown> | null = null;
 let mockInClaim = false;
 let mockOverLimit = false;
+let mockDuplicate: Record<string, unknown> | null = null;
 
 jest.mock('@expo/vector-icons', () => ({ Feather: () => null }));
 jest.mock('expo-router', () => ({
@@ -34,6 +35,7 @@ jest.mock('../../components/lesson/lessonFormData', () => ({
   catalogTopics: (name: string) => (name === 'Science' ? ['Cells'] : ['Algebra']),
   claimLabelForSession: () => 'Sep 2026',
   subjectNameFor: () => null,
+  billingRoundMinutes: () => 15,
 }));
 jest.mock('../../components/Toast', () => ({ useToast: () => ({ show: mockToast, hide: jest.fn() }) }));
 jest.mock('../../db/sessions', () => {
@@ -45,6 +47,7 @@ jest.mock('../../db/sessions', () => {
     editLesson: jest.fn(() => ({ session: {}, inClaim: mockInClaim })),
     isSessionInClaim: () => mockInClaim,
     checkOweLimit: () => ({ overLimit: mockOverLimit }),
+    findOverlappingLesson: () => mockDuplicate,
   };
 });
 
@@ -72,6 +75,7 @@ beforeEach(() => {
   mockSession = null;
   mockInClaim = false;
   mockOverLimit = false;
+  mockDuplicate = null;
   alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
 afterEach(() => jest.restoreAllMocks());
@@ -109,14 +113,24 @@ describe('record', () => {
     expect(recordLesson).toHaveBeenCalledWith(expect.objectContaining({ subjectId: 'ss-2', mode: 'online', travelKm: null, billedMinutes: 60 }));
   });
 
-  test('typed minutes + invalid km blocks saving', () => {
+  test('length presets (no typing) + invalid km blocks saving', () => {
     const s = renderForm({ kind: 'record', studentId: 'stu-1' });
-    fireEvent.press(s.getByLabelText(/Tap to type minutes/));
-    fireEvent.changeText(s.getByLabelText('Billed minutes'), '45');
+    expect(s.queryByLabelText(/Tap to type minutes/)).toBeNull();
+    fireEvent.press(s.getByLabelText('30m lesson'));
     fireEvent.changeText(s.getByLabelText('Travel kilometres'), 'abc');
-    fireEvent.press(s.getByText(/Record lesson · 45m/));
+    fireEvent.press(s.getByText(/Record lesson · 30m/));
     expect(recordLesson).not.toHaveBeenCalled();
     expect(s.getByText(/Enter the km/)).toBeTruthy();
+  });
+
+  test('same lesson already recorded: confirm before recording another (A6)', () => {
+    mockDuplicate = { id: 'old', started_at: iso(-60), ended_at: iso(0), billed_minutes: 60 };
+    const s = renderForm({ kind: 'record', studentId: 'stu-1' });
+    fireEvent.press(s.getByText(/Record lesson/));
+    expect(recordLesson).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith('Already recorded?', expect.stringContaining('Record another?'), expect.any(Array), expect.anything());
+    pressAlertButton('Record another');
+    expect(recordLesson).toHaveBeenCalled();
   });
 
   test('over the owing limit: confirm, then record', () => {

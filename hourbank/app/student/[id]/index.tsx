@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { Alert, View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { F, MIN_TOUCH, hitSlopFor } from '../../../src/theme/fonts';
@@ -18,6 +18,7 @@ import { SubjectBalanceCard } from '../../../src/components/student/SubjectBalan
 import { TravelOwedCard } from '../../../src/components/student/TravelOwedCard';
 import { lessonSubjectName, lowestSubject } from '../../../src/components/student/subjectLogic';
 import { getLowBalanceReminderText } from '../../../src/utils/receipt';
+import { getOrCreateTutorProfile } from '../../../src/db/tutorProfile';
 import { openWhatsApp } from '../../../src/utils/whatsapp';
 import { resolveRecipient } from '../../../src/utils/recipient';
 import { StudentLedgerRow } from '../../../src/components/student/StudentLedgerRow';
@@ -143,7 +144,23 @@ export default function StudentDetailScreen() {
 
   const recipient = resolveRecipient(student, sendTo);
 
-  async function sendReminder() {
+  function sendReminder() {
+    if (!student) return;
+    let hasDetails = true;
+    try {
+      hasDetails = !!getOrCreateTutorProfile().payment_details?.trim();
+    } catch { /* send anyway */ }
+    if (hasDetails) {
+      void sendReminderNow();
+      return;
+    }
+    Alert.alert('No bank details yet', "Parents won't know how to pay you.", [
+      { text: 'Add bank details', onPress: () => router.navigate('/profile?focus=payment') },
+      { text: 'Send anyway', onPress: () => { void sendReminderNow(); } },
+    ]);
+  }
+
+  async function sendReminderNow() {
     if (!student) return;
     try {
       // Subject balance(s), suggested package, travel owed, payment details + reference.

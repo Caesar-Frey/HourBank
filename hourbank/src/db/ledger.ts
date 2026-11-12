@@ -3,6 +3,7 @@ import { LedgerEntry, CreditPackage } from './schema';
 import { newId } from './uuid';
 import { effectiveSubjectIdSql } from './migrations';
 import { resolveSubjectIdInTx, getSubjectBalance } from './subjects';
+import { normaliseHours } from '../utils/balance';
 
 export function currentBalance(studentId: string): number {
   const db = getDb();
@@ -10,7 +11,7 @@ export function currentBalance(studentId: string): number {
     'SELECT COALESCE(SUM(hours_delta), 0) AS balance FROM ledger_entries WHERE student_id = ?',
     [studentId]
   );
-  return row?.balance ?? 0;
+  return normaliseHours(row?.balance ?? 0);
 }
 
 type AppendEntryInput = {
@@ -78,7 +79,7 @@ export function getBalanceAt(studentId: string, isoTimestamp: string): number {
     'SELECT COALESCE(SUM(hours_delta), 0) AS balance FROM ledger_entries WHERE student_id = ? AND created_at <= ?',
     [studentId, isoTimestamp]
   );
-  return row?.balance ?? 0;
+  return normaliseHours(row?.balance ?? 0);
 }
 
 /**
@@ -101,7 +102,7 @@ function ledgerSelectSql(alias: string): string {
 export type LedgerRow = LedgerEntry & { subject_name: string | null };
 
 function roundRow<T extends { balance_after: number }>(r: T): T {
-  return { ...r, balance_after: Math.round(r.balance_after * 1e6) / 1e6 };
+  return { ...r, balance_after: normaliseHours(r.balance_after) };
 }
 
 /** Most recent N entries (all subjects, or one with `subjectId`), newest first. */
@@ -213,7 +214,7 @@ export function getLedgerEntryById(id: string): LedgerEntryDetail | null {
     student_id: row.l_student_id,
     type: row.l_type,
     hours_delta: row.l_hours_delta,
-    balance_after: Math.round(row.l_balance_after * 1e6) / 1e6,
+    balance_after: normaliseHours(row.l_balance_after),
     related_session_id: row.l_related_session_id,
     related_package_id: row.l_related_package_id,
     reason: row.l_reason,

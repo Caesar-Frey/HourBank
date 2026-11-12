@@ -84,6 +84,9 @@ type RawPoolRow = {
   /** Per-lesson km (sessions.travel_km) falling back to the student default. */
   travel_distance_km: number;
   payout_rate_override: number | null;
+  status: string;
+  /** 1 = a charged no-show the tutor marked "Include travel" (migration 011). */
+  no_show_travel: number | null;
 };
 
 type Db = ReturnType<typeof getDb>;
@@ -109,7 +112,10 @@ function priceLine(raw: RawPoolRow, profile: ProfileConfig): ClaimablePoolLine {
   const billedHours = (raw.billed_minutes ?? raw.duration_minutes ?? 0) / 60;
   const rate = effectiveRate(raw.payout_rate_override, profile.hourly_rate);
   const lesson = lessonFee(billedHours, rate);
-  const travel = travelFee({
+  // A charged no-show carries a travel allowance only when the tutor switched
+  // "Include travel" on for it (owner decision 2026-11-12).
+  const noShowWithoutTravel = raw.status === 'cancelled' && !raw.no_show_travel;
+  const travel = noShowWithoutTravel ? 0 : travelFee({
     mode: raw.mode,
     travelMode: profile.travel_mode,
     flatFee: raw.travel_flat_fee,
@@ -165,7 +171,8 @@ function derivePoolLines(
   const rows = db.getAllSync<RawPoolRow>(
     `SELECT s.id AS session_id, s.student_id, st.full_name AS student_full_name,
             ${billableSessionDateSql('s')} AS ended_at, s.mode, s.billed_minutes, s.duration_minutes,
-            st.travel_flat_fee, COALESCE(s.travel_km, st.travel_distance_km) AS travel_distance_km, st.payout_rate_override
+            st.travel_flat_fee, COALESCE(s.travel_km, st.travel_distance_km) AS travel_distance_km, st.payout_rate_override,
+            s.status, s.no_show_travel
      FROM sessions s
      JOIN students st ON st.id = s.student_id
      WHERE ${where.join(' AND ')}

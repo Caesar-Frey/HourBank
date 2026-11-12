@@ -65,7 +65,9 @@ export function SettingsField({
   multiline = false,
   keyboardType,
   testID,
+  inputRef,
 }: {
+  inputRef?: React.Ref<TextInput>;
   label: string;
   value: string;
   onChangeText: (v: string) => void;
@@ -83,6 +85,7 @@ export function SettingsField({
     <View style={ROW_CONTAINER}>
       <Text style={FIELD_LABEL}>{label}</Text>
       <TextInput
+        ref={inputRef}
         testID={testID}
         accessibilityLabel={label}
         value={value}

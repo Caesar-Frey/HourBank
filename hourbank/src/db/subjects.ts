@@ -10,6 +10,7 @@
 import { getDb } from './client';
 import { Student, StudentSubject } from './schema';
 import { primarySubjectIdSql } from './migrations';
+import { normaliseHours } from '../utils/balance';
 import { newId } from './uuid';
 
 export type SubjectErrorCode = 'NOT_FOUND' | 'DUPLICATE' | 'INVALID_INPUT' | 'LAST_ACTIVE' | 'WRONG_STUDENT';
@@ -32,9 +33,6 @@ export type SubjectBalance = StudentSubject & { balance_hours: number };
 
 const ORDER = `ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, sort_order, created_at, id`;
 
-function round6(n: number): number {
-  return Math.round(n * 1e6) / 1e6;
-}
 
 // ── Reads ────────────────────────────────────────────────────────────────────
 
@@ -70,7 +68,7 @@ export function getSubjectBalances(studentId: string): SubjectBalance[] {
      ORDER BY CASE ss.status WHEN 'active' THEN 0 ELSE 1 END, ss.sort_order, ss.created_at, ss.id`,
     [studentId]
   );
-  return rows.map(r => ({ ...r, balance_hours: round6(r.balance_hours) }));
+  return rows.map(r => ({ ...r, balance_hours: normaliseHours(r.balance_hours) }));
 }
 
 /** Hours balance of one subject (NULL-subject legacy rows count toward the primary). */
@@ -79,7 +77,7 @@ export function getSubjectBalance(studentId: string, subjectId: string): number 
     'SELECT balance_hours AS b FROM student_subject_balances WHERE student_id = ? AND subject_id = ?',
     [studentId, subjectId]
   );
-  return round6(row?.b ?? 0);
+  return normaliseHours(row?.b ?? 0);
 }
 
 // ── Resolution (used by every write path) ────────────────────────────────────

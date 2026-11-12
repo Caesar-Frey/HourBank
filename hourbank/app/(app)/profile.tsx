@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, TouchableOpacity, Alert, Switch, TextInput, Modal, ActivityIndicator } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { View, Text, TouchableOpacity, Alert, Switch, TextInput, Modal, ActivityIndicator, ScrollView } from 'react-native';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import { F, MIN_TOUCH, hitSlopFor } from '../../src/theme/fonts';
@@ -102,6 +102,15 @@ export default function SettingsScreen() {
   const [resetConfirmText, setResetConfirmText] = useState('');
   const keyboardOverlap = useKeyboardOverlap();
 
+  // Deep links from the Home setup card: /profile?focus=name|rates|payment.
+  const { focus } = useLocalSearchParams<{ focus?: string }>();
+  const scrollRef = useRef<ScrollView | null>(null);
+  const anchors = useRef<Record<string, number>>({});
+  const nameInput = useRef<TextInput>(null);
+  const rateInput = useRef<TextInput>(null);
+  const paymentInput = useRef<TextInput>(null);
+  const [ratesConfirmed, setRatesConfirmed] = useState(true);
+
   const loadProfile = useCallback(() => {
     try {
       const p = getOrCreateTutorProfile();
@@ -122,12 +131,13 @@ export default function SettingsScreen() {
       } catch {
         setReferenceSample(SAMPLE_REFERENCE_STUDENT);
       }
-      setRoundMinutes(p.billing_round_minutes || 15);
+      setRoundMinutes(p.billing_round_minutes === 15 ? 15 : 30);
       setTravelMode(p.travel_mode === 'distance' ? 'distance' : 'flat');
       setTierEnabled(p.tier_system_enabled === 1);
       setTierDrafts(tierDraftsFromTiers(parseTiers(p.package_tiers), nextTierKey));
       setTierErrors({});
       setLastBackupAt(p.last_backup_at ?? null);
+      setRatesConfirmed(!!p.rates_confirmed_at);
       setProfileLoaded(true);
     } catch {
       toast.show({ kind: 'error', message: "Couldn't load your settings." });
@@ -148,6 +158,18 @@ export default function SettingsScreen() {
       getLastBackupAt().then(setLastBackupAt).catch(() => {});
     }, [])
   );
+
+  useEffect(() => {
+    if (!profileLoaded || !focus) return;
+    const t = setTimeout(() => {
+      const y = anchors.current[focus];
+      if (y !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
+      const input = focus === 'name' ? nameInput : focus === 'rates' ? rateInput : focus === 'payment' ? paymentInput : null;
+      input?.current?.focus();
+      router.setParams({ focus: undefined });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [focus, profileLoaded, router]);
 
   /** Autosave: write only what changed, confirm with a toast; failures are error toasts. */
   const save = useCallback(
@@ -193,7 +215,17 @@ export default function SettingsScreen() {
     const { value, error } = validateAmount(amounts[field]);
     setErrors(e => ({ ...e, [field]: error }));
     if (error || value === null) return;
-    save({ [AMOUNT_COLUMN[field]]: value } as Partial<TutorProfile>);
+    const patch = { [AMOUNT_COLUMN[field]]: value } as Partial<TutorProfile>;
+    // Saving either rate confirms the tutor has set their own (Home setup card, A5).
+    if ((field === 'parentPrice' || field === 'payoutRate') && !profileRef.current?.rates_confirmed_at) {
+      patch.rates_confirmed_at = new Date().toISOString();
+      setRatesConfirmed(true);
+    }
+    save(patch);
+  }
+
+  function confirmRatesAsTheyAre() {
+    if (save({ rates_confirmed_at: new Date().toISOString() })) setRatesConfirmed(true);
   }
 
   function amountPreview(field: AmountField, kind: 'rand' | 'hours'): string | null {
@@ -340,10 +372,12 @@ export default function SettingsScreen() {
   const backupAge = lastBackupLabel(lastBackupAt);
 
   return (
-    <FormScreen header={<TabHeader title="Settings" />} edges={['top']} contentContainerStyle={{ paddingBottom: 48 }}>
+    <FormScreen header={<TabHeader title="Settings" />} edges={['top']} contentContainerStyle={{ paddingBottom: 48 }} scrollRef={scrollRef}>
       {/* ── Profile ───────────────────────────────────────────────────── */}
       <SectionLabel>Profile</SectionLabel>
+      <View onLayout={e => { anchors.current.name = e.nativeEvent.layout.y; }} />
       <SettingsField
+        inputRef={nameInput}
         label="Your name"
         value={fullName}
         onChangeText={setFullName}
@@ -358,7 +392,23 @@ export default function SettingsScreen() {
 
       {/* ── Rates ─────────────────────────────────────────────────────── */}
       <SectionLabel>Rates</SectionLabel>
+      <View onLayout={e => { anchors.current.rates = e.nativeEvent.layout.y; }} />
+      {!ratesConfirmed ? (
+        <View style={[ROW_CONTAINER, { gap: 8 }]}>
+          <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkSoft }}>
+            These are still the starter rates. Change them, or confirm they are right.
+          </Text>
+          <TouchableOpacity
+            onPress={confirmRatesAsTheyAre}
+            accessibilityRole="button"
+            style={{ alignSelf: 'flex-start', minHeight: MIN_TOUCH, paddingHorizontal: 16, borderWidth: 1, borderColor: COLORS.ink, borderRadius: 14, justifyContent: 'center' }}
+          >
+            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>These rates are right</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
       <SettingsField
+        inputRef={rateInput}
         testID="parent-price"
         label="Parent price per hour"
         value={amounts.parentPrice}
@@ -431,7 +481,7 @@ export default function SettingsScreen() {
       {/* ── Billing ───────────────────────────────────────────────────── */}
       <SectionLabel>Billing</SectionLabel>
       <View style={ROW_CONTAINER}>
-        <Text style={FIELD_LABEL}>Round lessons to</Text>
+        <Text style={FIELD_LABEL}>Lesson length steps</Text>
         <ChipRow
           options={BILLING_ROUND_OPTIONS}
           value={roundMinutes as (typeof BILLING_ROUND_OPTIONS)[number]}
@@ -456,7 +506,9 @@ export default function SettingsScreen() {
         preview={amountPreview('maxOwe', 'hours')}
         help={MAX_OWE_EXPLANATION}
       />
+      <View onLayout={e => { anchors.current.payment = e.nativeEvent.layout.y; }} />
       <SettingsField
+        inputRef={paymentInput}
         label="Payment details"
         value={paymentDetails}
         onChangeText={setPaymentDetails}

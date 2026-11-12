@@ -6,12 +6,12 @@ import { Stack, useRouter, usePathname } from 'expo-router';
 import { SessionTimerProvider, useSessionTimer } from '../src/contexts/SessionTimerContext';
 import {
   lessonDraftStore,
-  orphanPromptCopy,
   shouldPromptOrphan,
   InFlightSession,
   OrphanTrigger,
 } from '../src/contexts/SessionTimerContext.helpers';
 import { ToastProvider, useToast } from '../src/components/Toast';
+import { OrphanSheet } from '../src/components/OrphanSheet';
 import { initDb } from '../src/db/schema';
 import { runMigrations, ALL_MIGRATIONS } from '../src/db/migrations';
 import { seedCatalog } from '../src/db/catalog';
@@ -172,59 +172,69 @@ function OrphanRecovery() {
   const timerRef = useRef(timer);
   timerRef.current = timer;
 
-  const showPrompt = useCallback(
+  const [orphan, setOrphan] = useState<InFlightSession | null>(null);
+
+  const closeSheet = useCallback(() => {
+    promptOpen.current = false;
+    setOrphan(null);
+  }, []);
+
+  const showPrompt = useCallback((s: InFlightSession) => {
+    promptOpen.current = true;
+    setOrphan(s);
+  }, []);
+
+  const continueLesson = useCallback(
     (s: InFlightSession) => {
-      promptOpen.current = true;
-      const copy = orphanPromptCopy(s);
-      const close = () => {
-        promptOpen.current = false;
-      };
+      closeSheet();
+      timerRef.current.resumeFromDb(s.id, s.student_id);
+      router.push(`/student/${s.student_id}/session?sessionId=${s.id}`);
+    },
+    [closeSheet, router],
+  );
 
-      const confirmDiscard = () => {
-        Alert.alert(
-          'Discard this lesson?',
-          `The lesson with ${s.student_full_name} won't be saved and no hours will be deducted. This can't be undone.`,
-          [
-            { text: 'Keep lesson', style: 'cancel', onPress: () => showPrompt(s) },
-            {
-              text: 'Discard lesson',
-              style: 'destructive',
-              onPress: () => {
-                close();
-                try {
-                  discardSession(s.id);
-                  lessonDraftStore.clear(s.id);
-                  timerRef.current.endTimer();
-                  toast.show({ kind: 'info', message: 'Lesson discarded — no hours deducted' });
-                } catch (e) {
-                  console.error('orphan discard error', e);
-                  toast.show({ kind: 'error', message: "Couldn't discard the lesson. Try again from Home." });
-                }
-              },
-            },
-          ],
-          { cancelable: false },
-        );
-      };
+  /** Review now (endedAt null) or with the end the tutor picked (runaway timer). */
+  const reviewLesson = useCallback(
+    (s: InFlightSession, endedAt: Date | null) => {
+      closeSheet();
+      timerRef.current.resumeFromDb(s.id, s.student_id);
+      const end = encodeURIComponent((endedAt ?? new Date()).toISOString());
+      const chosen = endedAt ? '&chosenEnd=1' : '';
+      router.push(`/student/${s.student_id}/end-session?sessionId=${s.id}&endedAt=${end}${chosen}&back=home`);
+    },
+    [closeSheet, router],
+  );
 
+  const discardLesson = useCallback(
+    (s: InFlightSession) => {
+      // The sheet steps aside for the native confirm; Keep brings it back.
+      setOrphan(null);
       Alert.alert(
-        copy.title,
-        copy.message,
+        'Discard this lesson?',
+        `The lesson with ${s.student_full_name} won't be saved and no hours will be deducted. This can't be undone.`,
         [
-          { text: 'Discard…', style: 'destructive', onPress: confirmDiscard },
+          { text: 'Keep lesson', style: 'cancel', onPress: () => setOrphan(s) },
           {
-            text: 'Continue',
+            text: 'Discard lesson',
+            style: 'destructive',
             onPress: () => {
-              close();
-              timerRef.current.resumeFromDb(s.id, s.student_id);
-              router.push(`/student/${s.student_id}/session?sessionId=${s.id}`);
+              closeSheet();
+              try {
+                discardSession(s.id);
+                lessonDraftStore.clear(s.id);
+                timerRef.current.endTimer();
+                toast.show({ kind: 'info', message: 'Lesson discarded — no hours deducted' });
+              } catch (e) {
+                console.error('orphan discard error', e);
+                toast.show({ kind: 'error', message: "Couldn't discard the lesson. Try again from Home." });
+              }
             },
           },
         ],
         { cancelable: false },
       );
     },
-    [router, toast],
+    [closeSheet, toast],
   );
 
   const check = useCallback(
@@ -262,5 +272,5 @@ function OrphanRecovery() {
     return () => sub.remove();
   }, [check]);
 
-  return null;
+  return <OrphanSheet session={orphan} onContinue={continueLesson} onReview={reviewLesson} onDiscard={discardLesson} />;
 }

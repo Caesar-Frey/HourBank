@@ -37,7 +37,7 @@ describe('parentTravelCharge', () => {
 describe('travel owed + settlements', () => {
   let db: TestDb;
   beforeEach(() => { db = createMigratedTestDb(); });
-  afterEach(() => resetDbSingleton());
+  afterEach(() => { jest.useRealTimers(); resetDbSingleton(); });
 
   function student() {
     return createStudent({ ...base, travelDistanceKm: 10, parentTravelMode: 'per_km', parentTravelPerKm: 5 });
@@ -162,6 +162,8 @@ describe('travel owed + settlements', () => {
   });
 
   it('settlements show in Money In (month cash received + list)', () => {
+    // createPackage stamps "now": pin the clock inside October 2026.
+    jest.useFakeTimers({ now: new Date('2026-10-05T09:00:00.000Z'), doNotFake: ['nextTick', 'setImmediate'] });
     const s = student();
     lesson(s.id, '2026-10-01T10:00:00.000Z');
     createPackage({ studentId: s.id, hoursAdded: 5, amountPaid: 2750, paymentMethod: 'eft' });
@@ -176,7 +178,7 @@ describe('travel owed + settlements', () => {
 
 describe('subjects + per-lesson km in reports and payout claims', () => {
   beforeEach(() => createMigratedTestDb());
-  afterEach(() => resetDbSingleton());
+  afterEach(() => { jest.useRealTimers(); resetDbSingleton(); });
 
   it('payout claims use per-lesson km with the TUTOR travel config (not the parent rate)', () => {
     upsertTutorProfile({ hourly_rate: 300, travel_mode: 'distance', per_km_rate: 3 });
@@ -187,6 +189,7 @@ describe('subjects + per-lesson km in reports and payout claims', () => {
   });
 
   it('report rows carry the lesson/top-up subject; month summary has per-subject totals', () => {
+    jest.useFakeTimers({ now: new Date('2026-10-05T09:00:00.000Z'), doNotFake: ['nextTick', 'setImmediate'] });
     const s = createStudent({ ...base });
     const sci = addStudentSubject({ studentId: s.id, subject: 'Science' });
     createPackage({ studentId: s.id, subjectId: sci.id, hoursAdded: 5, amountPaid: 2750, paymentMethod: 'eft' });

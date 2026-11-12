@@ -62,7 +62,10 @@ export type TravelOwed = {
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-const LESSON_DATE = 'COALESCE(s.started_at, s.ended_at)';
+const LESSON_DATE = 'COALESCE(s.started_at, s.ended_at, s.scheduled_for)';
+
+/** Lessons that can carry a parent travel charge: recorded, or a charged no-show with "Include travel" on. */
+const TRAVEL_CHARGEABLE = `(s.status = 'completed' OR (s.status = 'cancelled' AND s.cancel_reason = 'no_show' AND COALESCE(s.no_show_travel, 0) = 1))`;
 
 function chargedLessons(studentId: string): Array<Omit<TravelOwedLesson, 'unpaid'>> {
   return getDb().getAllSync<Omit<TravelOwedLesson, 'unpaid'>>(
@@ -70,7 +73,7 @@ function chargedLessons(studentId: string): Array<Omit<TravelOwedLesson, 'unpaid
             (SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${effectiveSubjectIdSql('s')}) AS subject_name,
             ${LESSON_DATE} AS date, s.travel_km, s.parent_travel_fee
      FROM sessions s
-     WHERE s.student_id = ? AND s.status = 'completed' AND s.mode = 'in_person'
+     WHERE s.student_id = ? AND ${TRAVEL_CHARGEABLE} AND s.mode = 'in_person'
        AND COALESCE(s.parent_travel_fee, 0) > 0
      ORDER BY julianday(${LESSON_DATE}) ASC, s.rowid ASC`,
     [studentId]
@@ -195,7 +198,7 @@ export function listTravelOwedByStudent(): Array<{ student_id: string; full_name
   const ids = getDb().getAllSync<{ id: string; full_name: string }>(
     `SELECT DISTINCT st.id, st.full_name FROM students st
      JOIN sessions s ON s.student_id = st.id
-     WHERE st.status != 'archived' AND s.status = 'completed' AND s.mode = 'in_person' AND COALESCE(s.parent_travel_fee, 0) > 0`
+     WHERE st.status != 'archived' AND ${TRAVEL_CHARGEABLE} AND s.mode = 'in_person' AND COALESCE(s.parent_travel_fee, 0) > 0`
   );
   return ids
     .map(r => {

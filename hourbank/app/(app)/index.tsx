@@ -12,6 +12,8 @@ import { useToast } from '../../src/components/Toast';
 import { RosterStudentCard } from '../../src/components/home/RosterStudentCard';
 import { TodayCard, LiveLessonPill } from '../../src/components/home/TodayCard';
 import { NeedsAttentionCard } from '../../src/components/home/NeedsAttentionCard';
+import { SetupCard } from '../../src/components/home/SetupCard';
+import { getOrCreateTutorProfile, getSetupStatus, type SetupStatus } from '../../src/db/tutorProfile';
 import {
   RosterStudent,
   SortMode,
@@ -97,6 +99,7 @@ export default function HomeScreen() {
   const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState('');
   const [data, setData] = useState<HomeData | null>(null);
+  const [setup, setSetup] = useState<{ status: SetupStatus; rate: number } | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [weekStats, setWeekStats] = useState<WeekLessonStats>(EMPTY_WEEK);
   const [nudge, setNudge] = useState<{ show: boolean; tier: number | null; message: string }>({
@@ -115,6 +118,12 @@ export default function HomeScreen() {
 
   const load = useCallback(() => {
     let hasStudents = false;
+    try {
+      const p = getOrCreateTutorProfile();
+      setSetup({ status: getSetupStatus(p), rate: p.hourly_rate });
+    } catch {
+      setSetup(null);
+    }
     try {
       const active = listActiveStudents();
       const paused = listPausedStudents();
@@ -310,6 +319,15 @@ export default function HomeScreen() {
             onPress={() => openLive(liveView.id, liveView.student_id)}
           />
         )}
+
+        {/* Finish setting up (A5) — above Today */}
+        {setup ? (
+          <SetupCard
+            status={setup.status}
+            starterRate={setup.rate}
+            onOpen={target => router.navigate(`/profile?focus=${target}`)}
+          />
+        ) : null}
 
         {/* Today */}
         {today && (

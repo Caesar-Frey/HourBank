@@ -193,10 +193,11 @@ export function buildLowBalanceReminderText(i: LowBalanceReminderTextInput): str
     }
   }
   const details = i.paymentDetails?.trim();
-  if (details) {
-    const reference = i.paymentReference?.trim() || i.studentName;
-    lines.push('', 'Payment details:', details, `Reference: ${reference}`);
-  }
+  // The reference always goes out, so a payment can be matched even when the
+  // tutor has not saved bank details yet.
+  const reference = i.paymentReference?.trim() || i.studentName;
+  if (details) lines.push('', 'Payment details:', details, `Reference: ${reference}`);
+  else lines.push('', `Reference: ${reference}`);
   lines.push('', signOff(i.tutorName));
   return lines.join('\n');
 }

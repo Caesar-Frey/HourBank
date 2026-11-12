@@ -10,6 +10,7 @@ import { useToast } from '../../src/components/Toast';
 import { SegmentedControl } from '../../src/components/calendar/SegmentedControl';
 import { DateField } from '../../src/components/calendar/DateField';
 import { listClaimablePool, buildClaim, finaliseClaim, ClaimablePoolLine } from '../../src/db/claims';
+import { getOrCreateTutorProfile } from '../../src/db/tutorProfile';
 import { formatClaimPeriod, formatDayShort, formatHours, formatLedgerDate, formatRand, pluralize } from '../../src/utils/format';
 import { modeLabel } from '../../src/screens/schedule/labels';
 import { lessonKmBySession } from '../../src/screens/money/moneyQueries';
@@ -137,6 +138,24 @@ export default function NewClaimScreen() {
 
   function onFinalise() {
     if (!canFinalise || savingRef.current) return;
+    // Still on the starter payout rate? Ask once (a nudge, never a block).
+    let profile: ReturnType<typeof getOrCreateTutorProfile> | null = null;
+    try { profile = getOrCreateTutorProfile(); } catch { profile = null; }
+    if (profile && !profile.rates_confirmed_at) {
+      Alert.alert(
+        'Starter rate',
+        `This claim uses the starter rate of ${formatRand(profile.hourly_rate)}/h.`,
+        [
+          { text: 'Confirm rate', onPress: () => router.navigate('/profile?focus=rates') },
+          { text: 'Finalise anyway', onPress: confirmFinalise },
+        ],
+      );
+      return;
+    }
+    confirmFinalise();
+  }
+
+  function confirmFinalise() {
     Alert.alert(
       `Finalise claim for ${formatRand(preview.grandTotal)}?`,
       `${selected.length} ${pluralize(selected.length, 'lesson')} · ${formatClaimPeriod(periodStart, periodEnd)}.\nA finalised claim can’t be edited — only voided.`,

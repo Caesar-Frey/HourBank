@@ -4,6 +4,7 @@
  * typecheck can't.
  */
 import React from 'react';
+import { getOrCreateTutorProfile, upsertTutorProfile } from '../../db/tutorProfile';
 import { Alert } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 
@@ -158,7 +159,22 @@ test('Money tab: In shows outstanding owed hours; Out shows plain-language pool'
   expect(screen.getByText('1 lesson taught but not yet claimed')).toBeTruthy();
 });
 
+test('New claim: still on the starter rate → nudge to confirm, or finalise anyway (A5)', async () => {
+  logPastSession({ studentId: 's1', startedAt: new Date(Date.now() - 3 * 3600_000).toISOString(), minutes: 60, topics: [] });
+  getOrCreateTutorProfile();
+  upsertTutorProfile({ rates_confirmed_at: null });
+  const screen = render(<NewClaimScreen />);
+  await flush();
+  fireEvent.press(screen.getByText(/^Finalise · /));
+  const [title, msg, buttons] = (Alert.alert as jest.Mock).mock.calls[0];
+  expect(title).toBe('Starter rate');
+  expect(msg).toMatch(/starter rate of R\u00A0600\.00\/h/);
+  act(() => (buttons as { text: string; onPress?: () => void }[]).find(b => b.text === 'Finalise anyway')!.onPress!());
+  expect((Alert.alert as jest.Mock).mock.calls[1][0]).toMatch(/^Finalise claim for R\u00A0/);
+});
+
 test('New claim: grouped by student, hold-back excluded, finalise asks to confirm', async () => {
+  upsertTutorProfile({ rates_confirmed_at: new Date().toISOString() });
   logPastSession({ studentId: 's1', startedAt: new Date(Date.now() - 3 * 3600_000).toISOString(), minutes: 60, topics: [] });
   logPastSession({ studentId: 's2', startedAt: new Date(Date.now() - 2 * 3600_000).toISOString(), minutes: 60, topics: [] });
 

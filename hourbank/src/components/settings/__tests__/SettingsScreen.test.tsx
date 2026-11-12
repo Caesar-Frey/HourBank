@@ -7,7 +7,8 @@ const mockPush = jest.fn();
 jest.mock('expo-router', () => {
   const R = jest.requireActual('react');
   return {
-    useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn() }),
+    useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn(), setParams: jest.fn(), navigate: jest.fn() }),
+    useLocalSearchParams: () => ({}),
     useFocusEffect: (cb: () => void) => R.useEffect(cb, [cb]),
   };
 });
@@ -33,6 +34,7 @@ const mockProfile = {
   tier_system_enabled: 1, travel_mode: 'flat', per_km_rate: 0, payment_details: null, billing_round_minutes: 15,
   package_tiers: JSON.stringify([{ hours: 10, price: 5500, label: 'Best Value', sort_order: 0 }]),
   last_backup_at: null, selected_subject_ids: '[]', created_at: '', updated_at: '',
+  rates_confirmed_at: '2026-01-01T00:00:00.000Z',
 };
 jest.mock('../../../db/tutorProfile', () => ({
   getOrCreateTutorProfile: jest.fn(() => mockProfile),

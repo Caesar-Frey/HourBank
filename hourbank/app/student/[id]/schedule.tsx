@@ -12,7 +12,7 @@ import { useToast } from '../../../src/components/Toast';
 import { getStudent } from '../../../src/db/students';
 import { isSubjectError } from '../../../src/db/subjects';
 import { SubjectPicker, TravelKmField } from '../../../src/components/lesson/LessonFields';
-import { loadSubjectOptions, type SubjectOption } from '../../../src/components/lesson/lessonFormData';
+import { billingRoundMinutes, loadSubjectOptions, type SubjectOption } from '../../../src/components/lesson/lessonFormData';
 import { defaultSubjectId, parseKmInput } from '../../../src/components/lesson/lessonFormLogic';
 import {
   createScheduled, getSession, isSessionError, listUpcomingWithProjection, rescheduleSession, updateScheduled,
@@ -395,6 +395,7 @@ function ScheduleScreenInner() {
         initialMinutes={minutes}
         onConfirm={mins => { setMinutes(mins); setShowDurationSheet(false); }}
         onCancel={() => setShowDurationSheet(false)}
+        step={billingRoundMinutes()}
       />
 
       {projected < 0 ? (

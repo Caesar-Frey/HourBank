@@ -49,6 +49,7 @@ jest.mock('../../db/sessions', () => {
     endSession: jest.fn(),
     recordLesson: jest.fn(),
     saveLiveTopics: jest.fn(() => true),
+    setInFlightMode: jest.fn(() => true),
   };
 });
 jest.mock('../../components/Toast', () => ({ useToast: () => ({ show: mockToast, hide: jest.fn() }) }));
@@ -149,13 +150,29 @@ test('billing default: actual rounded to 15 min when far from booking; no warnin
   expect(screen.queryByText(/Billing .* taught/)).toBeNull();
 });
 
-test('tap value to type minutes', () => {
+test('billed moves in the Settings step; no free typing (owner decision 2026-11-12)', () => {
   const screen = renderScreen();
-  fireEvent.press(screen.getByLabelText(/Tap to type minutes/));
-  const input = screen.getByLabelText('Billed minutes');
-  fireEvent.changeText(input, '45');
+  expect(screen.queryByLabelText(/Tap to type minutes/)).toBeNull();
+  fireEvent.press(screen.getByLabelText('Bill 15 minutes less'));
   fireEvent.press(screen.getByText(/Save lesson/));
   expect(endSession).toHaveBeenCalledWith(expect.objectContaining({ billedMinutes: 45 }));
+});
+
+test('a forgotten timer defaults the end to the booked end and bills the booked hour (A2)', () => {
+  // Started 22h 14m before "End" was tapped, booked for 1h.
+  mockSession = session({ started_at: minsBefore(22 * 60 + 14), estimated_duration_minutes: 60 });
+  const screen = renderScreen();
+  expect(screen.getByText(/far longer than the booked lesson/)).toBeTruthy();
+  fireEvent.press(screen.getByText(/Save lesson/));
+  const bookedEnd = new Date(new Date(minsBefore(22 * 60 + 14)).getTime() + 60 * 60_000).toISOString();
+  expect(endSession).toHaveBeenCalledWith(expect.objectContaining({ endedAt: bookedEnd, durationMinutes: 60, billedMinutes: 60 }));
+});
+
+test('switching mode on the review saves it and prices from it (A1)', () => {
+  const screen = renderScreen();
+  fireEvent.press(screen.getByText('In-person'));
+  fireEvent.press(screen.getByText(/Save lesson/));
+  expect(endSession).toHaveBeenCalledWith(expect.objectContaining({ mode: 'in_person' }));
 });
 
 test('Back returns to the running timer without resetting it or showing a false promise', () => {
@@ -201,7 +218,7 @@ test('already-closed lesson (double save) does not reset the timer blindly', () 
 });
 
 test('negative balance asks to confirm (nudge, not block)', () => {
-  mockSession = session({ started_at: minsBefore(360), estimated_duration_minutes: null });
+  mockSession = session({ started_at: minsBefore(360), estimated_duration_minutes: 300 });
   const screen = renderScreen();
   fireEvent.press(screen.getByText(/Save lesson/));
   expect(endSession).not.toHaveBeenCalled();
@@ -272,13 +289,13 @@ test('save from a lesson started on the student page: back to that page, then pu
   expect(mockReplace).not.toHaveBeenCalled();
 });
 
-test('picking another subject saves via recordLesson on that subject (timer start kept)', () => {
+test('picking another subject saves via endSession on that subject (timer start kept)', () => {
   const screen = renderScreen();
   fireEvent.press(screen.getByLabelText(/^Science/));
   fireEvent.press(screen.getByText(/Save lesson/));
-  expect(endSession).not.toHaveBeenCalled();
-  expect(recordLesson).toHaveBeenCalledWith(expect.objectContaining({
-    sessionId: 'session-1', studentId: 'student-1', subjectId: 'ss-2', startedAt: minsBefore(60), billedMinutes: 60, mode: 'online', travelKm: null,
+  expect(recordLesson).not.toHaveBeenCalled();
+  expect(endSession).toHaveBeenCalledWith(expect.objectContaining({
+    sessionId: 'session-1', subjectId: 'ss-2', endedAt: ENDED_AT, billedMinutes: 60, mode: 'online',
   }));
   expect(mockEndTimer).toHaveBeenCalled();
 });
@@ -291,10 +308,10 @@ test('untouched subject keeps the timer save path (endSession)', () => {
   expect(recordLesson).not.toHaveBeenCalled();
 });
 
-test('in-person: editing km saves via recordLesson with that km', () => {
+test('in-person: editing km saves via endSession with that km', () => {
   mockSession = session({ mode: 'in_person' });
   const screen = renderScreen();
   fireEvent.changeText(screen.getByLabelText('Travel kilometres'), '15');
   fireEvent.press(screen.getByText(/Save lesson/));
-  expect(recordLesson).toHaveBeenCalledWith(expect.objectContaining({ subjectId: 'ss-1', mode: 'in_person', travelKm: 15 }));
+  expect(endSession).toHaveBeenCalledWith(expect.objectContaining({ mode: 'in_person', travelKm: 15 }));
 });

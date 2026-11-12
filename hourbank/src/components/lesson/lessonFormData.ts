@@ -35,9 +35,9 @@ export function parentTravelTerms(student: Student): { parentTravelMode: ParentT
 export function billingRoundMinutes(): number {
   try {
     const m = getOrCreateTutorProfile().billing_round_minutes;
-    return m > 0 ? m : 15;
+    return m === 15 || m === 30 ? m : 30;
   } catch {
-    return 15;
+    return 30;
   }
 }
 

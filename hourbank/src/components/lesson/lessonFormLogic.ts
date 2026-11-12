@@ -8,7 +8,8 @@ import { parentTravelCharge } from '../../utils/travel';
 
 export type LessonMode = Session['mode'];
 
-export const LESSON_STEP_MINUTES = 15;
+/** Default lesson-length step; the tutor may switch to 15 in Settings. */
+export const LESSON_STEP_MINUTES = 30;
 export const LESSON_MIN_MINUTES = 15;
 export const LESSON_MAX_MINUTES = 480;
 export const LESSON_DEFAULT_MINUTES = 60;
@@ -98,16 +99,20 @@ export function parseKmInput(text: string): { value: number | null; error: strin
   return { value: Math.round(n * 10) / 10, error: null };
 }
 
-/** Typed minutes → clamped value, or null when nothing usable was typed. */
-export function parseMinutesInput(text: string): number | null {
-  const n = parseInt(text.replace(/\D/g, ''), 10);
-  if (!Number.isFinite(n)) return null;
-  return Math.min(LESSON_MAX_MINUTES, Math.max(LESSON_MIN_MINUTES, n));
-}
+/** Quick picks on the record form (owner decision 2026-11-12). */
+export const LESSON_LENGTH_PRESETS = [30, 60, 90, 120] as const;
 
-export function stepBilled(current: number, dir: 1 | -1): number {
-  const next = current + dir * LESSON_STEP_MINUTES;
-  return Math.min(LESSON_MAX_MINUTES, Math.max(LESSON_MIN_MINUTES, next));
+/**
+ * One stepper tap on a lesson length. Moves to the next grid line of `step`
+ * (15 or 30), so an off-grid stored length (e.g. 50m) snaps only when the tutor
+ * changes it: + → 60, − → 30 on a 30 grid. Never below one step.
+ */
+export function stepBilled(current: number, dir: 1 | -1, step: number = LESSON_STEP_MINUTES): number {
+  const unit = step > 0 ? step : LESSON_STEP_MINUTES;
+  const next = dir > 0
+    ? Math.floor(current / unit + EPS) * unit + unit
+    : Math.ceil(current / unit - EPS) * unit - unit;
+  return Math.min(LESSON_MAX_MINUTES, Math.max(unit, next));
 }
 
 // ─── Previews ────────────────────────────────────────────────────────────────
@@ -237,19 +242,6 @@ export function timerReviewOverrides(a: {
   if (a.subjectId && a.subjectId !== a.bookedSubjectId) o.subjectId = a.subjectId;
   if (a.mode === 'in_person' && a.km !== a.initialKm) o.travelKm = a.km;
   return o;
-}
-
-/**
- * recordLesson for a billed, started lesson with review changes (it re-derives
- * the end from the start); otherwise endSession — which takes the same
- * overrides, so a zero-billed lesson never drops a subject/km change.
- */
-export function timerReviewSaveRoute(a: {
-  overrides: TimerReviewOverrides;
-  billedMinutes: number;
-  hasStarted: boolean;
-}): 'record' | 'end' {
-  return Object.keys(a.overrides).length > 0 && a.billedMinutes > 0 && a.hasStarted ? 'record' : 'end';
 }
 
 /**

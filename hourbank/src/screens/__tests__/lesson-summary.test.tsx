@@ -233,13 +233,24 @@ describe('overdue lesson = action hub', () => {
     fireEvent.press(s.getByText('No-show…'));
     fireEvent(s.getByLabelText('Charge for this lesson'), 'valueChange', true);
     fireEvent.press(s.getByText('Mark no-show · deduct 1h'));
-    expect(markNoShow).toHaveBeenCalledWith('sess-1', { charge: true, minutes: 60 });
+    // Include travel is off by default (owner decision 2026-11-12)
+    expect(markNoShow).toHaveBeenCalledWith('sess-1', { charge: true, minutes: 60, includeTravel: false });
+  });
+
+  test('No-show sheet: Include travel switch for an in-person lesson', () => {
+    const s = renderScreen();
+    fireEvent.press(s.getByText('No-show…'));
+    expect(s.queryByLabelText('Include travel')).toBeNull();
+    fireEvent(s.getByLabelText('Charge for this lesson'), 'valueChange', true);
+    fireEvent(s.getByLabelText('Include travel'), 'valueChange', true);
+    fireEvent.press(s.getByText('Mark no-show · deduct 1h'));
+    expect(markNoShow).toHaveBeenCalledWith('sess-1', { charge: true, minutes: 60, includeTravel: true });
   });
 
   test('No-show without charge', () => {
     const s = renderScreen();
     fireEvent.press(s.getByText('No-show…'));
     fireEvent.press(s.getByText('Mark no-show · no charge'));
-    expect(markNoShow).toHaveBeenCalledWith('sess-1', { charge: false, minutes: undefined });
+    expect(markNoShow).toHaveBeenCalledWith('sess-1', { charge: false, minutes: undefined, includeTravel: false });
   });
 });

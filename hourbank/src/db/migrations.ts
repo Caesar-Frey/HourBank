@@ -680,6 +680,43 @@ export const MIGRATION_010_TRAVEL_RATE_SNAPSHOT: Migration = {
   },
 };
 
+/**
+ * 011 — polish work package A (2026-11-12). Additive and idempotent:
+ * - tutor_profile.rates_confirmed_at: NULL until the tutor confirms their rates.
+ *   Existing tutors (a name, any claim or any top-up) are backfilled to now so
+ *   they are not nagged about rates they already use.
+ * - billing_round_minutes: lesson lengths move in 15 or 30 minute steps only;
+ *   5 and 10 become 15 (15 and 30 stay as they are).
+ * - sessions.no_show_travel: a charged no-show carries travel only when the
+ *   tutor switches it on (default off). Existing no-shows default to off.
+ * - sessions.removed_at: a recorded lesson struck from history (its hours are
+ *   returned by an `adjustment` ledger row; the deduction itself is never touched).
+ */
+export const MIGRATION_011_POLISH_A: Migration = {
+  version: '011_polish_a',
+  run: (db) => {
+    const now = new Date().toISOString();
+    if (!hasColumn(db, 'tutor_profile', 'rates_confirmed_at')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN rates_confirmed_at TEXT`);
+      const inUse = [
+        `TRIM(COALESCE(full_name, '')) != ''`,
+        hasTable(db, 'claims') ? `EXISTS (SELECT 1 FROM claims)` : null,
+        `EXISTS (SELECT 1 FROM credit_packages)`,
+      ].filter(Boolean).join(' OR ');
+      db.runSync(`UPDATE tutor_profile SET rates_confirmed_at = ? WHERE rates_confirmed_at IS NULL AND (${inUse})`, [now]);
+    }
+    if (hasColumn(db, 'tutor_profile', 'billing_round_minutes')) {
+      db.runSync(`UPDATE tutor_profile SET billing_round_minutes = 15 WHERE billing_round_minutes NOT IN (15, 30)`);
+    }
+    if (!hasColumn(db, 'sessions', 'no_show_travel')) {
+      db.runSync(`ALTER TABLE sessions ADD COLUMN no_show_travel INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!hasColumn(db, 'sessions', 'removed_at')) {
+      db.runSync(`ALTER TABLE sessions ADD COLUMN removed_at TEXT`);
+    }
+  },
+};
+
 /** Ordered migration chain run at app boot (app/_layout.tsx) and by test DBs. */
 export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_002,
@@ -691,4 +728,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_008_CONTACTS_REFERENCE,
   MIGRATION_009_SUBJECTS_TRAVEL,
   MIGRATION_010_TRAVEL_RATE_SNAPSHOT,
+  MIGRATION_011_POLISH_A,
 ];

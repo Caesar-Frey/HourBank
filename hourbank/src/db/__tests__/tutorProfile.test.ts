@@ -117,10 +117,10 @@ describe('tutorProfile', () => {
   });
 
   describe('migration 007 fields', () => {
-    it('new profile: parent_hourly_price defaults to hourly_rate, rounding 15, no payment details', () => {
+    it('new profile: parent_hourly_price defaults to hourly_rate, lesson step 30, no payment details', () => {
       const p = upsertTutorProfile({ hourly_rate: 450 });
       expect(p.parent_hourly_price).toBe(450);
-      expect(p.billing_round_minutes).toBe(15);
+      expect(p.billing_round_minutes).toBe(30);
       expect(p.payment_details).toBeNull();
       expect(getTutorProfile()?.parent_hourly_price).toBe(450);
     });

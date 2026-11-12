@@ -30,6 +30,7 @@ import {
   getSession,
   parseSessionTopics,
   saveLiveTopics,
+  setInFlightMode,
 } from '../../../src/db/sessions';
 import { listTopicsForStudentSubject } from '../../../src/db/catalog';
 import { subjectNameFor } from '../../../src/components/lesson/lessonFormData';
@@ -156,6 +157,20 @@ export default function SessionScreen() {
       saveLiveTopics(sessionId, next);
     } catch (e) {
       console.error('saveLiveTopics error', e);
+    }
+  }
+
+  /** In-person ⇄ online, saved on the lesson row at once so ending prices travel from it (A1). */
+  function toggleMode() {
+    const prev = mode;
+    const next = prev === 'in_person' ? 'online' : 'in_person';
+    setMode(next);
+    try {
+      if (!setInFlightMode(sessionId, next)) throw new Error('lesson not in flight');
+    } catch (e) {
+      console.error('setInFlightMode error', e);
+      setMode(prev);
+      toast.show({ kind: 'error', message: "Couldn't switch the lesson mode — try again" });
     }
   }
 
@@ -437,7 +452,7 @@ export default function SessionScreen() {
           </TouchableOpacity>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity
-              onPress={() => setMode(m => (m === 'in_person' ? 'online' : 'in_person'))}
+              onPress={toggleMode}
               hitSlop={SLOP}
               accessibilityRole="button"
               accessibilityLabel={`Mode: ${mode === 'in_person' ? 'in-person' : 'online'}. Tap to switch.`}

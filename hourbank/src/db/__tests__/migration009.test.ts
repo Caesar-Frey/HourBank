@@ -5,6 +5,7 @@ import {
   ALL_MIGRATIONS,
   MIGRATION_008_CONTACTS_REFERENCE,
   MIGRATION_009_SUBJECTS_TRAVEL,
+  MIGRATION_010_TRAVEL_RATE_SNAPSHOT,
   suspendLedgerGuards,
 } from '../migrations';
 
@@ -229,7 +230,7 @@ describe('migration 010 — travel rate snapshot', () => {
 
   it('upgrades a populated 009 DB: adds columns, backfills derivable lessons, idempotent', () => {
     const db = createTestDb();
-    runMigrations(ALL_MIGRATIONS.slice(0, -1));
+    runMigrations(ALL_MIGRATIONS.slice(0, ALL_MIGRATIONS.indexOf(MIGRATION_010_TRAVEL_RATE_SNAPSHOT)));
     const st = (id: string, mode: string, flat: number, perKm: number) =>
       db.runSync(`INSERT INTO students (id, full_name, grade, subject, curriculum, status, created_at, parent_travel_mode, parent_travel_flat_fee, parent_travel_per_km)
                   VALUES (?, ?, 10, 'Maths', 'CAPS', 'active', ?, ?, ?, ?)`, [id, id, T0, mode, flat, perKm]);

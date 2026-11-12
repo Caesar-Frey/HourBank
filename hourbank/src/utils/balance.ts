@@ -1,6 +1,18 @@
 export type BalanceStatus = 'ok' | 'warn' | 'low' | 'owes';
 
-export function balanceStatus(hours: number): BalanceStatus {
+/**
+ * Snap an hours value to whole minutes. Ledger rows store `-(billed / 60)` as
+ * floats, so a sum that should be 0 can come back as −2.2e-16 ("OWES 0m").
+ * Apply at every read boundary that surfaces a balance. Never returns −0.
+ */
+export function normaliseHours(hours: number): number {
+  if (!Number.isFinite(hours)) return 0;
+  const r = Math.round(hours * 60) / 60;
+  return r === 0 ? 0 : r;
+}
+
+export function balanceStatus(rawHours: number): BalanceStatus {
+  const hours = normaliseHours(rawHours);
   if (hours < 0) return 'owes';
   if (hours >= 3) return 'ok';
   if (hours >= 1) return 'warn';

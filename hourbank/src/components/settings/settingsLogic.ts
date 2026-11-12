@@ -6,7 +6,8 @@ import type { BackupSummary } from '../../utils/backup';
 import { BILLING_TOLERANCE_MINUTES } from '../../utils/duration';
 import { formatDateLong, parseDecimal } from '../../utils/format';
 
-export const BILLING_ROUND_OPTIONS = [5, 10, 15, 30] as const;
+/** Lesson lengths move in these steps only (owner decision 2026-11-12). */
+export const BILLING_ROUND_OPTIONS = [15, 30] as const;
 export const RESTORE_CONFIRM_WORD = 'RESTORE';
 
 export const MAX_OWE_EXPLANATION =
@@ -15,7 +16,7 @@ export const MAX_OWE_EXPLANATION =
 export function billingRoundingExplanation(roundMinutes: number): string {
   return (
     `If a lesson runs within ${BILLING_TOLERANCE_MINUTES} min of its booked length, the booked length is billed. ` +
-    `Otherwise the actual time is rounded to the nearest ${roundMinutes} min. You can always adjust before saving.`
+    `Otherwise the actual time is rounded to the nearest ${roundMinutes} min. Lesson lengths go up and down in ${roundMinutes} min steps.`
   );
 }
 

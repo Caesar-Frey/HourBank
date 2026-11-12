@@ -16,7 +16,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { F, MIN_TOUCH } from '../../src/theme/fonts';
 import { COLORS } from '../../src/theme/colors';
 import { eventKindStyle } from '../../src/theme/eventColors';
-import { ScreenHeader } from '../../src/components/ScreenHeader';
+import { HeaderIconButton, ScreenHeader } from '../../src/components/ScreenHeader';
 import { useToast } from '../../src/components/Toast';
 import { useStartLesson } from '../../src/hooks/useStartLesson';
 import {
@@ -25,7 +25,16 @@ import {
   getSession,
   markNoShow,
   isChargedNoShow,
+  isEditableLesson,
+  isRemovedLesson,
+  isSessionInClaim,
+  removeLesson,
+  LessonInClaimError,
 } from '../../src/db/sessions';
+import { ActionSheet, type ActionSheetItem } from '../../src/components/ActionSheet';
+import { BilledMinutesField } from '../../src/components/lesson/LessonFields';
+import { billingRoundMinutes } from '../../src/components/lesson/lessonFormData';
+import { formatHours } from '../../src/utils/format';
 import { getStudent } from '../../src/db/students';
 import { currentBalance, getSessionDeduction, type LedgerRow } from '../../src/db/ledger';
 import { getPrimarySubjectId, getStudentSubject, getSubjectBalance } from '../../src/db/subjects';
@@ -108,6 +117,7 @@ export default function LessonDetailScreen() {
   const [messageSent, setMessageSent] = useState<ShareStamp>(null);
   const [busy, setBusy] = useState<null | 'pdf' | 'whatsapp'>(null);
   const [noShowOpen, setNoShowOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
 
   const load = useCallback(() => {
@@ -143,7 +153,17 @@ export default function LessonDetailScreen() {
     else router.replace('/');
   }, [router]);
 
-  const header = <ScreenHeader backLabel="BACK" onBack={goBack} title="Lesson" />;
+  const canRemove = data.state === 'ready' && isEditableLesson(data.session);
+  const header = (
+    <ScreenHeader
+      backLabel="BACK"
+      onBack={goBack}
+      title="Lesson"
+      right={canRemove ? (
+        <HeaderIconButton icon="more-horizontal" accessibilityLabel="More lesson actions" onPress={() => setMenuOpen(true)} />
+      ) : undefined}
+    />
+  );
 
   if (data.state === 'loading') {
     return (
@@ -315,10 +335,10 @@ export default function LessonDetailScreen() {
     ]);
   }
 
-  function confirmNoShow(charge: boolean, minutes: number) {
+  function confirmNoShow(charge: boolean, minutes: number, includeTravel: boolean) {
     setNoShowOpen(false);
     try {
-      markNoShow(sessionId, { charge, minutes: charge ? minutes : undefined });
+      markNoShow(sessionId, { charge, minutes: charge ? minutes : undefined, includeTravel });
       toast.show({
         kind: 'success',
         message: charge ? `Marked no-show · ${formatMinutes(minutes)} deducted` : 'Marked no-show · nothing deducted',
@@ -329,6 +349,46 @@ export default function LessonDetailScreen() {
     }
     load();
   }
+
+  function confirmRemove() {
+    setMenuOpen(false);
+    const first = studentName.trim().split(/\s+/)[0];
+    if (isSessionInClaim(sessionId)) {
+      Alert.alert('This lesson is in a claim', 'Void the claim first, then remove the lesson.', [{ text: 'OK' }]);
+      return;
+    }
+    const hours = (session.billed_minutes ?? 0) / 60;
+    const credit = subjectName ? `${first}'s ${subjectName} credit` : `${first}'s credit`;
+    Alert.alert(
+      'Remove this lesson?',
+      `The lesson is struck from history and ${formatHours(hours)} goes back to ${credit}.`,
+      [
+        { text: 'Keep it', style: 'cancel' },
+        {
+          text: 'Remove lesson',
+          style: 'destructive',
+          onPress: () => {
+            try {
+              removeLesson(sessionId);
+              toast.show({ kind: 'success', message: `Lesson removed · ${formatHours(hours)} returned` });
+            } catch (e) {
+              console.error('removeLesson error', e);
+              toast.show({
+                kind: 'error',
+                message: e instanceof LessonInClaimError ? 'This lesson is in a claim. Void the claim first.' : "Couldn't remove the lesson — please try again",
+              });
+            }
+            load();
+          },
+        },
+      ],
+    );
+  }
+
+  const menuItems: ActionSheetItem[] = [
+    { label: 'Edit lesson', icon: 'edit-2', onPress: () => { setMenuOpen(false); handleEdit(); } },
+    { label: 'Remove lesson…', icon: 'trash-2', destructive: true, onPress: confirmRemove },
+  ];
 
   const sectionLabel = { fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, letterSpacing: 1, marginBottom: 6 } as const;
 
@@ -371,6 +431,11 @@ export default function LessonDetailScreen() {
             {`Edited ${formatDateLong(session.edited_at)}`}
           </Text>
         ) : null}
+        {isRemovedLesson(session) ? (
+          <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkFaint }}>
+            {`Removed${session.removed_at ? ` ${formatDateLong(session.removed_at)}` : ''} — its hours went back to the student's credit.`}
+          </Text>
+        ) : null}
         {kind === 'cancelled' && session.cancel_reason === 'discarded' ? (
           <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkFaint }}>Discarded during the lesson — nothing deducted.</Text>
         ) : null}
@@ -410,13 +475,13 @@ export default function LessonDetailScreen() {
           </View>
         )}
 
-        {session.mode === 'in_person' && (kind === 'completed' || session.travel_km != null) ? (
+        {session.mode === 'in_person' && (kind === 'completed' || session.travel_km != null || session.no_show_travel === 1) ? (
           <View style={{ marginBottom: 20 }}>
             <Text style={sectionLabel}>TRAVEL</Text>
             <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.ink }}>
               {[
                 session.travel_km != null ? `${session.travel_km} km` : kind === 'completed' ? null : 'student default km',
-                kind === 'completed' && (session.parent_travel_fee ?? 0) > 0 ? `${formatRand(session.parent_travel_fee ?? 0)} to parent` : null,
+                (kind === 'completed' || kind === 'no_show') && (session.parent_travel_fee ?? 0) > 0 ? `${formatRand(session.parent_travel_fee ?? 0)} to parent` : null,
               ].filter(Boolean).join(' · ') || '—'}
             </Text>
           </View>
@@ -529,9 +594,12 @@ export default function LessonDetailScreen() {
         visible={noShowOpen}
         studentName={studentName}
         defaultMinutes={booked ?? DEFAULT_LESSON_MINUTES}
+        inPerson={session.mode === 'in_person'}
+        step={billingRoundMinutes()}
         onCancel={() => setNoShowOpen(false)}
         onConfirm={confirmNoShow}
       />
+      <ActionSheet visible={menuOpen} onDismiss={() => setMenuOpen(false)} items={menuItems} />
     </SafeAreaView>
   );
 }
@@ -598,25 +666,47 @@ function NoShowSheet({
   visible,
   studentName,
   defaultMinutes,
+  inPerson,
+  step,
   onCancel,
   onConfirm,
 }: {
   visible: boolean;
   studentName: string;
   defaultMinutes: number;
+  /** Only an in-person lesson can carry travel. */
+  inPerson: boolean;
+  /** Lesson-length step from Settings (15 or 30). */
+  step: number;
   onCancel: () => void;
-  onConfirm: (charge: boolean, minutes: number) => void;
+  onConfirm: (charge: boolean, minutes: number, includeTravel: boolean) => void;
 }) {
   const insets = useSafeAreaInsets();
   const [charge, setCharge] = useState(false);
+  const [includeTravel, setIncludeTravel] = useState(false);
   const [minutes, setMinutes] = useState(defaultMinutes);
 
   const onShow = () => {
     setCharge(false);
+    setIncludeTravel(false);
     setMinutes(defaultMinutes);
   };
 
-  const step = (delta: number) => setMinutes(m => Math.max(15, m + delta));
+  const switchRow = (label: string, value: boolean, onChange: (v: boolean) => void, hint?: string) => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: MIN_TOUCH, marginBottom: 8, gap: 12 }}>
+      <View style={{ flexShrink: 1 }}>
+        <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>{label}</Text>
+        {hint ? <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft, marginTop: 2 }}>{hint}</Text> : null}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        trackColor={{ false: COLORS.paperEdge, true: COLORS.oxblood }}
+        thumbColor={COLORS.paper}
+        accessibilityLabel={label}
+      />
+    </View>
+  );
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel} onShow={onShow}>
@@ -636,32 +726,21 @@ function NoShowSheet({
           {`${studentName} didn't attend. The lesson is closed as a no-show.`}
         </Text>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: MIN_TOUCH, marginBottom: 8 }}>
-          <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink, flexShrink: 1 }}>Charge for this lesson</Text>
-          <Switch
-            value={charge}
-            onValueChange={setCharge}
-            trackColor={{ false: COLORS.paperEdge, true: COLORS.oxblood }}
-            thumbColor={COLORS.paper}
-            accessibilityLabel="Charge for this lesson"
-          />
-        </View>
+        {switchRow('Charge for this lesson', charge, setCharge)}
 
         {charge ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, letterSpacing: 1 }}>DEDUCT</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <StepButton label="−15m" onPress={() => step(-15)} disabled={minutes <= 15} />
-              <Text style={{ fontFamily: F.monoMed, fontSize: 15, color: COLORS.ink, minWidth: 64, textAlign: 'center' }}>
-                {formatMinutes(minutes)}
-              </Text>
-              <StepButton label="+15m" onPress={() => step(15)} />
-            </View>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, letterSpacing: 1 }}>DEDUCT</Text>
+            <BilledMinutesField value={minutes} onChange={setMinutes} step={step} label="Deduct" />
           </View>
         ) : null}
 
+        {charge && inPerson
+          ? switchRow('Include travel', includeTravel, setIncludeTravel, 'Charge the parent travel and claim your travel for this lesson.')
+          : null}
+
         <TouchableOpacity
-          onPress={() => onConfirm(charge, minutes)}
+          onPress={() => onConfirm(charge, minutes, charge && inPerson && includeTravel)}
           accessibilityRole="button"
           style={{ backgroundColor: COLORS.oxblood, borderRadius: 14, minHeight: 52, alignItems: 'center', justifyContent: 'center', marginTop: 8 }}
         >
