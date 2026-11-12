@@ -147,10 +147,32 @@ export default function SettingsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The tab stays mounted — refresh the backup age whenever it regains focus.
+  // Latest typed values, for saving when the tab loses focus (D6).
+  const draftRef = useRef({ fullName: '', paymentDetails: '' });
+  draftRef.current = { fullName, paymentDetails };
+
+  // The tab stays mounted — refresh the backup age and the reference preview
+  // student whenever it regains focus; on blur, save any text still being typed.
   useFocusEffect(
     useCallback(() => {
       getLastBackupAt().then(setLastBackupAt).catch(() => {});
+      try {
+        const first = listActiveStudents()[0];
+        setReferenceSample(first ? { id: first.id, full_name: first.full_name } : SAMPLE_REFERENCE_STUDENT);
+      } catch { /* keep the previous sample */ }
+      return () => {
+        const current = profileRef.current;
+        if (!current) return;
+        const name = draftRef.current.fullName.trim();
+        const pay = draftRef.current.paymentDetails.trim() || null;
+        const patch: Partial<TutorProfile> = {};
+        if (name !== (current.full_name ?? '')) patch.full_name = name;
+        if (pay !== (current.payment_details ?? null)) patch.payment_details = pay;
+        if (Object.keys(patch).length === 0) return;
+        try {
+          profileRef.current = upsertTutorProfile(patch);
+        } catch { /* the field's own blur save reports errors */ }
+      };
     }, [])
   );
 

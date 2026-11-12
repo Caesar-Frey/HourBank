@@ -17,6 +17,7 @@ jest.mock('@expo/vector-icons', () => ({ Feather: () => null }));
 jest.mock('expo-router', () => ({
   useRouter: () => mockRouter,
   useNavigationContainerRef: () => ({ getRootState: () => null, dispatch: jest.fn() }),
+  useNavigation: () => ({ addListener: () => () => {}, dispatch: jest.fn() }),
 }));
 jest.mock('../../db/students', () => ({
   getStudent: () => ({

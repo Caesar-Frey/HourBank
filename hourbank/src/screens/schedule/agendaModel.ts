@@ -35,6 +35,21 @@ export function agendaSections(agenda: Agenda): AgendaSection[] {
     .map(key => ({ key, title: SECTION_TITLES[key], items: agenda[key] }));
 }
 
+/** Overdue lessons older than this are folded behind "Show older" (D2). */
+export const OVERDUE_WINDOW_DAYS = 60;
+
+/** Split overdue items into the recent window and the older remainder. */
+export function splitOverdue(items: AgendaItem[], now: Date = new Date()): { recent: AgendaItem[]; older: AgendaItem[] } {
+  const cutoff = now.getTime() - OVERDUE_WINDOW_DAYS * 86_400_000;
+  const recent: AgendaItem[] = [];
+  const older: AgendaItem[] = [];
+  for (const it of items) {
+    const t = it.scheduled_for ? Date.parse(it.scheduled_for) : NaN;
+    (Number.isFinite(t) && t < cutoff ? older : recent).push(it);
+  }
+  return { recent, older };
+}
+
 export function agendaIsEmpty(agenda: Agenda): boolean {
   return SECTION_ORDER.every(key => agenda[key].length === 0);
 }

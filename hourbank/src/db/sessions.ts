@@ -1090,13 +1090,17 @@ export function updateScheduled(
   db.withTransactionSync(() => {
     const existing = db.getFirstSync<{ student_id: string }>('SELECT student_id FROM sessions WHERE id = ?', [sessionId]);
     const subjectId = existing && data.subjectId !== undefined ? resolveSubjectIdInTx(existing.student_id, data.subjectId) : null;
-    db.runSync(
+    const when = new Date(data.scheduledFor);
+    if (Number.isNaN(when.getTime())) throw new SessionError('INVALID_INPUT', 'Invalid date');
+    const changes = db.runSync(
       `UPDATE sessions SET scheduled_for = ?, estimated_duration_minutes = ?, mode = ?, topics = ?, session_notes = ?, session_type = ?,
          subject_id = COALESCE(?, subject_id), travel_km = CASE WHEN ? THEN ? ELSE travel_km END
        WHERE id = ? AND status = 'scheduled'`,
-      [data.scheduledFor, data.estimatedDurationMinutes, data.mode, JSON.stringify(data.topics), data.notes ?? null, data.session_type,
+      [when.toISOString(), data.estimatedDurationMinutes, data.mode, JSON.stringify(data.topics), data.notes ?? null, data.session_type,
         subjectId, data.travelKm !== undefined ? 1 : 0, data.travelKm ?? null, sessionId]
-    );
+    ).changes;
+    // One write for a reschedule (D4): a lesson that started meanwhile is not moved.
+    if (changes === 0) throw new SessionError('INVALID_STATE', `Session ${sessionId} is not scheduled`);
   });
 }
 

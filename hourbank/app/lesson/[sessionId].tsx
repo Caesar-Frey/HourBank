@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -57,6 +57,7 @@ import { balanceTileText, lessonStatusKind, LessonStatusKind } from '../../src/c
 type Loaded =
   | { state: 'loading' }
   | { state: 'not_found' }
+  | { state: 'error' }
   | {
       state: 'ready';
       session: Session;
@@ -117,6 +118,7 @@ export default function LessonDetailScreen() {
   const [messageSent, setMessageSent] = useState<ShareStamp>(null);
   const [busy, setBusy] = useState<null | 'pdf' | 'whatsapp'>(null);
   const [noShowOpen, setNoShowOpen] = useState(false);
+  const noShowBusyRef = useRef(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
 
@@ -142,7 +144,8 @@ export default function LessonDetailScreen() {
       setPdfSharedAt(receipt ? (receipt.shared_at ?? receipt.created_at) : null);
     } catch (e) {
       console.error('LessonDetail load error', e);
-      setData({ state: 'not_found' });
+      // A read failure is not "not found": offer a retry (D5).
+      setData({ state: 'error' });
     }
   }, [sessionId]);
 
@@ -171,6 +174,28 @@ export default function LessonDetailScreen() {
         {header}
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator color={COLORS.inkFaint} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (data.state === 'error') {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top', 'bottom']}>
+        {header}
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+          <Text style={{ fontFamily: F.serif, fontSize: 22, color: COLORS.ink, marginBottom: 8 }}>Couldn’t load this lesson</Text>
+          <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkSoft, textAlign: 'center', marginBottom: 24 }}>
+            Your data is still on this phone. Try again.
+          </Text>
+          <TouchableOpacity
+            onPress={load}
+            accessibilityRole="button"
+            testID="lesson-retry"
+            style={{ borderWidth: 1, borderColor: COLORS.ink, borderRadius: 14, minHeight: MIN_TOUCH, paddingHorizontal: 24, justifyContent: 'center' }}
+          >
+            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>Try again</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -336,6 +361,9 @@ export default function LessonDetailScreen() {
   }
 
   function confirmNoShow(charge: boolean, minutes: number, includeTravel: boolean) {
+    // A double tap must not try to mark it twice (D3).
+    if (noShowBusyRef.current) return;
+    noShowBusyRef.current = true;
     setNoShowOpen(false);
     try {
       markNoShow(sessionId, { charge, minutes: charge ? minutes : undefined, includeTravel });
@@ -346,6 +374,8 @@ export default function LessonDetailScreen() {
     } catch (e) {
       console.error('markNoShow error', e);
       toast.show({ kind: 'error', message: "Couldn't mark no-show — the lesson may have changed" });
+    } finally {
+      noShowBusyRef.current = false;
     }
     load();
   }

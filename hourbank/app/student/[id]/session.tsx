@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useKeyboardHeight, useScrollFocusedInputIntoView } from '../../../src/components/FormScreen';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import {
   View,
@@ -8,7 +9,6 @@ import {
   Alert,
   ScrollView,
   KeyboardAvoidingView,
-  Platform,
   StatusBar,
   useWindowDimensions,
 } from 'react-native';
@@ -58,6 +58,15 @@ export default function SessionScreen() {
   selectedTopicsRef.current = selectedTopics;
   const [addingTopic, setAddingTopic] = useState(false);
   const [customTopic, setCustomTopic] = useState('');
+  // Keyboard (D1): same padding + scroll-into-view as FormScreen, so the
+  // "+ add" topic input is never hidden behind the keyboard or the controls.
+  const keyboardHeight = useKeyboardHeight();
+  const liveScrollRef = useRef<ScrollView | null>(null);
+  const liveScrollY = useRef(0);
+  const controlsHeight = useRef(0);
+  const pauseBusyRef = useRef(false);
+  const topicsSaveWarned = useRef(false);
+  useScrollFocusedInputIntoView(liveScrollRef, liveScrollY, controlsHeight);
   const [student, setStudent] = useState<Student | null>(null);
   /** The LESSON's subject (multi-subject students); falls back to students.subject. */
   const [lessonSubject, setLessonSubject] = useState<string | null>(null);
@@ -155,8 +164,14 @@ export default function SessionScreen() {
     setSelectedTopics(next);
     try {
       saveLiveTopics(sessionId, next);
+      topicsSaveWarned.current = false;
     } catch (e) {
       console.error('saveLiveTopics error', e);
+      // Say so once, not on every tap (D5); the picks still reach the review screen.
+      if (!topicsSaveWarned.current) {
+        topicsSaveWarned.current = true;
+        toast.show({ kind: 'error', message: "Couldn't save topics yet. They'll still be on the review screen." });
+      }
     }
   }
 
@@ -202,9 +217,16 @@ export default function SessionScreen() {
   }
 
   function togglePause() {
-    const ok = isPaused ? resumeTimer() : pauseTimer();
-    if (!ok) toast.show({ kind: 'error', message: isPaused ? "Couldn't resume the lesson" : "Couldn't pause the lesson" });
-    reload();
+    // Ignore a second tap until the first has landed (D3).
+    if (pauseBusyRef.current) return;
+    pauseBusyRef.current = true;
+    try {
+      const ok = isPaused ? resumeTimer() : pauseTimer();
+      if (!ok) toast.show({ kind: 'error', message: isPaused ? "Couldn't resume the lesson" : "Couldn't pause the lesson" });
+      reload();
+    } finally {
+      setTimeout(() => { pauseBusyRef.current = false; }, 400);
+    }
   }
 
   function handleStart() {
@@ -421,7 +443,8 @@ export default function SessionScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: COLORS.sessionBg }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior="padding"
+      enabled={keyboardHeight > 0}
     >
       {statusBar}
       {/* Bottom edge too: under edge-to-edge the scroll content otherwise ends behind the nav bar. */}
@@ -472,9 +495,12 @@ export default function SessionScreen() {
         </View>
 
         <ScrollView
+          ref={liveScrollRef}
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 16 }}
           keyboardShouldPersistTaps="handled"
+          onScroll={e => { liveScrollY.current = e.nativeEvent.contentOffset.y; }}
+          scrollEventThrottle={32}
         >
           {/* Student name + lesson label */}
           <View style={{ alignItems: 'center', paddingTop: compact ? 4 : 12, paddingBottom: compact ? 14 : 28 }}>
@@ -596,7 +622,7 @@ export default function SessionScreen() {
         </ScrollView>
 
         {/* Controls pinned below the scroll area: always visible, even at 640dp. */}
-        <View style={{ paddingTop: compact ? 8 : 12, paddingBottom: compact ? 4 : 8, borderTopWidth: 1, borderTopColor: COLORS.paper12 }}>
+        <View onLayout={e => { controlsHeight.current = e.nativeEvent.layout.height; }} style={{ paddingTop: compact ? 8 : 12, paddingBottom: compact ? 4 : 8, borderTopWidth: 1, borderTopColor: COLORS.paper12 }}>
           <View style={{ flexDirection: 'row', paddingHorizontal: 24, gap: 12 }}>
             <TouchableOpacity
               onPress={togglePause}

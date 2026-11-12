@@ -99,6 +99,8 @@ export default function NewClaimScreen() {
 
   const selected = useMemo(() => computeSelected(pool, heldBack), [pool, heldBack]);
   const groups = useMemo(() => groupByStudent(pool, heldBack), [pool, heldBack]);
+  // Stable so memoised rows re-render only when their own state changes (D2).
+  const toggleLine = useCallback((sessionId: string) => setHeldBack(prev => toggleHoldBack(prev, sessionId)), []);
 
   const preview = useMemo(() => {
     try {
@@ -289,37 +291,52 @@ export default function NewClaimScreen() {
               {group.selectedCount}/{group.lines.length} · {formatRand(group.selectedTotal)}
             </Text>
           </View>
-          {group.lines.map(line => {
-            const { day, month } = formatLedgerDate(line.ended_at);
-            const isSelected = !heldBack.has(line.session_id);
-            return (
-              <TouchableOpacity
-                key={line.session_id}
-                onPress={() => setHeldBack(prev => toggleHoldBack(prev, line.session_id))}
-                activeOpacity={0.7}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: isSelected }}
-                accessibilityLabel={`${day} ${month}, ${formatHours(line.billed_hours)}, ${formatRand(line.line_total)}`}
-                style={{ borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 10, minHeight: MIN_TOUCH, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-              >
-                <Checkbox checked={isSelected} />
-                <View style={{ alignItems: 'center', minWidth: 32 }}>
-                  <Text style={{ fontFamily: F.mono, fontSize: 15, color: COLORS.ink, lineHeight: 17 }}>{day}</Text>
-                  <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint }}>{month}</Text>
-                </View>
-                <Text style={{ flex: 1, fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft }}>
-                  {modeLabel(line.mode)} · {formatHours(line.billed_hours)}
-                  {kmLabel(line.mode, kmBySession.get(line.session_id)) ? ` · ${kmLabel(line.mode, kmBySession.get(line.session_id))}` : ''}
-                  {line.travel_fee > 0 ? ` · travel ${formatRand(line.travel_fee)}` : ''}
-                </Text>
-                <Text style={{ fontFamily: F.mono, fontSize: 13, color: isSelected ? COLORS.ink : COLORS.inkFaint, textDecorationLine: isSelected ? 'none' : 'line-through' }}>
-                  {formatRand(line.line_total)}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+          {group.lines.map(line => (
+            <ClaimLineRow
+              key={line.session_id}
+              line={line}
+              selected={!heldBack.has(line.session_id)}
+              km={kmBySession.get(line.session_id)}
+              onToggle={toggleLine}
+            />
+          ))}
         </View>
       ))}
     </FormScreen>
   );
 }
+
+/** One lesson in the claim builder; memoised so a tap re-renders one row, not all (D2). */
+const ClaimLineRow = React.memo(function ClaimLineRow({ line, selected, km, onToggle }: {
+  line: ClaimablePoolLine;
+  selected: boolean;
+  km: number | null | undefined;
+  onToggle: (sessionId: string) => void;
+}) {
+  const { day, month } = formatLedgerDate(line.ended_at);
+  const kmText = kmLabel(line.mode, km);
+  return (
+    <TouchableOpacity
+      onPress={() => onToggle(line.session_id)}
+      activeOpacity={0.7}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={`${day} ${month}, ${formatHours(line.billed_hours)}, ${formatRand(line.line_total)}`}
+      style={{ borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, paddingVertical: 10, minHeight: MIN_TOUCH, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+    >
+      <Checkbox checked={selected} />
+      <View style={{ alignItems: 'center', minWidth: 32 }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 15, color: COLORS.ink, lineHeight: 17 }}>{day}</Text>
+        <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint }}>{month}</Text>
+      </View>
+      <Text style={{ flex: 1, fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft }}>
+        {modeLabel(line.mode)} · {formatHours(line.billed_hours)}
+        {kmText ? ` · ${kmText}` : ''}
+        {line.travel_fee > 0 ? ` · travel ${formatRand(line.travel_fee)}` : ''}
+      </Text>
+      <Text style={{ fontFamily: F.mono, fontSize: 13, color: selected ? COLORS.ink : COLORS.inkFaint, textDecorationLine: selected ? 'none' : 'line-through' }}>
+        {formatRand(line.line_total)}
+      </Text>
+    </TouchableOpacity>
+  );
+});

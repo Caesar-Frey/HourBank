@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -38,6 +38,7 @@ export default function ClaimDetailScreen() {
   const [claim, setClaim] = useState<Claim | null | undefined>(undefined);
   const [lines, setLines] = useState<DetailLine[]>([]);
   const [edited, setEdited] = useState<EditedClaimLine[]>([]);
+  const voidingRef = useRef(false);
   const [voidModalVisible, setVoidModalVisible] = useState(false);
   const keyboardOverlap = useKeyboardOverlap();
   const [voidReason, setVoidReason] = useState('');
@@ -88,7 +89,8 @@ export default function ClaimDetailScreen() {
   }
 
   function onConfirmVoid() {
-    if (!id) return;
+    if (!id || voidingRef.current) return;
+    voidingRef.current = true;
     try {
       const reason = voidReason.trim();
       voidClaim({ claimId: id, reason: reason.length > 0 ? reason : null });
@@ -100,6 +102,8 @@ export default function ClaimDetailScreen() {
       Alert.alert('Couldn’t void this claim', 'It was already voided, or it no longer exists. The screen has been refreshed.');
       setVoidModalVisible(false);
       load();
+    } finally {
+      voidingRef.current = false;
     }
   }
 

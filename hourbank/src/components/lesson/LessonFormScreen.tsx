@@ -28,6 +28,7 @@ import { isTravelError } from '../../db/travel';
 import { addCustomTopicForSubject } from '../../db/catalog';
 import type { Session, Student } from '../../db/schema';
 import { applyLessonSavedNav, lessonSavedNav } from '../../utils/lessonNav';
+import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import { formatDateLong, formatDayShort, formatHours, formatMinutes, formatRand, formatTime, formatTimeRange } from '../../utils/format';
 import { ClaimedLineInfo, getClaimedLineForSession } from '../../db/claims';
 import {
@@ -231,6 +232,18 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
     return ctx.options.find(o => o.id === subjectId)?.subject ?? (ctx.fallbackSubject?.id === subjectId ? ctx.fallbackSubject.name : ctx.student.subject);
   }, [ctx, subjectId]);
 
+  // Unsaved-changes guard (D7): dirty once anything differs from the loaded form.
+  const formKey = JSON.stringify([subjectId, start.getTime(), billed, mode, km, selectedTopics, notes, noShowTravel]);
+  const baselineRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loaded && ctx && baselineRef.current === null) baselineRef.current = formKey;
+  }, [loaded, ctx, formKey]);
+  const dirty = baselineRef.current !== null && baselineRef.current !== formKey;
+  const { allowLeave } = useUnsavedChangesGuard(dirty, {
+    title: isEdit ? 'Discard your changes?' : 'Discard this lesson?',
+    message: isEdit ? 'Your changes to this lesson will be lost.' : 'It hasn’t been recorded yet.',
+  });
+
   if (!loaded) return <LoadingState />;
   if (loadError || !ctx) return <NotFoundState title={loadError ?? 'Lesson not found'} onBack={() => router.back()} />;
 
@@ -301,6 +314,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
   }
 
   function goToSummary(sessionId: string) {
+    allowLeave();
     if (props.kind === 'record' && props.from === 'lesson' && session && router.canGoBack()) {
       router.back();
       return;
@@ -348,12 +362,14 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
     if (Object.keys(patch).length === 0) {
       release();
       toast.show({ kind: 'info', message: 'No changes to save' });
+      allowLeave();
       router.back();
       return;
     }
     try {
       editLesson(session.id, patch);
       toast.show({ kind: 'success', message: 'Lesson updated' });
+      allowLeave();
       router.back();
     } catch (e) {
       release();

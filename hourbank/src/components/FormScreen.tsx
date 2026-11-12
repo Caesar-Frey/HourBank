@@ -96,6 +96,36 @@ export function useKeyboardOverlap(onShow?: () => void): number {
   return overlap;
 }
 
+/**
+ * Scroll the focused input above the keyboard (+ a footer) once it has opened.
+ * Shared by FormScreen and the live lesson screen (D1).
+ */
+export function useScrollFocusedInputIntoView(
+  scrollRef: React.RefObject<ScrollView | null>,
+  scrollY: React.RefObject<number>,
+  footerHeight: React.RefObject<number>,
+): void {
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidShow', (e: KeyboardEvent) => {
+      const keyboardTop = e.endCoordinates.screenY;
+      // Wait one frame so KeyboardAvoidingView padding has been laid out.
+      requestAnimationFrame(() => {
+        const input = TextInput.State.currentlyFocusedInput?.();
+        const scroll = scrollRef.current;
+        if (!input || !scroll || typeof input.measureInWindow !== 'function') return;
+        input.measureInWindow((_x, y, _w, h) => {
+          const visibleBottom = keyboardTop - (footerHeight.current ?? 0) - FOCUS_MARGIN;
+          const overflow = y + h - visibleBottom;
+          if (overflow > 0) {
+            scroll.scrollTo({ y: (scrollY.current ?? 0) + overflow, animated: true });
+          }
+        });
+      });
+    });
+    return () => sub.remove();
+  }, [scrollRef, scrollY, footerHeight]);
+}
+
 export function FormScreen({
   children,
   header,
@@ -124,26 +154,7 @@ export function FormScreen({
     scrollY.current = e.nativeEvent.contentOffset.y;
   }, []);
 
-  // Scroll the focused input above the keyboard (+ footer) once it has opened.
-  useEffect(() => {
-    const sub = Keyboard.addListener('keyboardDidShow', (e: KeyboardEvent) => {
-      const keyboardTop = e.endCoordinates.screenY;
-      // Wait one frame so KeyboardAvoidingView padding has been laid out.
-      requestAnimationFrame(() => {
-        const input = TextInput.State.currentlyFocusedInput?.();
-        const scroll = ownScrollRef.current;
-        if (!input || !scroll || typeof input.measureInWindow !== 'function') return;
-        input.measureInWindow((_x, y, _w, h) => {
-          const visibleBottom = keyboardTop - footerHeight.current - FOCUS_MARGIN;
-          const overflow = y + h - visibleBottom;
-          if (overflow > 0) {
-            scroll.scrollTo({ y: scrollY.current + overflow, animated: true });
-          }
-        });
-      });
-    });
-    return () => sub.remove();
-  }, []);
+  useScrollFocusedInputIntoView(ownScrollRef, scrollY, footerHeight);
 
   const keyboardOpen = keyboardHeight > 0;
   const padTop = edges.includes('top') ? insets.top : 0;
