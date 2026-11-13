@@ -1,3 +1,5 @@
+> Original brief, superseded. The app no longer uses Supabase or NativeWind; see CLAUDE.md for the current rules.
+
 # HourBank — Claude Code Build Prompt
 
 Paste everything below this line into Claude Code.

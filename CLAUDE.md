@@ -1,83 +1,63 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
 ## Project
 
-**HourBank** — React Native (Expo) app for a single private tutor managing a prepaid-credits tutoring business in South Africa. Parents pay upfront for hour blocks; the tutor logs sessions, deducts hours, and sends receipts.
+**HourBank** is an offline-first React Native (Expo) app for a single private tutor running a prepaid-credits tutoring business in South Africa. Parents pay up front for blocks of hours (top-ups), the tutor records lessons against those credits, and the tutor pays themselves out with itemised claims.
 
-The full spec lives in `hourbank_claude_code_prompt.md`. Read it before making architectural decisions.
+The app lives in `hourbank/`. The domain glossary in `CONTEXT.md` is canonical. `DESIGN_SPEC.md` is the screen reference. `docs/history/` holds the original brief, which is superseded.
 
-## Tech Stack
+## Tech stack
 
 | Layer | Choice |
 |---|---|
-| Framework | Expo SDK 52, managed workflow |
-| Language | TypeScript strict mode |
-| Navigation | Expo Router v4 (file-based, `app/` dir) |
-| Styling | NativeWind v4 (Tailwind class names) |
-| Backend | Supabase (Postgres + Auth + Storage), JS client v2 |
-| Fonts | Expo Google Fonts (`useFonts` hook) |
-| Icons | `@expo/vector-icons` Feather set |
-| State | `useState`/`useReducer` + Supabase realtime — no Redux/Zustand |
+| Framework | Expo SDK 54, React Native 0.81, React 19 |
+| Language | TypeScript, strict mode |
+| Navigation | expo-router 6 (file-based, `hourbank/app/`) |
+| Data | Local SQLite via `expo-sqlite` (`src/db/*`), versioned migrations. No backend, no auth. |
+| Styling | Inline styles with `COLORS` (`src/theme/colors.ts`) and `F` (`src/theme/fonts.ts`). No `className`. |
+| Icons | `@expo/vector-icons` Feather |
+| Tests | Jest (`jest-expo`), TZ pinned by `jest.globalSetup.js` |
 
-## Commands
+## Commands (run in `hourbank/`)
 
 ```bash
-npx expo start          # dev server
-npx expo start --android
-npx tsc --noEmit        # type-check (must pass with zero errors before any commit)
+npm ci --legacy-peer-deps
+npx expo start
+npx tsc --noEmit        # must be clean before any commit
+npx jest                # must be green before any commit
 ```
 
-No test runner is configured in MVP. TypeScript is the primary correctness gate.
+CI runs both on every push (`.github/workflows/ci.yml`).
 
-## Architecture
+## Architecture rules
 
-### Balance is always ledger-derived
-Never store or read balance from a `students` column. The source of truth is `sum(ledger_entries.hours_delta)` per student, surfaced via the `student_balances` Supabase view. The `useStudent` and `useStudents` hooks must always query through this view.
+- **Balance is ledger-derived.** A balance is `SUM(ledger_entries.hours_delta)` per subject (view `student_subject_balances`). Never store or read a balance column. Snap sums with `normaliseHours` at every read boundary.
+- **Ledger.** DELETE is blocked by a trigger. UPDATE is allowed only on a `session_deduction` row's `hours_delta`/`subject_id` through `editLesson`. Do not widen that. Corrections otherwise go through `adjustment` rows. The running balance is ordered by `(created_at, rowid)` because top-ups can be backdated.
+- **Claims.** A lesson can be claimed once. A finalised claim is frozen (rates and travel are snapshotted on its lines) and can only be voided. A lesson in a claim stays editable with a nudge, never a block.
+- **Archive, never delete.** Students are archived (`status = 'archived'`). Live lists filter them out; read-only views use `getStudent(id, { includeArchived: true })`.
+- **Nudge, never hard-block** the tutor, except where data would become wrong.
+- **Migrations.** The app is in real use with real data. Every schema change is a new, additive, transactional, idempotent migration in `src/db/migrations.ts`, with a test. Never edit an existing migration.
+- **Glossary in UI copy:** Claim, Top-up, Lesson, Void. Do not use "payout", "session" or "invoice" in UI text.
 
-### Ledger immutability
-`ledger_entries` rows are append-only. Never issue `UPDATE` or `DELETE` against that table — not even in admin flows. Corrections go through an `adjustment` entry (Phase 2). The UI must never expose edit/delete on ledger rows.
+## Design rules
 
-### Archive, never delete
-Students are soft-deleted: `status = 'archived'`. All queries must filter `status != 'archived'`.
+- **Fonts.** `F.serif` / `F.serifItalic` (Fraunces) for headlines, names and hero numbers. Never bold: use italic for emphasis. `F.sans` / `F.sansMed` (Geist) for UI text and buttons. `F.mono` / `F.monoMed` (GeistMono) for every balance, duration, timestamp and price, including numbers inside sentences (use `<Mixed>` / `<Num>` from `src/components/Num.tsx`).
+- **Colours.** No hex or rgba literals outside `src/theme/colors.ts`, `tailwind.config.js` and `src/utils/balance.ts`. Balance states: ok (moss, 3h or more), warn (amber, 1 to 3h), low (crimson, under 1h), owes (oxblood). Use `amberText` for amber text and numbers; `amber` is for fills, borders and icons.
+- **Primary action** is an oxblood fill with a Geist medium label. Minimum text size 12, minimum touch target 44 (`MIN_TOUCH`). Screen gutters are 24.
+- **Dark screen exception:** the live timer screen (`app/student/[id]/session.tsx`) uses `sessionBg` with paper text.
 
-### Session orphan recovery
-On app focus, `_layout.tsx` queries for any `sessions` row with `status = 'active'` belonging to this tutor. If found and the timer screen is not active, show a modal to continue or discard.
+## Never commit
 
-### Font usage — hard rules
-Three font families, each with a strict domain:
-- `F.serif` / `F.serifItalic` (Fraunces) — headlines, student names, balance hero numbers, italic emphasis. **Never use `fontWeight: 'bold'`** — use italic Fraunces instead.
-- `F.sans` / `F.sansMed` (Geist) — UI labels, body, buttons.
-- `F.mono` / `F.monoMed` (GeistMono) — **all** balances, durations, timestamps, prices, timer digits. This is absolute.
+- `android/app/*.keystore` or `android/keystore.properties`.
+- Any business or personal details: names, phone numbers, bank details, logos or real amounts. The repo is public.
 
-Font constants live in `src/theme/fonts.ts` as the `F` object.
-
-### Colour system
-Design tokens are in `tailwind.config.js`. No hardcoded hex strings anywhere except `tailwind.config.js` and `src/utils/balance.ts`. Balance status uses three colours only: `moss` (≥3h), `amber` (1–3h), `crimson` (<1h).
-
-### Dark screen exception
-The Live Session screen (`app/student/[id]/session.tsx`) inverts to `bg-sessionBg` with `text-paper`. All other screens use `bg-paper` / `text-ink`.
-
-## Key Files
-
-- `src/lib/supabase.ts` — singleton Supabase client with `Database` generic
-- `src/theme/fonts.ts` — `F` font constants
-- `src/types/database.ts` — TypeScript types matching the Supabase schema
-- `src/utils/balance.ts` — `balanceStatus()`, `balanceColour()` helpers
-- `src/utils/format.ts` — `formatHours()`, `formatRand()`, `formatDuration()`, `formatLedgerDate()`
-- `src/utils/notifications.ts` — **stubs only in MVP**; all functions `console.log` and return
-- `supabase/migrations/001_initial.sql` — full schema including RLS policies
-
-## Stubbed for Phase 2
-
-`sendReceipt`, `sendTopUpConfirmation`, `sendLowBalanceAlert` in `src/utils/notifications.ts` are intentional stubs. Do not implement real email/SMS logic until Phase 2.
-
-## Pre-commit Checklist
+## Pre-commit checks
 
 ```bash
-npx tsc --noEmit                    # zero errors required
-grep -r "fontWeight.*bold" src app  # must return nothing
-grep -rE '"#[0-9a-fA-F]' src app   # must return nothing (no inline hex)
-grep -r "GeistMono" src app         # every numeric display must appear here
+npx tsc --noEmit
+npx jest
+grep -rn "fontWeight.*bold" src app                                   # must return nothing
+grep -rnE "['\"]#[0-9a-fA-F]|rgba\(" src app | grep -v -e src/theme/colors.ts -e src/utils/balance.ts   # must return nothing
 ```

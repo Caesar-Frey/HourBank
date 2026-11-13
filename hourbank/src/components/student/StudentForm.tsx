@@ -236,7 +236,7 @@ export function StudentFormFields({ values, onChange, errors, options }: Props) 
               accessibilityLabel={c}
               style={{ ...pill(values.curriculum === c), flex: 1 }}
             >
-              <Text style={{ fontFamily: F.mono, fontSize: 11, color: values.curriculum === c ? COLORS.paper : COLORS.inkSoft, textTransform: 'uppercase' }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: values.curriculum === c ? COLORS.paper : COLORS.inkSoft, textTransform: 'uppercase' }}>
                 {c}
               </Text>
             </TouchableOpacity>

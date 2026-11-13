@@ -254,12 +254,12 @@ export default function StudentDetailScreen() {
         {/* Meta header */}
         <View style={{ marginTop: 16, marginBottom: 20 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               {`STUDENT · GR ${student.grade} · ${student.curriculum}`}
             </Text>
             {student.status === 'paused' ? (
               <View style={{ backgroundColor: COLORS.warnFill, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
-                <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.amber }}>PAUSED</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.amberText }}>PAUSED</Text>
               </View>
             ) : null}
           </View>
@@ -400,7 +400,7 @@ export default function StudentDetailScreen() {
                   >
                     <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.ink }}>
                       {session.scheduled_for ? formatScheduledTime(session.scheduled_for) : '—'}
-                      <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft }}>
+                      <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft }}>
                         {`  · ${formatHours((session.estimated_duration_minutes ?? 60) / 60)}`}
                       </Text>
                     </Text>
@@ -410,7 +410,7 @@ export default function StudentDetailScreen() {
                       {topic ? ` · ${topic}` : ''}
                     </Text>
                     {warn ? (
-                      <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.crimson, marginTop: 2 }}>{warn}</Text>
+                      <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.crimson, marginTop: 2 }}>{warn}</Text>
                     ) : null}
                   </TouchableOpacity>
                   {archived ? null : <TouchableOpacity
@@ -421,7 +421,7 @@ export default function StudentDetailScreen() {
                     accessibilityLabel="Reschedule lesson"
                     style={{ paddingLeft: 12, minHeight: MIN_TOUCH, justifyContent: 'center' }}
                   >
-                    <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft }}>MOVE</Text>
+                    <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft }}>MOVE</Text>
                   </TouchableOpacity>}
                 </View>
               );
@@ -471,7 +471,7 @@ export default function StudentDetailScreen() {
 const CHIP_TONE = {
   owes: { fg: COLORS.oxblood, bg: COLORS.oxbloodFill },
   low: { fg: COLORS.crimson, bg: COLORS.badFill },
-  warn: { fg: COLORS.amber, bg: COLORS.warnFill },
+  warn: { fg: COLORS.amberText, bg: COLORS.warnFill },
 } as const;
 
 function StatusChip({ label, tone }: { label: string; tone: keyof typeof CHIP_TONE }) {

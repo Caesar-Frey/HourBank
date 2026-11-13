@@ -1,7 +1,7 @@
 # Implementation Plan — Tutor Claims / Payout Tracking
 
 > Status: PLAN ONLY (no code in this document). Feature decisions are settled; this plan sequences the build.
-> Code root: `/Users/mag/Documents/HourBank/hourbank/`. All paths below are relative to that root unless absolute.
+> Code root: `hourbank/`. All paths below are relative to that root unless absolute.
 > Domain vocabulary is canonical per `CONTEXT.md`: **Claim**, **Claimable pool**, **Lesson fee**, **Travel allowance**, **Outstanding payout**, **Void**, **Claim report**.
 
 ---

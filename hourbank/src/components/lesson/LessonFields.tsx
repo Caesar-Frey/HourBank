@@ -70,7 +70,7 @@ export function SubjectPicker({
             <Text
               style={{
                 fontFamily: F.mono,
-                fontSize: 11,
+                fontSize: 12,
                 color: active ? COLORS.paper60 : balanceColour(balanceStatus(o.balance)),
               }}
             >
@@ -223,7 +223,7 @@ export function TravelKmField({
         />
         <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.inkSoft }}>km</Text>
         {defaultKm != null ? (
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginLeft: 8, flexShrink: 1 }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginLeft: 8, flexShrink: 1 }}>
             {`student default ${defaultKm} km`}
           </Text>
         ) : null}

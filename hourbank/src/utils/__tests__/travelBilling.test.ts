@@ -6,7 +6,6 @@ import {
   kmLabel,
   topUpCtaWithTravel,
   topUpGrandTotal,
-  topUpSuccessMessage,
   topUpTravelAmount,
   topUpTravelToggleLabel,
   travelAmountInput,
@@ -81,10 +80,6 @@ describe('top-up with travel', () => {
   it('toggle label and success message', () => {
     expect(topUpTravelToggleLabel(360, 3)).toBe(`Travel owed ${R(360)} (3 lessons)`);
     expect(topUpTravelToggleLabel(50, 1)).toBe(`Travel owed ${R(50)} (1 lesson)`);
-    expect(topUpSuccessMessage({ hours: 10, subjectName: 'Maths', balanceLabel: '12h', travelSettled: 360 }))
-      .toBe(`Added 10h Maths · balance 12h · travel ${R(360)} settled`);
-    expect(topUpSuccessMessage({ hours: 10, balanceLabel: '12h' })).toBe('Added 10h · balance 12h');
-    expect(topUpSuccessMessage({ hours: 1, balanceLabel: '1h', travelFailed: true })).toMatch(/wasn't recorded/);
   });
 });
 

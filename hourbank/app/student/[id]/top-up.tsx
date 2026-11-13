@@ -295,7 +295,7 @@ export default function TopUpScreen() {
           {amountPreview.text ? <FieldHint tone={amountPreview.error ? 'bad' : 'soft'}>{amountPreview.text}</FieldHint> : null}
           {customSaving ? (
             <View style={{ backgroundColor: COLORS.okFill, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginTop: 8, alignSelf: 'flex-start' }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.moss }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.moss }}>
                 {`Parent saves ${formatRand(customSaving)} vs hourly price`}
               </Text>
             </View>

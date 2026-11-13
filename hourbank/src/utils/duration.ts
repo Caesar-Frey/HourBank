@@ -1,8 +1,3 @@
-/** @deprecated Use `defaultBilledMinutes` (booked-length aware, 15-min rounding). */
-export function roundToBilledMinutes(seconds: number): number {
-  return Math.round(seconds / 60 / 30) * 30;
-}
-
 /** Actual vs booked tolerance (minutes) within which the booked length is billed. */
 export const BILLING_TOLERANCE_MINUTES = 15;
 

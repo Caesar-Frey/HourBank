@@ -341,7 +341,7 @@ export default function EndSessionScreen() {
   };
   const labelStyle = {
     fontFamily: F.mono,
-    fontSize: 11,
+    fontSize: 12,
     color: COLORS.inkFaint,
     letterSpacing: 1,
   };

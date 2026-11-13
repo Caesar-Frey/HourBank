@@ -46,7 +46,7 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'Ju
 
 const EYEBROW = {
   fontFamily: F.mono,
-  fontSize: 9,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase' as const,
   letterSpacing: 0.5,
@@ -60,8 +60,8 @@ function Tile({ label, value, sub, note }: { label: string; value: string; sub?:
       <Text style={{ fontFamily: F.mono, fontSize: 17, color: COLORS.ink }} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>
-      {sub ? <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, marginTop: 2 }}>{sub}</Text> : null}
-      {note ? <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.oxblood, marginTop: 2 }}>{note}</Text> : null}
+      {sub ? <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, marginTop: 2 }}>{sub}</Text> : null}
+      {note ? <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.oxblood, marginTop: 2 }}>{note}</Text> : null}
     </View>
   );
 }
@@ -71,7 +71,7 @@ function DateCol({ iso }: { iso: string }) {
   return (
     <View style={{ alignItems: 'center', minWidth: 32 }}>
       <Text style={{ fontFamily: F.mono, fontSize: 16, color: COLORS.ink, lineHeight: 18 }}>{day}</Text>
-      <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint }}>{month}</Text>
+      <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{month}</Text>
     </View>
   );
 }
@@ -138,7 +138,7 @@ export function MoneyInView() {
   const atCurrentMonth = isFutureMonth(nextMonth.year, nextMonth.monthIdx);
 
   return (
-    <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
       {/* Month switcher */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
         <TouchableOpacity
@@ -199,7 +199,7 @@ export function MoneyInView() {
             <Text style={{ fontFamily: F.monoMed, fontSize: 15, color: outstanding.owedHours > 0 ? COLORS.crimson : COLORS.ink }}>
               {formatHours(outstanding.owedHours)}
               {travelOwedTotal > 0 ? (
-                <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.amber }}>{` + ${formatRand(travelOwedTotal)} travel`}</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.amberText }}>{` + ${formatRand(travelOwedTotal)} travel`}</Text>
               ) : null}
             </Text>
           </View>
@@ -226,9 +226,9 @@ export function MoneyInView() {
                 >
                   <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{r.full_name}</Text>
                   {r.archived ? (
-                    <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, letterSpacing: 0.5 }}>ARCHIVED</Text>
+                    <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, letterSpacing: 0.5 }}>ARCHIVED</Text>
                   ) : null}
-                  <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>
                     {`${r.lessonCount} ${pluralize(r.lessonCount, 'lesson')}`}
                   </Text>
                   <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.ink, minWidth: 84, textAlign: 'right' }}>{formatRand(r.amount)}</Text>
@@ -267,7 +267,7 @@ export function MoneyInView() {
               <DateCol iso={row.created_at} />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: F.serif, fontSize: 15, color: COLORS.ink }} numberOfLines={1}>{row.student_full_name}</Text>
-                <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, marginTop: 2 }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, marginTop: 2 }}>
                   {(row.kind === 'package'
                     ? [paymentMethodLabel(row.method), `+${formatHours(row.hours)}`, row.subject]
                     : ['Travel', paymentMethodLabel(row.method), row.withTopUp ? 'with top-up' : null]
@@ -308,9 +308,9 @@ export function MoneyInView() {
                 <DateCol iso={row.ended_at} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontFamily: F.serif, fontSize: 15, color: COLORS.ink }} numberOfLines={1}>{row.student_full_name}</Text>
-                  <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, marginTop: 2 }}>{meta}</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, marginTop: 2 }}>{meta}</Text>
                   {noShow ? (
-                    <Text style={{ fontFamily: F.sansMed, fontSize: 11, color: COLORS.oxblood, marginTop: 2 }}>No-show · charged</Text>
+                    <Text style={{ fontFamily: F.sansMed, fontSize: 12, color: COLORS.oxblood, marginTop: 2 }}>No-show · charged</Text>
                   ) : null}
                 </View>
                 <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.ink }}>{lessonBilledLabel(row)}</Text>
@@ -335,7 +335,7 @@ export function MoneyInView() {
               <View
                 key={r.subject}
                 accessible
-                accessibilityLabel={`${r.subject}: ${r.students} students, ${r.sessions} lessons, ${formatHours(r.hours)}`}
+                accessibilityLabel={`${r.subject}: ${r.students} ${pluralize(r.students, 'student')}, ${r.sessions} ${pluralize(r.sessions, 'lesson')}, ${formatHours(r.hours)}`}
                 style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}
               >
                 <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{r.subject}</Text>
@@ -364,7 +364,7 @@ export function MoneyInView() {
                 onPress={() => go(`/student/${r.studentId}?from=MONEY`)}
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel={`${r.name}: ${r.sessions} lessons, ${formatHours(r.hours)}, ${formatRand(r.cashRand)}`}
+                accessibilityLabel={`${r.name}: ${r.sessions} ${pluralize(r.sessions, 'lesson')}, ${formatHours(r.hours)}, ${formatRand(r.cashRand)}`}
                 style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}
               >
                 <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{r.name}</Text>

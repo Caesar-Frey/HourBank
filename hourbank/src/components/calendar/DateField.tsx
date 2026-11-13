@@ -45,7 +45,7 @@ export function DateField({ label, value, display, mode, open, onOpen, onClose, 
           borderBottomColor: error ? COLORS.crimson : COLORS.paperEdge,
         }}
       >
-        <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, textTransform: 'uppercase' }}>{label}</Text>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase' }}>{label}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text style={{ fontFamily: F.mono, fontSize: 15, color: error ? COLORS.crimson : COLORS.ink }}>{display}</Text>
           <Feather name={mode === 'date' ? 'calendar' : 'clock'} size={14} color={COLORS.inkFaint} />

@@ -420,7 +420,7 @@ export default function LessonDetailScreen() {
     { label: 'Remove lesson…', icon: 'trash-2', destructive: true, onPress: confirmRemove },
   ];
 
-  const sectionLabel = { fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, letterSpacing: 1, marginBottom: 6 } as const;
+  const sectionLabel = { fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, letterSpacing: 1, marginBottom: 6 } as const;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }} edges={['top', 'bottom']}>
@@ -429,16 +429,16 @@ export default function LessonDetailScreen() {
         {/* Status badge + student */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <View style={{ backgroundColor: badge.fill, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
-            <Text style={{ fontFamily: F.monoMed, fontSize: 10, color: badge.fg, letterSpacing: 1 }}>{BADGE_LABEL[kind]}</Text>
+            <Text style={{ fontFamily: F.monoMed, fontSize: 12, color: badge.fg, letterSpacing: 1 }}>{BADGE_LABEL[kind]}</Text>
           </View>
           <View style={{ borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, letterSpacing: 1 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, letterSpacing: 1 }}>
               {session.mode === 'online' ? 'ONLINE' : 'IN-PERSON'}
             </Text>
           </View>
           {session.session_type !== 'general' && (
             <View style={{ borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
-              <Text style={{ fontFamily: F.sansMed, fontSize: 10, color: COLORS.ink, textTransform: 'uppercase' }}>
+              <Text style={{ fontFamily: F.sansMed, fontSize: 12, color: COLORS.ink, textTransform: 'uppercase' }}>
                 {session.session_type === 'review' ? 'Review' : session.session_type === 'test_prep' ? 'Test Prep' : 'Exam Prep'}
               </Text>
             </View>
@@ -457,7 +457,7 @@ export default function LessonDetailScreen() {
           {timeText ? `${dateText} · ${timeText}` : dateText}
         </Text>
         {session.edited_at ? (
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginBottom: 4 }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginBottom: 4 }}>
             {`Edited ${formatDateLong(session.edited_at)}`}
           </Text>
         ) : null}
@@ -485,7 +485,7 @@ export default function LessonDetailScreen() {
           {tiles.map(t => (
             <View key={t.label} style={{ width: '50%', padding: 6 }}>
               <View style={{ borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 14, padding: 14, minHeight: 72 }}>
-                <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
                   {t.label}
                 </Text>
                 <Text style={{ fontFamily: F.monoMed, fontSize: 17, color: t.colour }}>{t.value}</Text>

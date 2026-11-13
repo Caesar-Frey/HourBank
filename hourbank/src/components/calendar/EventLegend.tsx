@@ -22,7 +22,7 @@ export function EventLegend() {
             <Text
               style={{
                 fontFamily: F.sans,
-                fontSize: 11,
+                fontSize: 12,
                 color: COLORS.inkSoft,
                 textDecorationLine: s.strike ? 'line-through' : 'none',
               }}

@@ -368,13 +368,13 @@ export default function SessionScreen() {
 
           <View style={{ alignItems: 'center', paddingTop: 24, paddingBottom: 12, paddingHorizontal: 24 }}>
             <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.paper }}>{student?.full_name ?? ''}</Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
               {student ? `GR ${student.grade} ${(lessonSubject ?? student.subject).toUpperCase()}` : ''}
             </Text>
           </View>
 
           <View style={{ marginHorizontal: 24, borderWidth: 1, borderColor: COLORS.paper20, borderRadius: 16, padding: 20, marginBottom: 32 }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: 16 }}>SCHEDULED LESSON</Text>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: 16 }}>SCHEDULED LESSON</Text>
             <View style={{ gap: 10 }}>
               {row.scheduled_for && (
                 <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -507,7 +507,7 @@ export default function SessionScreen() {
             <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.paper }}>
               {student?.full_name ?? ''}
             </Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
               {student ? `GR ${student.grade} ${(lessonSubject ?? student.subject).toUpperCase()} · LESSON ${sessionCount}` : ''}
             </Text>
           </View>
@@ -538,7 +538,7 @@ export default function SessionScreen() {
                   borderColor: COLORS.paper12,
                 }}
               />
-              <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.paper60, letterSpacing: 2, marginBottom: 8 }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, letterSpacing: 2, marginBottom: 8 }}>
                 {isPaused ? 'PAUSED' : 'ELAPSED'}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', opacity: isPaused ? 0.6 : 1 }}>
@@ -556,7 +556,7 @@ export default function SessionScreen() {
                 {isPaused ? '▮▮ ' : '· '}
                 {remaining.label}
               </Text>
-              <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.paper40, letterSpacing: 1, marginTop: 4 }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper40, letterSpacing: 1, marginTop: 4 }}>
                 {remaining.caption}
               </Text>
             </View>
@@ -564,7 +564,7 @@ export default function SessionScreen() {
 
           {/* Topics section */}
           <View style={{ paddingHorizontal: 24 }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: compact ? 8 : 12 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: compact ? 8 : 12 }}>
               TOPICS COVERED
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

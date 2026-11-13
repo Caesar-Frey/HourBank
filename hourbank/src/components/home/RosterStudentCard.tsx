@@ -69,16 +69,16 @@ export function RosterStudentCard({ student, onPress, paused = false }: Props) {
           {multi ? `Gr ${student.grade} · ${student.curriculum}` : `Gr ${student.grade} · ${subjectLabel} · ${student.curriculum}`}
         </Text>
         {balanceLine ? (
-          <Text numberOfLines={2} style={{ fontFamily: F.mono, fontSize: 11, color: paused ? COLORS.inkFaint : COLORS.inkSoft, marginTop: 3 }}>
+          <Text numberOfLines={2} style={{ fontFamily: F.mono, fontSize: 12, color: paused ? COLORS.inkFaint : COLORS.inkSoft, marginTop: 3 }}>
             {balanceLine}
           </Text>
         ) : null}
         {paused ? (
-          <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, marginTop: 3, letterSpacing: 0.4 }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 3, letterSpacing: 0.4 }}>
             PAUSED
           </Text>
         ) : next ? (
-          <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, marginTop: 3 }}>
+          <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 3 }}>
             {`Next: ${formatScheduledTime(next)} · ${modeLabel}`}
           </Text>
         ) : null}

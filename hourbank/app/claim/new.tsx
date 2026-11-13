@@ -6,6 +6,7 @@ import { F, MIN_TOUCH } from '../../src/theme/fonts';
 import { COLORS } from '../../src/theme/colors';
 import { FormScreen } from '../../src/components/FormScreen';
 import { ScreenHeader } from '../../src/components/ScreenHeader';
+import { Mixed } from '../../src/components/Num';
 import { useToast } from '../../src/components/Toast';
 import { SegmentedControl } from '../../src/components/calendar/SegmentedControl';
 import { DateField } from '../../src/components/calendar/DateField';
@@ -29,7 +30,7 @@ type Scope = 'all' | 'range';
 
 const EYEBROW = {
   fontFamily: F.mono,
-  fontSize: 10,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase' as const,
   letterSpacing: 1,
@@ -171,7 +172,7 @@ export default function NewClaimScreen() {
   const footer = (
     <View>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-        <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft }}>
           {selected.length}/{pool.length} {pluralize(pool.length, 'lesson')} · fees {formatRand(preview.lessonFeeTotal)} · travel{' '}
           {formatRand(preview.travelTotal)}
         </Text>
@@ -187,12 +188,12 @@ export default function NewClaimScreen() {
           minHeight: 52,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: canFinalise ? COLORS.ink : COLORS.paperEdge,
+          backgroundColor: canFinalise ? COLORS.oxblood : COLORS.paperEdge,
           opacity: saving ? 0.6 : 1,
         }}
       >
-        <Text style={{ fontFamily: F.monoMed, fontSize: 15, color: canFinalise ? COLORS.paper : COLORS.inkSoft }}>
-          {`Finalise · ${formatRand(preview.grandTotal)}`}
+        <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: canFinalise ? COLORS.paper : COLORS.inkSoft }}>
+          <Mixed text={`Finalise · ${formatRand(preview.grandTotal)}`} />
         </Text>
       </TouchableOpacity>
     </View>
@@ -287,7 +288,7 @@ export default function NewClaimScreen() {
         <View key={group.studentId} style={{ marginTop: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.ink, paddingBottom: 4 }}>
             <Text style={{ fontFamily: F.serif, fontSize: 16, color: COLORS.ink, flex: 1 }} numberOfLines={1}>{group.studentName}</Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft }}>
               {group.selectedCount}/{group.lines.length} · {formatRand(group.selectedTotal)}
             </Text>
           </View>
@@ -327,9 +328,9 @@ const ClaimLineRow = React.memo(function ClaimLineRow({ line, selected, km, onTo
       <Checkbox checked={selected} />
       <View style={{ alignItems: 'center', minWidth: 32 }}>
         <Text style={{ fontFamily: F.mono, fontSize: 15, color: COLORS.ink, lineHeight: 17 }}>{day}</Text>
-        <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint }}>{month}</Text>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{month}</Text>
       </View>
-      <Text style={{ flex: 1, fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft }}>
+      <Text style={{ flex: 1, fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft }}>
         {modeLabel(line.mode)} · {formatHours(line.billed_hours)}
         {kmText ? ` · ${kmText}` : ''}
         {line.travel_fee > 0 ? ` · travel ${formatRand(line.travel_fee)}` : ''}

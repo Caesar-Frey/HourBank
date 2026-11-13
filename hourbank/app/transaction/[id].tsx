@@ -51,7 +51,7 @@ function paymentMethodLabel(method: string): string {
 function Tile({ label, value, colour }: { label: string; value: string; colour: string }) {
   return (
     <View style={{ flex: 1, borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 14, padding: 14 }}>
-      <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>{label}</Text>
+      <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 }}>{label}</Text>
       <Text style={{ fontFamily: F.monoMed, fontSize: 17, color: colour }}>{value}</Text>
     </View>
   );
@@ -127,7 +127,7 @@ function TravelPaymentDetail({ settlement, student }: { settlement: TravelSettle
       <ScreenHeader backLabel="BACK" onBack={() => router.back()} title="Transaction" />
       <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 48 }}>
         <View style={{ alignSelf: 'flex-start', borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 16 }}>
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft, letterSpacing: 0.5 }}>TRAVEL PAYMENT</Text>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, letterSpacing: 0.5 }}>TRAVEL PAYMENT</Text>
         </View>
 
         {student ? (
@@ -150,7 +150,7 @@ function TravelPaymentDetail({ settlement, student }: { settlement: TravelSettle
         <View style={{ flexDirection: 'row', gap: 12, marginBottom: 8 }}>
           <Tile label="Travel paid" value={formatRand(settlement.amount)} colour={COLORS.moss} />
           {stillOwed !== null ? (
-            <Tile label="Still owed" value={formatRand(stillOwed)} colour={stillOwed > 0 ? COLORS.amber : COLORS.ink} />
+            <Tile label="Still owed" value={formatRand(stillOwed)} colour={stillOwed > 0 ? COLORS.amberText : COLORS.ink} />
           ) : null}
         </View>
 
@@ -197,7 +197,7 @@ function TravelPaymentDetail({ settlement, student }: { settlement: TravelSettle
           <Button label="PDF" icon="file-text" variant="secondary" style={{ flex: 1 }} onPress={sharePdf} busy={sharing} />
         </View>
 
-        <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, marginTop: 32 }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 32 }}>
           {`Ref ${shortRef(settlement.id)}`}
         </Text>
       </ScrollView>
@@ -295,7 +295,7 @@ export default function TransactionDetailScreen() {
       <ScreenHeader backLabel="BACK" onBack={() => router.back()} title="Transaction" />
       <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 48 }}>
         <View style={{ alignSelf: 'flex-start', borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 16 }}>
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft, letterSpacing: 0.5 }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, letterSpacing: 0.5 }}>
             {entryTypeLabel(entry.type, entry.reason)}
           </Text>
         </View>
@@ -414,7 +414,7 @@ export default function TransactionDetailScreen() {
           </>
         ) : null}
 
-        <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, marginTop: 32 }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 32 }}>
           {`Ref ${shortRef(entry.id)}`}
         </Text>
       </ScrollView>

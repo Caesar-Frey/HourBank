@@ -66,7 +66,7 @@ function getDateEyebrow(): string {
 
 const SECTION_LABEL = {
   fontFamily: F.mono,
-  fontSize: 11,
+  fontSize: 12,
   color: COLORS.ink,
   textTransform: 'uppercase',
   letterSpacing: 0.5,
@@ -80,10 +80,10 @@ const TILE = {
   backgroundColor: COLORS.cardFill,
   padding: 16,
 } as const;
-const TILE_LABEL = { fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 } as const;
+const TILE_LABEL = { fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 } as const;
 const TILE_NUMBER = { fontFamily: F.mono, fontSize: 18, color: COLORS.ink } as const;
 const TILE_UNIT = { fontFamily: F.serifItalic, fontSize: 13, color: COLORS.inkSoft } as const;
-const TILE_SUB = { fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginTop: 2 } as const;
+const TILE_SUB = { fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 } as const;
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -526,7 +526,7 @@ export default function HomeScreen() {
 
         {ready && !loadError && active.length > 0 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, marginBottom: 20 }}>
-            <Text style={{ flex: 1, fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint }}>
+            <Text style={{ flex: 1, fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>
               {rosterSummary(displayed.length, active.length, sortMode ?? 'balance')}
             </Text>
             {active.length > ROSTER_LIMIT && (

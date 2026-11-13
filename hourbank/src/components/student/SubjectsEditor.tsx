@@ -121,7 +121,7 @@ export function SubjectsEditor({ subjects, onChange, suggestions, grades, curric
                 accessibilityLabel={`Grade and curriculum for ${d.name || 'this subject'}: ${overrideLabel}`}
                 style={{ minHeight: MIN_TOUCH, justifyContent: 'center' }}
               >
-                <Text style={{ fontFamily: F.mono, fontSize: 10, color: override ? COLORS.oxblood : COLORS.inkFaint }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: override ? COLORS.oxblood : COLORS.inkFaint }}>
                   {overrideLabel.toUpperCase()}
                 </Text>
               </TouchableOpacity>
@@ -214,7 +214,7 @@ export function SubjectsEditor({ subjects, onChange, suggestions, grades, curric
 
       {archived.length > 0 ? (
         <View style={{ marginTop: 12 }}>
-          <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, letterSpacing: 0.4 }}>ARCHIVED</Text>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, letterSpacing: 0.4 }}>ARCHIVED</Text>
           {archived.map(d => (
             <View key={d.key} style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH }}>
               <Text style={{ flex: 1, fontFamily: F.serifItalic, fontSize: 14, color: COLORS.inkSoft }}>
@@ -233,7 +233,7 @@ export function SubjectsEditor({ subjects, onChange, suggestions, grades, curric
                 accessibilityLabel={`Restore ${d.name}`}
                 style={{ minHeight: MIN_TOUCH, justifyContent: 'center' }}
               >
-                <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.oxblood }}>{d.initiallyArchived ? 'RESTORE' : 'UNDO'}</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.oxblood }}>{d.initiallyArchived ? 'RESTORE' : 'UNDO'}</Text>
               </TouchableOpacity>
             </View>
           ))}

@@ -31,7 +31,7 @@ type PickerTarget = 'startDate' | 'startTime' | 'endDate' | 'endTime' | null;
 
 const LABEL_STYLE = {
   fontFamily: F.mono,
-  fontSize: 11,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase' as const,
   marginBottom: 4,
@@ -189,7 +189,7 @@ export default function NewCalendarEventScreen() {
       accessibilityRole="button"
       accessibilityState={{ disabled: saving || !!rangeError }}
       style={{
-        backgroundColor: rangeError ? COLORS.paperEdge : COLORS.ink,
+        backgroundColor: rangeError ? COLORS.paperEdge : COLORS.oxblood,
         borderRadius: 12,
         minHeight: 52,
         alignItems: 'center',

@@ -212,7 +212,7 @@ export function TabHeader({
             numberOfLines={1}
             style={{
               fontFamily: F.mono,
-              fontSize: 11,
+              fontSize: 12,
               color: COLORS.inkFaint,
               letterSpacing: 0.5,
               textTransform: 'uppercase',

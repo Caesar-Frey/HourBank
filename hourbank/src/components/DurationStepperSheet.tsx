@@ -117,7 +117,7 @@ export function DurationStepperSheet({
         <Text
           style={{
             fontFamily: F.sansMed,
-            fontSize: 11,
+            fontSize: 12,
             color: COLORS.inkFaint,
             textTransform: 'uppercase',
             letterSpacing: 1.5,

@@ -5,7 +5,7 @@
 
 APP_ID="com.anonymous.hourbank"
 ADB="$HOME/Library/Android/sdk/platform-tools/adb"
-PROJECT_ROOT="/Users/mag/Documents/HourBank/hourbank"
+PROJECT_ROOT="${0:A:h:h}/hourbank"   # zsh: this script's folder, up one level
 
 TS=$(date +%s)
 SCREENSHOT="/tmp/hourbank-smoke-${TS}.png"

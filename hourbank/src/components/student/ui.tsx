@@ -2,6 +2,7 @@
  * Small shared building blocks for the student & money screens.
  * Inline styles + tokens only (no className, no literal colours).
  */
+import { Mixed } from '../Num';
 import React from 'react';
 import { ActivityIndicator, Text, TextStyle, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
@@ -12,7 +13,7 @@ type FeatherName = React.ComponentProps<typeof Feather>['name'];
 
 export const LABEL: TextStyle = {
   fontFamily: F.mono,
-  fontSize: 11,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase',
   letterSpacing: 0.5,
@@ -41,7 +42,7 @@ export function FieldHint({ children, tone = 'soft' }: { children: React.ReactNo
 export function PageHeading({ eyebrow, line1, line2 }: { eyebrow: string; line1: string; line2: string }) {
   return (
     <View style={{ marginBottom: 24 }}>
-      <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.oxblood, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+      <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.oxblood, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
         {eyebrow}
       </Text>
       <Text style={{ fontFamily: F.serif, fontSize: 28, color: COLORS.ink, lineHeight: 32 }}>{line1}</Text>
@@ -109,7 +110,7 @@ export function Button({
         numberOfLines={1}
         style={{ fontFamily: F.sansMed, fontSize: 15, color: inactive && variant === 'primary' ? COLORS.inkSoft : palette.fg }}
       >
-        {label}
+        <Mixed text={label} />
       </Text>
     </TouchableOpacity>
   );
@@ -200,7 +201,7 @@ export function Stepper({
       {btn('minus', onDecrement, canDecrement, `Decrease ${accessibilityLabel}`)}
       <View style={{ minWidth: 88, alignItems: 'center' }} accessibilityLabel={`${accessibilityLabel} ${value}`}>
         <Text style={{ fontFamily: F.monoMed, fontSize: 22, color: COLORS.ink }}>{value}</Text>
-        {label ? <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, marginTop: 2 }}>{label}</Text> : null}
+        {label ? <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>{label}</Text> : null}
       </View>
       {btn('plus', onIncrement, canIncrement, `Increase ${accessibilityLabel}`)}
     </View>
@@ -235,7 +236,7 @@ export function Banner({
   action?: { label: string; onPress: () => void };
 }) {
   const p = {
-    warn: { bg: COLORS.warnFill, fg: COLORS.amber },
+    warn: { bg: COLORS.warnFill, fg: COLORS.amberText },
     bad:  { bg: COLORS.badFill, fg: COLORS.crimson },
     info: { bg: COLORS.paperDeep, fg: COLORS.inkSoft },
     good: { bg: COLORS.okFill, fg: COLORS.moss },

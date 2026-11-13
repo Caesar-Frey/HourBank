@@ -113,7 +113,7 @@ function DbErrorScreen({ message, onRetry }: { message: string; onRetry: () => v
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.paper }}>
       <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 32 }}>
-        <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, letterSpacing: 1.5, marginBottom: 8 }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, letterSpacing: 1.5, marginBottom: 8 }}>
           STARTUP PROBLEM
         </Text>
         <Text style={{ fontFamily: F.serif, fontSize: 28, color: COLORS.ink }}>Couldn't open</Text>
@@ -126,7 +126,7 @@ function DbErrorScreen({ message, onRetry }: { message: string; onRetry: () => v
         </Text>
         <Text
           selectable
-          style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginBottom: 28 }}
+          style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginBottom: 28 }}
           numberOfLines={4}
         >
           {message}

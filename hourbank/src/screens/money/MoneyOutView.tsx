@@ -27,7 +27,7 @@ function Hint({ icon, children, action, onAction }: { icon: React.ComponentProps
       <View style={{ flex: 1 }}>
         <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft, lineHeight: 18 }}>{children}</Text>
         {action && onAction ? (
-          <TouchableOpacity onPress={onAction} accessibilityRole="button" style={{ minHeight: 32, justifyContent: 'center', alignSelf: 'flex-start' }}>
+          <TouchableOpacity onPress={onAction} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' }}>
             <Text style={{ fontFamily: F.sansMed, fontSize: 13, color: COLORS.oxblood }}>{action} →</Text>
           </TouchableOpacity>
         ) : null}

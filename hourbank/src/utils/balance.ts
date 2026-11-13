@@ -22,7 +22,7 @@ export function balanceStatus(rawHours: number): BalanceStatus {
 export function balanceColour(status: BalanceStatus): string {
   const map: Record<BalanceStatus, string> = {
     ok:   '#3F5641',
-    warn: '#B8743F',
+    warn: '#96592A', // amberText: balances are text, so use the AA shade
     low:  '#9A2A2A',
     owes: '#7A2530',
   };
@@ -32,7 +32,7 @@ export function balanceColour(status: BalanceStatus): string {
 export function balanceTailwindText(status: BalanceStatus): string {
   const map: Record<BalanceStatus, string> = {
     ok:   'text-moss',
-    warn: 'text-amber',
+    warn: 'text-amberText',
     low:  'text-crimson',
     owes: 'text-oxblood',
   };

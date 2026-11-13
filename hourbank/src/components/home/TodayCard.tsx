@@ -10,7 +10,7 @@ import { lessonEndIso, type TodaySplit } from './homeLogic';
 
 const EYEBROW = {
   fontFamily: F.mono,
-  fontSize: 10,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase',
   letterSpacing: 0.5,
@@ -46,7 +46,7 @@ export function LiveLessonPill({
       }}
     >
       <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: F.mono, fontSize: 11, color: paused ? COLORS.amber : COLORS.paper60, letterSpacing: 0.5 }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: paused ? COLORS.amberText : COLORS.paper60, letterSpacing: 0.5 }}>
           {paused ? '❚❚ PAUSED' : '● LIVE'}
           <Text style={{ color: COLORS.paper }}>{`  ${formatDuration(elapsedSeconds)}`}</Text>
         </Text>

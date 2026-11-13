@@ -12,7 +12,7 @@ export type FontKey = keyof typeof F;
 /** Bottom-tab label style — pass as `tabBarLabelStyle` in the (app) tab layout. */
 export const TAB_LABEL_STYLE = {
   fontFamily: F.sansMed,
-  fontSize: 11,
+  fontSize: 12,
   letterSpacing: 0.2,
 } as const;
 

@@ -6,17 +6,17 @@
 
 **Step 2 — Boot the lean emulator.** Run this in your terminal (the `&` keeps it running in the background):
 ```sh
-/Users/mag/Documents/HourBank/scripts/emulator-lean.sh &
+./scripts/emulator-lean.sh &
 ```
 Or type this directly into Claude Code as a message:
 ```
-! /Users/mag/Documents/HourBank/scripts/emulator-lean.sh
+! ./scripts/emulator-lean.sh
 ```
 The emulator window appears after ~30–60 s (cold boot). Wait until the home screen is fully visible.
 
 **Step 3 — Build and run the app:**
 ```sh
-cd /Users/mag/Documents/HourBank/hourbank && npm run android
+cd hourbank && npm run android
 ```
 
 After the build, a smoke test fires automatically. Claude reads the result and runs `/qa` if the diff warrants it.

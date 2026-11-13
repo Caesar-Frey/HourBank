@@ -20,6 +20,7 @@ module.exports = {
         oxbloodFill: '#F1DEDF',
         moss:        '#3F5641',
         amber:       '#B8743F',
+        amberText:   '#96592A',
         crimson:     '#9A2A2A',
         okFill:      '#E4EAE0',
         warnFill:    '#F0E0CB',

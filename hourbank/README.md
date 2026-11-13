@@ -1,48 +1,36 @@
-# HourBank
+# HourBank app
 
-A React Native (Expo) app for a private tutor to manage prepaid tutoring credits. Parents pay upfront for hour blocks, the tutor logs sessions, and balances update automatically.
+The Expo app for HourBank: a private tutor's prepaid-credits tracker. Parents pay up front for hour blocks, the tutor records lessons against them, and balances update from the ledger.
 
 ## Setup
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
+```bash
+npm ci --legacy-peer-deps
+npx expo start
+```
 
-2. Start the dev server:
-   ```bash
-   npx expo start
-   ```
+Press `a` to open on a connected Android device or emulator. No environment variables or API keys are needed.
 
-3. Run on Android:
-   - Press `a` in the Expo dev server to open on a connected device or emulator
-   - Or scan the QR code with the Expo Go app
+## Checks
 
-No environment variables or API keys are needed. All data is stored locally in SQLite on the device.
+```bash
+npx tsc --noEmit
+npx jest
+```
 
 ## Architecture
 
 ### Data storage
-All data persists in a local SQLite database (`hourbank.db`) using `expo-sqlite`. No cloud backend or authentication is required for MVP.
+All data lives in a local SQLite database on the device (`expo-sqlite`). Schema changes are versioned, additive migrations in `src/db/migrations.ts`, each with a test. There is no cloud backend and no login. Backups are exported and restored as a `.db` file from Settings.
 
-### Balance calculation
-Student balances are never stored as a column. They are always computed as `SUM(hours_delta)` from the `ledger_entries` table. This makes the ledger the single source of truth and ensures the audit trail is always correct.
+### Balances
+A balance is never stored. Each subject's balance is `SUM(hours_delta)` over `ledger_entries` (view `student_subject_balances`).
 
-### Ledger immutability
-`ledger_entries` rows are append-only. No UPDATE or DELETE is ever issued against this table. Credits are added via `top_up` entries; sessions are deducted via `session_deduction` entries. Corrections go through `adjustment` entries (Phase 2).
+### The ledger
+Rows are append-only in practice: a trigger blocks DELETE, and the only UPDATE allowed is to a lesson's own deduction when the lesson is edited. Top-ups add `top_up` rows (they can be backdated with "Paid on"), lessons add `session_deduction` rows, and corrections add `adjustment` rows.
 
-### Session verification
-After a session ends, it enters `pending_verification` status. After a configurable window (default: 24 hours, set via `VERIFICATION_WINDOW_HOURS` in `src/config.ts`), it is automatically verified on the next app launch or when the app returns to the foreground.
+### Claims
+Completed, unclaimed lessons can be swept into a claim with lesson fees and a travel allowance. A finalised claim is frozen and can only be voided.
 
-### Notifications
-Email and SMS sending is stubbed in `src/utils/notifications.ts`. All functions log to console in MVP. Real sending via Resend API is a Phase 2 feature.
-
-## Phase 2 Roadmap
-
-- Supabase cloud sync + authentication
-- Parent-facing web portal / dispute flow
-- Email receipts via Resend API
-- PDF statements
-- Push notifications for low balance alerts
-- Yoco payment integration
-- Reports and analytics
+### Messages to parents
+Receipts, top-up confirmations and reminders are shared through WhatsApp or as PDFs from the device. Nothing is sent from a server.

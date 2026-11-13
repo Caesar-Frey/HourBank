@@ -7,6 +7,7 @@ import { ledgerDeltaColor } from '../../theme/eventColors';
 import { formatHoursSigned, formatLedgerDate } from '../../utils/format';
 import { LedgerEntry } from '../../db/schema';
 import { formatBalance, ledgerDescription } from './flowLogic';
+import { Mixed } from '../Num';
 
 interface Props {
   entry: LedgerEntry;
@@ -35,19 +36,19 @@ export function StudentLedgerRow({ entry, sessionTopics, subjectName, onPress }:
     <>
       <View style={{ width: 40 }}>
         <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{day}</Text>
-        <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>{month}</Text>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{month}</Text>
       </View>
       <View style={{ flex: 1, paddingHorizontal: 8 }}>
-        <Text numberOfLines={2} style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }}>{description}</Text>
+        <Text numberOfLines={2} style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }}><Mixed text={description} /></Text>
         {subjectName ? (
-          <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, marginTop: 2, textTransform: 'uppercase' }}>
+          <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 2, textTransform: 'uppercase' }}>
             {subjectName}
           </Text>
         ) : null}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
         <Text style={{ fontFamily: F.monoMed, fontSize: 14, color: ledgerDeltaColor(entry.type, entry.hours_delta) }}>{delta}</Text>
-        <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, marginTop: 2 }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>
           {`bal ${formatBalance(entry.balance_after)}`}
         </Text>
       </View>

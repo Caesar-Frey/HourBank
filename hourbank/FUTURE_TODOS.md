@@ -10,7 +10,6 @@ Approved features deferred from current build. Pick up in future sessions.
 - Color/legend customization per event kind.
 - Better empty-state illustrations and onboarding tour.
 - Async `listEventsInRange` + virtualization for very large datasets.
-- Tokenize hardcoded RGBA overlay colors in CalendarFilterSheet and FAB picker.
 
 ## Scheduling
 
@@ -42,7 +41,11 @@ Approved features deferred from current build. Pick up in future sessions.
 
 ## Billing / documents
 
-- Invoice PDF: now specified in docs/plans/2026-11-12-polish-handoff.md (F2).
+- Charge an item to credit (F1) and invoice template + settings (F2): specified in docs/plans/2026-11-12-polish-handoff.md, waiting for mockups M7, M8 and M9 to be approved.
+
+## Students
+
+- Grade R: the `students.grade` CHECK only allows 1 to 12, so offering Grade R needs a table-rebuild migration.
 
 ---
-*Updated by build: 2026-10-12*
+*Updated by build: 2026-11-13 (polish packages A to E)*

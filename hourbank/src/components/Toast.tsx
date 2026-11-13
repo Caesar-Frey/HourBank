@@ -9,6 +9,7 @@
  * tab bar / home indicator and above the keyboard when it is open.
  * Haptics: light impact on success, error notification on error.
  */
+import { Mixed } from './Num';
 import React, {
   createContext,
   useCallback,
@@ -209,12 +210,12 @@ export function ToastProvider({ children, bottomOffset = DEFAULT_BOTTOM_OFFSET }
             {toast.detail ? (
               <View style={{ flex: 1, paddingVertical: 12 }}>
                 <Text style={{ fontFamily: F.sans, fontSize: 14, lineHeight: 19, color: COLORS.paper }}>
-                  {toast.message}
+                  <Mixed text={toast.message} />
                 </Text>
                 <Text
                   testID="toast-detail"
                   selectable
-                  style={{ fontFamily: F.mono, fontSize: 11, lineHeight: 15, color: COLORS.paper60, marginTop: 4 }}
+                  style={{ fontFamily: F.mono, fontSize: 12, lineHeight: 15, color: COLORS.paper60, marginTop: 4 }}
                 >
                   {toast.detail}
                 </Text>
@@ -223,7 +224,7 @@ export function ToastProvider({ children, bottomOffset = DEFAULT_BOTTOM_OFFSET }
               <Text
                 style={{ flex: 1, fontFamily: F.sans, fontSize: 14, lineHeight: 19, color: COLORS.paper, paddingVertical: 14 }}
               >
-                {toast.message}
+                <Mixed text={toast.message} />
               </Text>
             )}
             {toast.actionLabel ? (

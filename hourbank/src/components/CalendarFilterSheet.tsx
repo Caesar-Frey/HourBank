@@ -51,10 +51,10 @@ const EVENT_KIND_OPTS: { value: EventKind; label: string; color: string }[] = [
 function SectionLabel({ children, right }: { children: string; right?: string }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 10 }}>
-      <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+      <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 0.5 }}>
         {children}
       </Text>
-      {right ? <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>{right}</Text> : null}
+      {right ? <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{right}</Text> : null}
     </View>
   );
 }

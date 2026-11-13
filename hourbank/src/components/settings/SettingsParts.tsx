@@ -6,7 +6,7 @@ import { COLORS } from '../../theme/colors';
 
 export const SECTION_LABEL = {
   fontFamily: F.mono,
-  fontSize: 10,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase',
   letterSpacing: 0.5,
@@ -26,7 +26,7 @@ export const ROW_CONTAINER = {
 
 export const FIELD_LABEL = {
   fontFamily: F.mono,
-  fontSize: 10,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase',
   letterSpacing: 0.3,

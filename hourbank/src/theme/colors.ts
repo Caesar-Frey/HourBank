@@ -20,6 +20,8 @@ export const COLORS = {
   oxbloodFill: '#F1DEDF',
   moss:        '#3F5641',
   amber:       '#B8743F',
+  // amber is 3.3:1 on paper, so text and numbers use amberText (4.9:1).
+  amberText:   '#96592A',
   crimson:     '#9A2A2A',
   okFill:      '#E4EAE0',
   warnFill:    '#F0E0CB',

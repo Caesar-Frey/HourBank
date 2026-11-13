@@ -50,7 +50,7 @@ export function StudentPickerSheet({ visible, title, students, onPick, onClose, 
         <Text
           style={{
             fontFamily: F.mono,
-            fontSize: 11,
+            fontSize: 12,
             color: COLORS.inkFaint,
             textTransform: 'uppercase',
             letterSpacing: 0.8,

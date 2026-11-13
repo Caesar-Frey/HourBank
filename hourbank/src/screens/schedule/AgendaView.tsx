@@ -91,7 +91,7 @@ function AgendaRow({
     >
       <View style={{ width: 92 }}>
         {dateLabel ? (
-          <Text style={{ fontFamily: F.mono, fontSize: 10, color: live ? COLORS.paper60 : COLORS.inkSoft, textTransform: 'uppercase' }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: live ? COLORS.paper60 : COLORS.inkSoft, textTransform: 'uppercase' }}>
             {dateLabel}
           </Text>
         ) : null}
@@ -103,7 +103,7 @@ function AgendaRow({
         <Text numberOfLines={1} style={{ fontFamily: F.serif, fontSize: 16, color: live ? COLORS.paper : COLORS.ink }}>
           {item.student_full_name}
         </Text>
-        <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 11, color: live ? COLORS.paper60 : COLORS.inkSoft, marginTop: 2 }}>
+        <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 12, color: live ? COLORS.paper60 : COLORS.inkSoft, marginTop: 2 }}>
           {details.join(' · ')}
         </Text>
         {section === 'overdue' ? (
@@ -114,7 +114,7 @@ function AgendaRow({
         {owes != null ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
             <Feather name="alert-triangle" size={11} color={COLORS.crimson} />
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.crimson }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.crimson }}>
               will owe {formatHours(owes)}
             </Text>
           </View>
@@ -278,7 +278,7 @@ export function AgendaView({ onStartLesson }: { onStartLesson: () => void }) {
             <Text
               style={{
                 fontFamily: F.mono,
-                fontSize: 11,
+                fontSize: 12,
                 color: section.key === 'overdue' ? COLORS.oxblood : COLORS.inkSoft,
                 textTransform: 'uppercase',
                 letterSpacing: 0.6,
@@ -286,7 +286,7 @@ export function AgendaView({ onStartLesson }: { onStartLesson: () => void }) {
             >
               {section.title}
             </Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint }}>{section.items.length}</Text>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{section.items.length}</Text>
           </View>
           {(section.key === 'overdue' && !showOlder ? overdueSplit.recent : section.items).map(item => (
             <AgendaRow

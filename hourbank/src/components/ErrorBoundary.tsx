@@ -33,7 +33,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
       }
       return (
         <View style={{ flex: 1, backgroundColor: COLORS.paper, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 8 }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 8 }}>
             Something went wrong
           </Text>
           <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft, textAlign: 'center', marginBottom: 24 }}>

@@ -88,7 +88,7 @@ function ContactRow({
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>{name ?? role}</Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, textTransform: 'uppercase' }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase' }}>
               {isDefault ? `${role} · messages` : role}
             </Text>
           </View>
@@ -97,7 +97,7 @@ function ContactRow({
               {formatPhoneDisplay(normalised)}
             </Text>
           ) : (
-            <TouchableOpacity onPress={onAddContact} accessibilityRole="button" style={{ minHeight: 28, justifyContent: 'center' }}>
+            <TouchableOpacity onPress={onAddContact} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }}>
               <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.oxblood, textDecorationLine: 'underline' }}>
                 Add WhatsApp number
               </Text>

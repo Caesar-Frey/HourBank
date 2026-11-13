@@ -52,7 +52,7 @@ const KIND_OPTIONS: Array<{ value: NewLessonKind; title: string; detail: string;
 
 const LABEL = {
   fontFamily: F.mono,
-  fontSize: 10,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase' as const,
   letterSpacing: 0.5,
@@ -306,7 +306,7 @@ export default function StartLessonScreen() {
                   }}
                 >
                   <Text style={{ fontFamily: F.sans, fontSize: 13, color: sel ? COLORS.paper : COLORS.ink }}>{sub.subject}</Text>
-                  <Text style={{ fontFamily: F.mono, fontSize: 11, color: sel ? COLORS.paper60 : COLORS.inkSoft }}>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: sel ? COLORS.paper60 : COLORS.inkSoft }}>
                     {sub.balance_hours < 0 ? `−${formatHours(-sub.balance_hours)}` : formatHours(sub.balance_hours)}
                   </Text>
                 </TouchableOpacity>
@@ -411,7 +411,7 @@ export default function StartLessonScreen() {
                 {s.status === 'paused' ? ' · Paused' : ''}
               </Text>
               {warn ? (
-                <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.crimson, marginTop: 2 }}>{warn}</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.crimson, marginTop: 2 }}>{warn}</Text>
               ) : null}
             </View>
             {balanceLine ? (
@@ -421,7 +421,7 @@ export default function StartLessonScreen() {
                 <Text style={{ fontFamily: F.monoMed, fontSize: 14, color: colour }}>
                   {statusHours < 0 ? `−${formatHours(-statusHours)}` : formatHours(statusHours)}
                 </Text>
-                <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase' }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase' }}>
                   {statusHours < 0 ? 'owes' : 'balance'}
                 </Text>
               </View>
