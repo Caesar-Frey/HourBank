@@ -41,7 +41,7 @@ Approved features deferred from current build. Pick up in future sessions.
 
 ## Billing / documents
 
-- Charge an item to credit (F1) and invoice template + settings (F2): specified in docs/plans/2026-11-12-polish-handoff.md, waiting for mockups M7, M8 and M9 to be approved.
+- Invoices: optional statement of several top-ups on one invoice; email sending from the app.
 
 ---
 *Updated by build: 2026-11-13 (polish packages A to E)*

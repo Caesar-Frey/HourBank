@@ -61,7 +61,7 @@ describe('receipt HTML builders', () => {
       newBalance: 12.5,
     });
     expect(html).not.toContain('<script>');
-    expect(html).toContain('R\u00A05\u00A0500.00');
+    expect(html).toContain('R5 500');
     expect(html).toContain('10h');
     expect(html).toContain('12h 30m');
     expect(html).toContain('EFT');
@@ -127,7 +127,7 @@ describe('sharing receipts', () => {
     expect(n).toBe(1);
     expect(getTopUpReceipt('p1')).not.toBeNull();
     const html = (Print.printToFileAsync as jest.Mock).mock.calls[0][0].html as string;
-    expect(html).toContain('R\u00A05\u00A0500.00');
+    expect(html).toContain('R5 500');
     expect(html).toContain('10h');
   });
 

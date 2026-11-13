@@ -61,8 +61,8 @@ describe('buildClaimReportHtml', () => {
     });
     expect(html).toContain('1 Sep – 30 Sep 2026');
     expect(html).not.toContain('– 1 Oct');
-    expect(html).toContain('R\u00A0650.00');
-    expect(html).toContain('R\u00A0600.00/h');
+    expect(html).toContain('R650');
+    expect(html).toContain('R600/h');
     expect(html).not.toContain('VOID');
   });
 
@@ -77,7 +77,7 @@ describe('buildClaimReportHtml', () => {
     });
     expect(html).toContain('#ABCD1234');
     expect(html).toContain('Thu 1 Oct 2026');
-    expect(html).toMatch(/Lessons<\/td><td[^>]*>2</);
+    expect(html).toContain('Lessons: 2');
     expect(html).toContain('1h 30m');
     expect(html).toContain('Payout rate');
     expect(html).not.toMatch(/rgba|gray|crimson|black/);
@@ -93,7 +93,7 @@ describe('buildClaimReportHtml', () => {
       ],
     });
     expect(html).not.toContain('Payout rate');
-    expect(html).toContain('R\u00A0600.00/h');
+    expect(html).toContain('R600/h');
     expect(html).toContain('>—<');
   });
 

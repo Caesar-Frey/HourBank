@@ -8,7 +8,7 @@
  * Pure: builds an HTML string for expo-print, black on white (COLORS.print*).
  * Every value passed in is escaped here; callers pass plain text.
  */
-import { escapeHtml } from './html';
+import { escapeHtmlMultiline } from './html';
 import { COLORS } from '../theme/colors';
 
 export type DocColumn = { label: string; width?: string; align?: 'left' | 'center' | 'right' };
@@ -33,14 +33,31 @@ export type DocumentSpec = {
   /** Short note under the table (e.g. "Lessons edited since this claim"). */
   notes?: string[];
   footer?: { left: string[]; right: string[] };
+  /** Boxed warning under the meta block (e.g. a voided claim). */
+  banner?: string | null;
+  /** Large faint diagonal word behind the page (e.g. VOID). */
+  watermark?: string | null;
+  /** Strike the total through (void). */
+  totalStruck?: boolean;
+};
+
+/** Who issues documents: logo, name and footer details (from Invoice details). */
+export type DocumentBrand = {
+  logoDataUri?: string | null;
+  name?: string | null;
+  regNo?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
 };
 
 const INK = COLORS.printInk;
 const FAINT = COLORS.printFaint;
 const ROW_HEIGHT = 40;
 
+/** Escape; a newline becomes a line break (notes, addresses). */
 function e(s: string): string {
-  return escapeHtml(s);
+  return escapeHtmlMultiline(s);
 }
 
 /** Accept only image data URIs for the logo; anything else is dropped. */
@@ -83,7 +100,7 @@ export function buildDocumentHtml(d: DocumentSpec): string {
     ? d.subtotals.map(s => `<div class="sub"><span>${e(s.label)}</span><span>${e(s.value)}</span></div>`).join('')
     : '';
   const total = d.total
-    ? `<div class="total">${subtotals}<div class="tlabel">${e(d.total.label)}</div><div class="tvalue">${e(d.total.value)}</div></div>`
+    ? `<div class="total">${subtotals}<div class="tlabel">${e(d.total.label)}</div><div class="tvalue"${d.totalStruck ? ' style="text-decoration: line-through;"' : ''}>${e(d.total.value)}</div></div>`
     : '';
   const notes = d.notes?.length ? `<div class="notes">${d.notes.map(n => `<div>${e(n)}</div>`).join('')}</div>` : '';
   const terms = d.terms
@@ -126,12 +143,17 @@ export function buildDocumentHtml(d: DocumentSpec): string {
   .terms { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: auto; padding: 32px 0 24px; font-size: 15px; }
   .footer { display: flex; justify-content: space-between; align-items: flex-start; border-top: 1px solid ${INK}; padding-top: 18px; font-size: 12px; font-weight: 600; gap: 24px; }
   .footer .light { font-weight: 400; }
+  .banner { margin-top: 20px; padding: 10px 14px; border: 2px solid ${INK}; font-size: 14px; font-weight: 600; }
+  .watermark { position: fixed; top: 38%; left: 0; right: 0; text-align: center; transform: rotate(-30deg); font-size: 160px; font-weight: 800; letter-spacing: 16px; color: ${INK}; opacity: 0.08; z-index: 0; }
+  .page > * { position: relative; z-index: 1; }
 </style>
 </head>
 <body>
+${d.watermark ? `<div class="watermark">${e(d.watermark)}</div>` : ''}
 <div class="page">
   <div class="top">${brand}<div class="title">${e(d.title)}</div></div>
   ${metaBlock}
+  ${d.banner ? `<div class="banner">${e(d.banner)}</div>` : ''}
   <table>${widths}<thead>${head}</thead><tbody>${body}${filler}</tbody></table>
   ${notes}
   ${payment || total ? `<div class="bottom">${payment}${total}</div>` : ''}

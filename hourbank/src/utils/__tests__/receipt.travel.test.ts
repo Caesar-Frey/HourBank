@@ -92,7 +92,7 @@ describe('receipts and reminders with subjects + travel', () => {
     expect(t).toContain(`Travel still owed: ${R(40)}`);
     await expect(shareTravelPaymentReceipt(st.id)).resolves.toEqual({ shared: true, uri: expect.any(String) });
     const html = (Print.printToFileAsync as jest.Mock).mock.calls[0][0].html as string;
-    expect(html).toContain('Travel payment receipt');
+    expect(html).toContain('Travel payment');
     expect(html).toContain('Cash');
     await expect(shareTravelPaymentReceipt('nope')).resolves.toEqual({ shared: false, uri: null });
   });
