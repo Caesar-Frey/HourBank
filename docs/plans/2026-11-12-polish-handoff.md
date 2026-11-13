@@ -2,7 +2,7 @@
 
 Audience: the implementing agent (Opus). Source: a five-track audit on `main` @ 8e05691 (money/ledger data layer, lesson lifecycle, all other screens, June screenshots + May QA report, build/tests). Every item below was confirmed by reading the code, and the money items by throwaway tests. File:line references are relative to `hourbank/`.
 
-Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbincJqvxH (boards 1 to 6, referenced below as **M1..M6**). **The owner approved mockups M1–M6 on 2026-11-12.** M7 (charge an item), M8 (invoice) and M9 (invoice settings) are new and still need approval; they are marked.
+Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbincJqvxH (boards 1 to 6, referenced below as **M1..M6**). **The owner approved mockups M1–M6 on 2026-11-12.** M7–M9 were approved on 2026-11-13. M10–M13 (work package G) still need approval.
 
 ## 0. Ground rules (read first)
 
@@ -38,8 +38,8 @@ Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbinc
    - Timer: taught time still shows the true elapsed time, but the default billed length is the booked length if within tolerance, else elapsed rounded to the nearest increment (existing `defaultBilledMinutes`, now fed 30 by default).
    - Existing lessons with off-grid lengths (for example 50m) keep their value and display it as is. Opening one in the edit form shows the stored value; the stepper snaps to the grid only when the tutor changes it.
 4. **No-shows carry no travel by default (A7 resolved).** The no-show sheet (`lesson/[sessionId].tsx`) gets a second switch under "Charge for this lesson": **"Include travel"**, off by default, shown only for in-person lessons. Store it on the lesson (migration 011: `sessions.no_show_travel INTEGER NOT NULL DEFAULT 0`). Off: no parent travel charge and no tutor travel allowance in claims (`claims.ts priceLine` must zero travel for no-shows unless the flag is set). On: parent travel is charged at the snapshotted terms and the tutor's claim includes the travel allowance. Editable later from the lesson edit form. Existing charged no-shows default to off, which removes the allowance from any that are still unclaimed; lines already in a finalised claim are frozen and do not change.
-5. **Charge an item to credit (new feature) `[DESIGN — needs owner approval: M7]`.** The tutor can take credit for something sold other than a lesson (study pack, exam paper pack, materials). See item **F1**.
-6. **Invoice template (new feature) `[DESIGN — needs owner approval: M8, M9]`.** Modelled on the owner's example. See item **F2**.
+5. **Charge an item to credit (new feature).** The tutor can take credit for something sold other than a lesson (study pack, exam paper pack, materials). See item **F1**.
+6. **Invoice template (new feature).** Modelled on the owner's example. See item **F2**.
 
 ---
 
@@ -117,7 +117,7 @@ Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbinc
 - **C2. Home (M3).** `TodayCard.tsx:203-213`: replace the text link with two equal outlined buttons under the card, "Record a lesson" and "Book a lesson" (both open the student picker first). Roster rows: caption above the number is the status word (OWES / LOW / LEFT), never truncated (`RosterStudentCard.tsx:105` cuts at 18 chars). Section label states the sort ("STUDENTS · LOWEST FIRST") and the link shows the count ("All 14 →"). Needs-attention "low" should not require a booked lesson (`homeLogic.ts:154-156`).
 - **C3. Money (M6).** `app/(app)/money.tsx:14-22`: segments "From parents" / "My claims". My claims hero: eyebrow NOT YET CLAIMED, amount, one plain sentence, lesson fees + travel split, primary oxblood "Start a claim", and the explainer "A claim records what you pay yourself and makes a report. HourBank does not move money; do the transfer in your banking app." Voided claims stay listed, struck through. "Download report" → "Share report". On From parents, the outstanding card shows travel owed in rand next to hours owed. Column headers "Stdnts"/"Lsns" → "Students"/"Lessons" (`MoneyInView.tsx:318-319`).
 - **C4. First-run dead ends.** Schedule "New lesson" and the student picker with no students show a text line only (`start-lesson.tsx:345`, `StudentPickerSheet.tsx:106`): add an "Add a student" button.
-- **C5. Student form.** Grades 1–7 are hidden unless a Settings toggle is on (`StudentForm.tsx:30,119`): show all grades in the picker (R–12), drop the toggle.
+- **C5. Student form.** Grades 1–7 are hidden unless a Settings toggle is on (`StudentForm.tsx:30,119`): show grades 1–12 in the picker, drop the toggle.
 - **C6. Topics optional when ending a timer** (`session.tsx:263-266`, `end-session.tsx:331-333`), matching the Record form.
 
 ---
@@ -145,7 +145,7 @@ Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbinc
 
 ## F. Work package F — new features from the owner (after A–C)
 
-### F1. Charge an item to credit `[DESIGN — needs owner approval: M7]`
+### F1. Charge an item to credit
 - Purpose: the tutor sold something that is paid for out of the student's prepaid credit. It must reduce the credit, show as its own line in history and on documents, and never count as a lesson.
 - Entry point: student page ··· menu and the Top up / Book row's overflow, labelled "Charge an item". Screen (M7): subject picker (multi-subject students only), item name (free text, with the tutor's saved items as chips; tapping a chip fills name, price and credit), optional price in rand for the record, **"Take from credit"** stepper in the lesson-length increment (when a price is entered, suggest price ÷ parent hourly price rounded to the nearest increment, and say so: "R 450.00 is about 1h at R 450.00/h"), date (default today), optional note, credit before → after preview, primary "Charge 1h to credit".
 - Data: migration 011 adds ledger entry type `item_charge` (allowed by the existing type check) with `item_name TEXT`, `item_price_rand REAL NULL`. Append-only, never edited. Correct a mistake with "Remove charge" on its detail screen, which appends a reversing `adjustment` (+hours, reason "Item charge removed") linked to it and marks the pair struck-through in history.
@@ -153,7 +153,7 @@ Mockups for the six design changes: https://claude.ai/artifact/DTWjwifgDBXnzbinc
 - Rules: excluded from claims, lesson counts, hours-taught reports and travel. Included in the student's history ("Study pack" with −1h), the transaction detail screen, Money > From parents (a separate "Items" line under hours taught, value in hours and rand where a price was entered), receipts/statements, and the reminder's balance. The over-owe nudge applies as for lessons.
 - Tests: balance after charge; removal restores exactly; not in claimable pool; month report separates item hours from lesson hours.
 
-### F2. Invoice template `[DESIGN — needs owner approval: M8, M9]`
+### F2. Invoice template
 The owner supplied a real invoice as the model (not stored in this public repo; M8 reproduces its layout with placeholders). **No business details, logo, bank details or amounts are ever hard-coded or committed: the tutor enters them in Settings.**
 
 - **Layout (M8, A4 portrait, black on white, Geist):** logo top left, "INVOICE" top right, rule. "BILLED TO:" block left (parent name, Cell, Student Name, Grade); right-aligned Invoice No., date (long form, "12 November 2026"), Reference (the student's payment reference from the existing template). Rule. Table with headers above a single bordered box with column rules: Item · Description · QTY (Hrs) · Rate · Amount Due; the box keeps a fixed minimum height so short invoices look like the example. Below: "Please make payment to:" (account holder, bank, account no., branch code, BIC/SWIFT only if set) left; "Total Amount" and the total right. Centred "TERMS & CONDITIONS" with "Full payment due on <date>". Footer rule, business name (+ registration number if set) left, phone / email / address right.
@@ -165,8 +165,29 @@ The owner supplied a real invoice as the model (not stored in this public repo; 
 - **One document family:** restyle the receipt PDF (`src/utils/receipt.ts`), top-up confirmation and claim report (`src/utils/claimReport.ts`) to the same frame: same header with logo and a document title ("RECEIPT", "CLAIM REPORT"), same meta block, same bordered table, same footer. Extract a shared `src/utils/documentHtml.ts` (header, meta, table, totals, footer builders) and build all three plus the invoice from it. Claim reports are the tutor's own record, so they omit "BILLED TO" and bank details.
 - Tests: numbering is gapless and unique, snapshot immutability after Settings change, QTY × Rate = Amount for discounted packages, record-payment links and marks paid, HTML snapshot test per document.
 
+## G. Work package G — optional extras (owner request 2026-11-13) `[DESIGN — needs owner approval: M10–M13]`
+
+Owner's rule: features 1–4 are optional (a switch each), app lock is optional but nudged, export lives in Settings. Do not start until the owner approves M10–M13. Build after F. Check the current docs of every native module named here before using it; versions move.
+
+**G0. Settings "Extras" section (M10).** New section above "Your data" with five switches, each with a one-line status under its name. Store as `tutor_profile.extras` JSON (`autoBackup`, `repeatLessons`, `dayEndReminder`, `statements`, `appLock`). Defaults for new and existing profiles: `repeatLessons` on, the rest off. A switched-off feature leaves no trace elsewhere in the UI. "Your data" becomes: Back up now · Export a spreadsheet · Restore from a backup… (restore visually quietest).
+
+**G1. Automatic backups.** Goal: a copy off the phone without the tutor remembering. Weekly (Sunday, or the next time the app opens after it), upload the same file "Back up now" makes to the tutor's own Google Drive using Google sign-in with the narrow `drive.file` scope, into a "HourBank backups" folder; keep the newest 8, delete older ones the app created. Runs on app open/foreground when due (no background task). Status line shows last success in mono; a failure shows an amber notice on Home with "Try again". Switching on runs the sign-in and a first backup immediately. Stamp `last_backup_at` only on confirmed upload. Needs a Google Cloud OAuth client: ask the owner to create it (free) and give step-by-step instructions; never commit client secrets. If the owner declines the Google setup, fall back to a weekly Home nudge that opens the existing share sheet. Restore gains "Restore from Google Drive" listing those files.
+
+**G2. Repeating lessons (M11).** On the booking form a "Repeat" control (Just once / Weekly / Every 2 weeks / Every 4 weeks; owner asked for the two longer intervals on 2026-11-13) and "For how long" (offered as a count of lessons that suits the interval: 4 or 8 lessons, or Until a date; never more than 26 weeks ahead). Repeats always land on the same weekday and time. A live list shows each date as Free or "Skipped · clashes with <name>" (reuse `findOverlappingCalendarItems`); the credit notice totals the hours needed against the subject credit. Button reads "Book N lessons". Creates N ordinary scheduled sessions in one transaction sharing `sessions.series_id` (migration, nullable). Reschedule and Cancel on a series lesson ask "This lesson" / "This and following". Nothing else changes: each lesson is recorded individually as today. Supersedes the FUTURE_TODOS entry.
+
+**G3. End-of-day reminder.** `expo-notifications` local notification at the tutor's chosen time (default 19:00), only on days that still have booked lessons not yet recorded, cancelled, or marked no-show: "3 lessons to record · Amahle, Thabo, Mia". Tapping opens Home, where the needs-attention card already lists them. Reschedule the notification whenever lessons change or the app foregrounds; cancel it when nothing is outstanding. Ask for notification permission only when the switch is turned on; if refused, turn the switch back off and say why.
+
+**G4. Monthly statement (M12).** Same document family as the invoice (`documentHtml.ts`). Per student, per month, one table per subject: credit brought forward, then every top-up, lesson (with first topic), item charge, charged no-show and adjustment in date order with running credit, then credit carried forward; summary of hours added/used, travel owed, and how to top up. Hours print as decimals on documents (1.5), as on the invoice. Entry points: student page ··· "Statement", and from the 1st of each month a Home needs-attention row "October statements · 14 to send" opening a checklist with Send (WhatsApp/PDF) per student and a sent stamp (`statement_sends` table: student, month, sent_at). Removed lessons and reversed item charges do not appear.
+
+**G5. App lock (M13).** `expo-local-authentication`. When on: lock on cold start and after 5 minutes in the background; fingerprint/face with phone PIN fallback; the lock screen shows nothing but the wordmark. If the phone has no screen lock, explain and leave the switch off. The lock applies everywhere; a running timer keeps counting underneath. **Nudge:** an extra row in the Home setup card (M3), "Protect the app with your fingerprint", with "Not now"; after "Not now" ask once more 30 days later, then never again. The Settings row carries a RECOMMENDED tag while off.
+
+**G6. Export a spreadsheet.** Settings › Your data. Period picker: this month, last month, this tax year (1 Mar–end Feb), last tax year, custom. Produces one `.xlsx` (SheetJS) named `HourBank-export-2026-03-01-to-2027-02-28.xlsx` with sheets Lessons, Top-ups, Items, Travel, Claims (one row each, ISO dates, plain numbers, student and subject columns), shared through the share sheet. Includes archived students. Supersedes the FUTURE_TODOS CSV entry.
+
+**Also (owner, 2026-11-13):** Grade R is not needed. Item C5's grade picker is 1–12.
+
 ## Checked and already fixed (no work)
 All 19 June screenshot items are fixed in current code except two that need a phone to confirm (keyboard covering the Topics input on the schedule form; native dialog button styling). 13 of the 22 May QA issues are fixed and 4 are obsolete; the remainder are covered by C1 (back label) and A5 (tutor name).
 
 ## Open owner decisions
-1. Approve mockups M7 (charge an item), M8 (invoice), M9 (invoice details in Settings).
+1. Approve mockups M10–M13 (extras switches, repeating lessons, monthly statement, app lock).
+2. G1: is the owner willing to do a one-off free Google Cloud setup so backups can go to Drive automatically?
