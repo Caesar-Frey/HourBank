@@ -802,6 +802,69 @@ export const MIGRATION_014_ITEMS: Migration = {
   },
 };
 
+/** Business and invoice settings on tutor_profile (migration 015). All optional text. */
+export const INVOICE_PROFILE_TEXT_COLUMNS = [
+  'business_name', 'business_reg_no', 'business_phone', 'business_email', 'business_address',
+  'logo_data_uri', 'bank_account_holder', 'bank_name', 'bank_account_no', 'bank_branch_code', 'bank_swift',
+] as const;
+
+/**
+ * Migration 015 — invoices (F2).
+ * - invoices / invoice_lines: an invoice asks for payment before a top-up.
+ *   Every printed business, bank, parent and student value is snapshotted on
+ *   the invoice, so re-sharing never changes it. Numbers are unique and never
+ *   reused; cancelling is a status change.
+ * - tutor_profile: business and bank details for documents, invoice numbering
+ *   and due days. The logo is stored as a data URI in the database so it is
+ *   in every backup and needs no file copy.
+ */
+export const MIGRATION_015_INVOICES: Migration = {
+  version: '015_invoices',
+  run: (db) => {
+    db.runSync(`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id TEXT PRIMARY KEY,
+        number INTEGER NOT NULL UNIQUE,
+        student_id TEXT NOT NULL REFERENCES students(id) ON DELETE RESTRICT,
+        subject_id TEXT,
+        issued_at TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'unpaid' CHECK (status IN ('unpaid','paid','cancelled')),
+        status_changed_at TEXT,
+        package_id TEXT REFERENCES credit_packages(id) ON DELETE SET NULL,
+        hours REAL NOT NULL DEFAULT 0,
+        total_rand REAL NOT NULL,
+        travel_rand REAL NOT NULL DEFAULT 0,
+        snapshot TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    db.runSync(`CREATE INDEX IF NOT EXISTS idx_invoices_student ON invoices(student_id, issued_at DESC)`);
+    db.runSync(`
+      CREATE TABLE IF NOT EXISTS invoice_lines (
+        id TEXT PRIMARY KEY,
+        invoice_id TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        item TEXT NOT NULL,
+        description TEXT NOT NULL,
+        qty_hours REAL,
+        rate_rand REAL,
+        amount_rand REAL NOT NULL
+      )
+    `);
+    db.runSync(`CREATE INDEX IF NOT EXISTS idx_invoice_lines_invoice ON invoice_lines(invoice_id, sort_order)`);
+    for (const col of INVOICE_PROFILE_TEXT_COLUMNS) {
+      if (!hasColumn(db, 'tutor_profile', col)) db.runSync(`ALTER TABLE tutor_profile ADD COLUMN ${col} TEXT`);
+    }
+    if (!hasColumn(db, 'tutor_profile', 'invoice_next_number')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN invoice_next_number INTEGER NOT NULL DEFAULT 1`);
+    }
+    if (!hasColumn(db, 'tutor_profile', 'invoice_due_days')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN invoice_due_days INTEGER NOT NULL DEFAULT 7`);
+    }
+  },
+};
+
 /** Ordered migration chain run at app boot (app/_layout.tsx) and by test DBs. */
 export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_002,
@@ -817,4 +880,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_012_POLISH_B,
   MIGRATION_013_POLISH_C,
   MIGRATION_014_ITEMS,
+  MIGRATION_015_INVOICES,
 ];

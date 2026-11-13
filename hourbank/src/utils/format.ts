@@ -62,6 +62,27 @@ export function formatRand(amount: number): string {
   return `${sign}R${NBSP}${groupThousands(whole)}.${pad2(frac)}`;
 }
 
+/**
+ * Money on printed documents (invoice style): "R2 000", "R2 000.50", "−R150".
+ * No space after R, a space between thousands, cents only when not zero.
+ */
+export function formatRandDocument(amount: number): string {
+  const n = Number.isFinite(amount) ? amount : 0;
+  const cents = Math.round((Math.abs(n) + Number.EPSILON) * 100);
+  const whole = Math.floor(cents / 100);
+  const frac = cents % 100;
+  const sign = n < 0 && cents > 0 ? MINUS : '';
+  return `${sign}R${groupThousands(whole).replace(/\u00A0/g, ' ')}${frac ? `.${pad2(frac)}` : ''}`;
+}
+
+/** "12 November 2026" — the long date on documents. */
+export function formatDateDocument(iso: string | Date): string {
+  const d = new Date(iso);
+  return `${d.getDate()} ${MONTH_LONG[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+const MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
 /** Compact whole-rand variant for badges: 5500 → "R 5 500". */
 export function formatRandCompact(amount: number): string {
   const n = Number.isFinite(amount) ? amount : 0;

@@ -19,11 +19,12 @@ import { SubjectBalanceCard } from '../../../src/components/student/SubjectBalan
 import { TravelOwedCard } from '../../../src/components/student/TravelOwedCard';
 import { lessonSubjectName, lowestSubject } from '../../../src/components/student/subjectLogic';
 import { getLowBalanceReminderText } from '../../../src/utils/receipt';
-import { getOrCreateTutorProfile } from '../../../src/db/tutorProfile';
+import { paymentDetailsForMessages } from '../../../src/db/invoices';
 import { openWhatsApp } from '../../../src/utils/whatsapp';
 import { recipientOptions, resolveRecipient, type Recipient } from '../../../src/utils/recipient';
 import { StudentLedgerRow } from '../../../src/components/student/StudentLedgerRow';
 import { ContactsCard } from '../../../src/components/student/ContactsCard';
+import { InvoicesCard } from '../../../src/components/student/InvoicesCard';
 import { Button, LoadingState, NotFoundState, SectionLabel } from '../../../src/components/student/ui';
 import { confirmArchiveStudent, confirmPauseStudent } from '../../../src/components/student/studentActions';
 import {
@@ -182,7 +183,7 @@ export default function StudentDetailScreen() {
   function checkPaymentDetails(r: Recipient) {
     let hasDetails = true;
     try {
-      hasDetails = !!getOrCreateTutorProfile().payment_details?.trim();
+      hasDetails = !!paymentDetailsForMessages();
     } catch { /* send anyway */ }
     if (hasDetails) {
       void sendReminderNow(r);
@@ -429,6 +430,8 @@ export default function StudentDetailScreen() {
             })
           )}
         </View>
+
+        <InvoicesCard studentId={id} readOnly={archived} />
 
         {/* Ledger */}
         <View style={{ marginTop: 28 }}>

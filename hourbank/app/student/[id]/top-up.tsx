@@ -26,8 +26,10 @@ import { DateTimeField } from '../../../src/components/student/DateTimeField';
 import { RecipientChooser } from '../../../src/components/student/RecipientChooser';
 import type { PreferredContact } from '../../../src/db/schema';
 import {
-  Button, ChoicePills, FieldHint, LoadingState, NotFoundState, PageHeading, SectionLabel,
+  Banner, Button, ChoicePills, FieldHint, LoadingState, NotFoundState, PageHeading, SectionLabel,
 } from '../../../src/components/student/ui';
+import { createInvoice, getInvoice, invoiceNumberLabel, markInvoicePaid, type Invoice } from '../../../src/db/invoices';
+import { shareInvoicePdf } from '../../../src/utils/invoicePdf';
 import {
   balanceReviewLine, decimalPreview, formatBalance, paidAtIso, tierSavings,
 } from '../../../src/components/student/flowLogic';
@@ -64,7 +66,7 @@ function parseTiers(p: TutorProfile): PackageTier[] {
 }
 
 export default function TopUpScreen() {
-  const { id, subjectId: subjectParam } = useLocalSearchParams<{ id: string; subjectId?: string }>();
+  const { id, subjectId: subjectParam, invoiceId } = useLocalSearchParams<{ id: string; subjectId?: string; invoiceId?: string }>();
   const router = useRouter();
   const toast = useToast();
   // Generated once per screen visit: makes a double-submitted top-up idempotent.
@@ -89,6 +91,9 @@ export default function TopUpScreen() {
   const [saving, setSaving] = useState(false);
   const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
   const [paidOn, setPaidOn] = useState(() => new Date());
+  /** Paying an invoice (F2): prefilled from it and marked paid on save. */
+  const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [invoicing, setInvoicing] = useState(false);
 
   useEffect(() => {
     try {
@@ -108,13 +113,28 @@ export default function TopUpScreen() {
       }
       const p = getOrCreateTutorProfile();
       setProfile(p);
-      setTiers(parseTiers(p));
+      const t = parseTiers(p);
+      setTiers(t);
+      const inv = typeof invoiceId === 'string' ? getInvoice(invoiceId) : null;
+      if (inv && inv.status === 'unpaid' && inv.student_id === id) {
+        setInvoice(inv);
+        if (inv.subject_id) setSubjectId(inv.subject_id);
+        const lessonAmount = Math.round((inv.total_rand - inv.travel_rand) * 100) / 100;
+        const match = t.findIndex(x => x.hours === inv.hours && x.price === lessonAmount);
+        if (match >= 0) setSelection(match);
+        else {
+          setSelection('custom');
+          setCustomHours(String(inv.hours));
+          setCustomAmount(String(lessonAmount));
+        }
+        setIncludeTravel(inv.travel_rand > 0);
+      }
     } catch {
       // student stays null → not-found state; profile optional
     } finally {
       setLoaded(true);
     }
-  }, [id, subjectParam]);
+  }, [id, subjectParam, invoiceId]);
 
   if (!loaded) return <LoadingState />;
   if (!student) return <NotFoundState title="Student not found" onBack={() => router.back()} />;
@@ -196,10 +216,50 @@ export default function TopUpScreen() {
       return;
     }
 
+    if (invoice) {
+      try {
+        markInvoicePaid(invoice.id, created.pkg.id);
+      } catch {
+        toast.show({ kind: 'error', message: `Top-up saved, but invoice ${invoiceNumberLabel(invoice.number)} wasn't marked paid` });
+      }
+    }
+
     router.replace({
       pathname: '/student/[id]/top-up-saved',
       params: { id, packageId: created.pkg.id, sendTo: recipient.who },
     });
+  }
+
+  /** Save an invoice for this package (no credit added), share it, go back. */
+  async function sendInvoiceFirst() {
+    if (savingRef.current || !ready || hours === null || price === null) return;
+    savingRef.current = true;
+    setInvoicing(true);
+    let created: ReturnType<typeof createInvoice>;
+    try {
+      created = createInvoice({
+        studentId: id,
+        subjectId,
+        subjectName: subject?.subject ?? null,
+        hours,
+        amountRand: price,
+        travelRand: travel > 0 ? travel : undefined,
+        travelLessons: travel > 0 ? travelOwed.lessonCount : undefined,
+      });
+    } catch {
+      savingRef.current = false;
+      setInvoicing(false);
+      toast.show({ kind: 'error', message: "Couldn't create the invoice, please try again" });
+      return;
+    }
+    const label = invoiceNumberLabel(created.invoice.number);
+    try {
+      await shareInvoicePdf(created.invoice.id);
+      toast.show({ kind: 'success', message: `Invoice ${label} saved` });
+    } catch {
+      toast.show({ kind: 'error', message: `Invoice ${label} saved, but the PDF couldn't be shared. Share it again from ${firstName}'s page.` });
+    }
+    router.back();
   }
 
   return (
@@ -220,10 +280,29 @@ export default function TopUpScreen() {
             busy={saving}
             testID="top-up-confirm"
           />
+          {!invoice ? (
+            <Button
+              label="Send invoice first"
+              icon="file-text"
+              variant="secondary"
+              onPress={sendInvoiceFirst}
+              disabled={!ready || saving}
+              busy={invoicing}
+              accessibilityHint="Saves an invoice for this package and shares the PDF. No credit is added yet."
+              testID="top-up-invoice"
+            />
+          ) : null}
         </View>
       }
     >
       <PageHeading eyebrow="★ ADD CREDITS" line1="How many" line2="hours?" />
+      {invoice ? (
+        <View style={{ marginBottom: 16 }}>
+          <Banner tone="info" icon="file-text">
+            {`Recording payment for invoice ${invoiceNumberLabel(invoice.number)} (${formatRand(invoice.total_rand)}). It is marked paid when you save.`}
+          </Banner>
+        </View>
+      ) : null}
 
       {multiSubject ? (
         <View style={{ marginBottom: 16 }}>

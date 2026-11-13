@@ -174,9 +174,12 @@ export type SetupStatus = {
 };
 
 /** What is still missing before documents and messages go out right (Home setup card, A5). */
-export function getSetupStatus(profile: Pick<TutorProfile, 'full_name' | 'rates_confirmed_at' | 'payment_details'> | null): SetupStatus {
+export function getSetupStatus(
+  profile: (Pick<TutorProfile, 'full_name' | 'rates_confirmed_at' | 'payment_details'> & { bank_name?: string | null; bank_account_no?: string | null }) | null
+): SetupStatus {
   const nameDone = !!profile?.full_name?.trim();
   const ratesDone = !!profile?.rates_confirmed_at;
-  const paymentDone = !!profile?.payment_details?.trim();
+  // Free-text details, or the structured bank fields from Invoice details (F2).
+  const paymentDone = !!profile?.payment_details?.trim() || !!(profile?.bank_name?.trim() && profile?.bank_account_no?.trim());
   return { nameDone, ratesDone, paymentDone, needed: !(nameDone && ratesDone && paymentDone) };
 }

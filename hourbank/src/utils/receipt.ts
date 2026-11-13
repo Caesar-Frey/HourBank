@@ -12,6 +12,7 @@ import { getSubjectBalances, listStudentSubjects } from '../db/subjects';
 import { getTravelOwed, getTravelSettlement, listTravelSettlementsForPackage } from '../db/travel';
 import { getOrCreateTutorProfile, PackageTier } from '../db/tutorProfile';
 import { getStudent } from '../db/students';
+import { paymentDetailsForMessages } from '../db/invoices';
 import { suggestTopUpPackage } from '../components/student/flowLogic';
 import { buildPaymentReference } from './paymentReference';
 import { kmLabel } from './travelBilling';
@@ -373,7 +374,7 @@ export function getLowBalanceReminderText(studentId: string, opts: ReceiptTextOp
       ? subjects.map(b => ({ subject: b.subject, balanceHours: b.balance_hours }))
       : null,
     suggestedPackage: pkg ? { hours: pkg.hours, price: pkg.price } : null,
-    paymentDetails: profile.payment_details,
+    paymentDetails: paymentDetailsForMessages(),
     paymentReference: buildPaymentReference(profile.payment_reference_template, student),
     travelOwed: owed.amount > 0 ? { amount: owed.amount, lessonCount: owed.lessonCount } : null,
   });

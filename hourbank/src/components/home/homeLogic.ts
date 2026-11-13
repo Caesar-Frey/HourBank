@@ -5,7 +5,7 @@ import type { Agenda, AgendaItem, OweCheck } from '../../db/sessions';
 import { DEFAULT_LESSON_MINUTES } from '../../db/sessions';
 import type { Session, Student } from '../../db/schema';
 import type { StudentSubjectBalanceSummary } from '../../db/students';
-import { formatDayShort, formatHours, formatMinutes, formatTime, pluralize } from '../../utils/format';
+import { formatDayShort, formatHours, formatMinutes, formatRand, formatTime, pluralize } from '../../utils/format';
 import { getCurrentNudgeTier, shouldShowNudge } from '../../utils/backup';
 import { rosterSubjectBalances, worstSubjectBalance } from '../../utils/subjectBalances';
 
@@ -69,7 +69,7 @@ export function lessonEndIso(item: Pick<Session, 'scheduled_for' | 'estimated_du
 
 // ─── Needs attention ─────────────────────────────────────────────────────────
 
-export type AttentionKind = 'overdue' | 'owing' | 'low';
+export type AttentionKind = 'overdue' | 'owing' | 'low' | 'invoice';
 
 export type AttentionItem = {
   key: string;
@@ -110,9 +110,22 @@ export function bookedSubjectKeys(agenda: Agenda, students: RosterStudent[]): Se
  * students under 1h with a lesson booked (→ student). Order: overdue (oldest
  * first), owing (most owed first), low (lowest first).
  */
-export function buildNeedsAttention(input: { agenda: Agenda; students: RosterStudent[] }): AttentionItem[] {
+export type OverdueInvoiceLike = { id: string; number: number; student_id: string; student_name: string; total_rand: number; due_at: string };
+
+export function buildNeedsAttention(input: { agenda: Agenda; students: RosterStudent[]; overdueInvoices?: OverdueInvoiceLike[] }): AttentionItem[] {
   const { agenda, students } = input;
   const items: AttentionItem[] = [];
+
+  // Invoices past their due date (F2).
+  for (const inv of input.overdueInvoices ?? []) {
+    items.push({
+      key: `invoice:${inv.id}`,
+      kind: 'invoice',
+      title: inv.student_name,
+      detail: `Invoice ${String(inv.number).padStart(4, '0')} · ${formatRand(inv.total_rand)} · due ${formatDayShort(inv.due_at)}`,
+      href: `/student/${inv.student_id}`,
+    });
+  }
 
   for (const l of agenda.overdue) {
     const when = l.scheduled_for ? `${formatDayShort(l.scheduled_for)} ${formatTime(l.scheduled_for)}` : '';

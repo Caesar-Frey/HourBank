@@ -35,6 +35,10 @@ export const COLORS = {
   plum:        '#6E4B63',
   plumFill:    '#E9DEE6',
   sessionBg:   '#1B1714',
+  // Printed documents (invoice, receipts, claim report): black on white.
+  printInk:    '#111111',
+  printFaint:  '#555555',
+  printPaper:  '#FFFFFF',
 
   // ── Translucent surfaces (replace inline rgba literals) ──────────────────
   /** Card / input fill on paper (white @ 40%). */

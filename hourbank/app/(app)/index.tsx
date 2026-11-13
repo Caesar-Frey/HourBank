@@ -12,6 +12,7 @@ import { useToast } from '../../src/components/Toast';
 import { RosterStudentCard } from '../../src/components/home/RosterStudentCard';
 import { TodayCard, LiveLessonPill } from '../../src/components/home/TodayCard';
 import { NeedsAttentionCard } from '../../src/components/home/NeedsAttentionCard';
+import { listOverdueInvoices, type OverdueInvoice } from '../../src/db/invoices';
 import { SetupCard } from '../../src/components/home/SetupCard';
 import { StudentPickerSheet } from '../../src/components/calendar/StudentPickerSheet';
 import { getOrCreateTutorProfile, getSetupStatus, type SetupStatus } from '../../src/db/tutorProfile';
@@ -104,6 +105,7 @@ export default function HomeScreen() {
   const [data, setData] = useState<HomeData | null>(null);
   const [setup, setSetup] = useState<{ status: SetupStatus; rate: number } | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [overdueInvoices, setOverdueInvoices] = useState<OverdueInvoice[]>([]);
   const [weekStats, setWeekStats] = useState<WeekLessonStats>(EMPTY_WEEK);
   const [nudge, setNudge] = useState<{ show: boolean; tier: number | null; message: string }>({
     show: false,
@@ -121,6 +123,11 @@ export default function HomeScreen() {
 
   const load = useCallback(() => {
     let hasStudents = false;
+    try {
+      setOverdueInvoices(listOverdueInvoices());
+    } catch {
+      setOverdueInvoices([]);
+    }
     try {
       const p = getOrCreateTutorProfile();
       setSetup({ status: getSetupStatus(p), rate: p.hourly_rate });
@@ -188,8 +195,8 @@ export default function HomeScreen() {
 
   const today = useMemo(() => (data ? splitToday(data.agenda) : null), [data]);
   const attention = useMemo(
-    () => (data ? buildNeedsAttention({ agenda: data.agenda, students: [...data.active, ...data.paused] }) : []),
-    [data]
+    () => (data ? buildNeedsAttention({ agenda: data.agenda, students: [...data.active, ...data.paused], overdueInvoices }) : []),
+    [data, overdueInvoices]
   );
 
   const { hoursBanked, hoursOwed } = useMemo(() => {

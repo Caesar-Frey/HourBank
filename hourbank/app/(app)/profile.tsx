@@ -541,6 +541,13 @@ export default function SettingsScreen() {
         sampleStudent={referenceSample}
       />
 
+      <SettingsLinkRow
+        icon="file-text"
+        title="Invoice details"
+        subtitle="Logo, business and bank details, invoice numbers"
+        onPress={() => router.push('/settings/invoice')}
+      />
+
       {/* ── Packages ──────────────────────────────────────────────────── */}
       <SectionLabel>Top-up packages</SectionLabel>
       <View style={[ROW_CONTAINER, { flexDirection: 'row', alignItems: 'center' }]}>

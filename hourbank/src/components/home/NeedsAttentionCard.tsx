@@ -10,6 +10,7 @@ const KIND_STYLE: Record<AttentionKind, { icon: React.ComponentProps<typeof Feat
   overdue: { icon: 'alert-circle', color: COLORS.oxblood, tag: 'OVERDUE' },
   owing: { icon: 'arrow-down-circle', color: COLORS.oxblood, tag: 'OWES' },
   low: { icon: 'battery', color: COLORS.crimson, tag: 'LOW' },
+  invoice: { icon: 'file-text', color: COLORS.oxblood, tag: 'UNPAID' },
 };
 
 /** Renders nothing when there is nothing to act on. */
