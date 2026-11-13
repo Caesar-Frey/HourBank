@@ -774,6 +774,34 @@ export const MIGRATION_013_POLISH_C: Migration = {
   },
 };
 
+/**
+ * Migration 014 — charge an item to credit (F1).
+ * An item charge is an `adjustment` ledger row (negative hours, reason = item
+ * name) with `item_name` set, so it reuses the existing type CHECK and triggers
+ * without rebuilding the ledger table. Removing a charge appends a reversing
+ * `adjustment` whose `related_entry_id` points at the charge.
+ * - ledger_entries.item_name / item_price_rand / related_entry_id
+ * - tutor_profile.sale_items: JSON list of saved items (empty by default)
+ */
+export const MIGRATION_014_ITEMS: Migration = {
+  version: '014_items',
+  run: (db) => {
+    if (!hasColumn(db, 'ledger_entries', 'item_name')) {
+      db.runSync(`ALTER TABLE ledger_entries ADD COLUMN item_name TEXT`);
+    }
+    if (!hasColumn(db, 'ledger_entries', 'item_price_rand')) {
+      db.runSync(`ALTER TABLE ledger_entries ADD COLUMN item_price_rand REAL`);
+    }
+    if (!hasColumn(db, 'ledger_entries', 'related_entry_id')) {
+      db.runSync(`ALTER TABLE ledger_entries ADD COLUMN related_entry_id TEXT`);
+    }
+    db.runSync(`CREATE INDEX IF NOT EXISTS idx_ledger_related_entry ON ledger_entries(related_entry_id)`);
+    if (!hasColumn(db, 'tutor_profile', 'sale_items')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN sale_items TEXT NOT NULL DEFAULT '[]'`);
+    }
+  },
+};
+
 /** Ordered migration chain run at app boot (app/_layout.tsx) and by test DBs. */
 export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_002,
@@ -788,4 +816,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_011_POLISH_A,
   MIGRATION_012_POLISH_B,
   MIGRATION_013_POLISH_C,
+  MIGRATION_014_ITEMS,
 ];

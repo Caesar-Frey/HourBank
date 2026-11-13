@@ -135,6 +135,12 @@ export type LedgerEntry = {
   created_at: string;
   /** Subject balance this row moves (migration 009). */
   subject_id?: string | null;
+  /** Set on an item charge (an `adjustment` row, migration 014). */
+  item_name?: string | null;
+  /** Rand price of the item, for the record only (migration 014). */
+  item_price_rand?: number | null;
+  /** On a reversal: the entry it reverses (migration 014). */
+  related_entry_id?: string | null;
 };
 
 export type Claim = {

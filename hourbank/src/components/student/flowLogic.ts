@@ -366,7 +366,14 @@ export type LedgerLike = {
   hours_delta: number;
   created_at: string;
   reason: string | null;
+  item_name?: string | null;
+  related_entry_id?: string | null;
 };
+
+/** A removed item charge and its reversal are both shown struck through. */
+export function isStruckEntry(e: { reversed?: number | boolean | null; related_entry_id?: string | null }): boolean {
+  return !!e.reversed || !!e.related_entry_id;
+}
 
 export function ledgerDescription(entry: LedgerLike, sessionTopics?: string | null): string {
   switch (entry.type) {
@@ -382,6 +389,8 @@ export function ledgerDescription(entry: LedgerLike, sessionTopics?: string | nu
       return first ? `${base} — ${first}` : base;
     }
     case 'adjustment':
+      if (entry.item_name) return entry.item_name;
+      if (entry.related_entry_id) return entry.reason?.trim() || 'Item charge removed';
       return entry.reason?.trim() ? `Correction — ${entry.reason.trim()}` : 'Correction';
     case 'refund':
       return entry.reason?.trim() ? `Refund — ${entry.reason.trim()}` : 'Refund';

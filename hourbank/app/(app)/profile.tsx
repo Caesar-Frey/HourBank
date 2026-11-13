@@ -676,6 +676,15 @@ export default function SettingsScreen() {
         </View>
       )}
 
+      {/* ── Items you sell (F1) ───────────────────────────────────────── */}
+      <SectionLabel>Items you sell</SectionLabel>
+      <SettingsLinkRow
+        icon="shopping-bag"
+        title="Items you sell"
+        subtitle="Study packs, past papers: quick picks when you charge an item"
+        onPress={() => router.push('/settings/items')}
+      />
+
       {/* ── Students ──────────────────────────────────────────────────── */}
       <SectionLabel>Students</SectionLabel>
       <SettingsLinkRow

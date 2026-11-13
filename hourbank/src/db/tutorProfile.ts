@@ -24,6 +24,8 @@ export type TutorProfile = {
   payment_reference_template: string;
   /** When the tutor confirmed their payout + parent rates; NULL = still the starter values. Migration 011. */
   rates_confirmed_at?: string | null;
+  /** JSON list of saved items the tutor sells (migration 014). Written by db/items. */
+  sale_items?: string;
   created_at: string;
   updated_at: string;
 };

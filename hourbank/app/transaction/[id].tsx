@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -11,6 +11,7 @@ import { ScreenHeader } from '../../src/components/ScreenHeader';
 import { useToast } from '../../src/components/Toast';
 import { getLedgerEntryById, LedgerEntryDetail } from '../../src/db/ledger';
 import { getStudent } from '../../src/db/students';
+import { removeItemCharge } from '../../src/db/items';
 import { formatDateLong, formatHours, formatHoursSigned, formatRand, formatTime } from '../../src/utils/format';
 import {
   getTopUpReceiptText, getTravelPaymentText, shareTopUpReceipt, shareTravelPaymentReceipt,
@@ -29,7 +30,10 @@ function balanceDisplay(h: number): { text: string; colour: string } {
   return { text: formatHours(Math.abs(h)), colour: COLORS.ink };
 }
 
-function entryTypeLabel(type: LedgerEntryDetail['type'], reason: string | null): string {
+function entryTypeLabel(entry: LedgerEntryDetail): string {
+  const { type, reason } = entry;
+  if (entry.item_name) return entry.reversed_by ? 'ITEM · REMOVED' : 'ITEM';
+  if (entry.related_entry_id) return 'ITEM CHARGE REMOVED';
   switch (type) {
     case 'top_up': return 'TOP-UP';
     case 'session_deduction': return reason === 'No-show' ? 'NO-SHOW CHARGE' : 'LESSON';
@@ -216,6 +220,7 @@ export default function TransactionDetailScreen() {
   const [sharing, setSharing] = useState(false);
   const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
   const sharingRef = useRef(false);
+  const removingRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -249,6 +254,34 @@ export default function TransactionDetailScreen() {
       .catch(() => { if (!cancelled) setProofExists(false); });
     return () => { cancelled = true; };
   }, [proofUri]);
+
+  function confirmRemoveCharge() {
+    if (!detail?.item_name || detail.reversed_by) return;
+    Alert.alert(
+      'Remove this charge?',
+      `${formatHours(Math.abs(detail.hours_delta))} goes back to the credit. Both lines stay in the history, struck through.`,
+      [
+        { text: 'Keep', style: 'cancel' },
+        {
+          text: 'Remove charge',
+          style: 'destructive',
+          onPress: () => {
+            if (removingRef.current) return;
+            removingRef.current = true;
+            try {
+              removeItemCharge(detail.id);
+              toast.show({ kind: 'success', message: `Charge removed · ${formatHours(Math.abs(detail.hours_delta))} back to credit` });
+              setDetail(getLedgerEntryById(detail.id));
+            } catch {
+              toast.show({ kind: 'error', message: "Couldn't remove the charge" });
+            } finally {
+              removingRef.current = false;
+            }
+          },
+        },
+      ],
+    );
+  }
 
   if (detail === undefined) return <LoadingState />;
   if (travelPayment) return <TravelPaymentDetail settlement={travelPayment} student={student} />;
@@ -296,7 +329,7 @@ export default function TransactionDetailScreen() {
       <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 48 }}>
         <View style={{ alignSelf: 'flex-start', borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 16 }}>
           <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, letterSpacing: 0.5 }}>
-            {entryTypeLabel(entry.type, entry.reason)}
+            {entryTypeLabel(entry)}
           </Text>
         </View>
 
@@ -391,7 +424,36 @@ export default function TransactionDetailScreen() {
           </>
         ) : null}
 
-        {entry.reason && entry.reason !== 'No-show' ? (
+        {entry.item_name ? (
+          <>
+            {DIVIDER}
+            <SectionLabel>ITEM</SectionLabel>
+            <View style={{ gap: 10 }}>
+              <Row label="Item" value={entry.item_name} />
+              {entry.item_price_rand ? <Row label="Price" value={formatRand(entry.item_price_rand)} mono /> : null}
+            </View>
+            {!entry.reversed_by ? (
+              <Button label="Remove charge" icon="x-circle" variant="danger" style={{ marginTop: 20 }} onPress={confirmRemoveCharge} />
+            ) : null}
+          </>
+        ) : null}
+
+        {entry.related_entry_id ? (
+          <>
+            {DIVIDER}
+            <TouchableOpacity
+              onPress={() => router.push(`/transaction/${entry.related_entry_id}`)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: MIN_TOUCH }}
+            >
+              <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }}>View the removed charge</Text>
+              <Feather name="chevron-right" size={16} color={COLORS.inkFaint} />
+            </TouchableOpacity>
+          </>
+        ) : null}
+
+        {entry.reason && entry.reason !== 'No-show' && !entry.item_name && !entry.related_entry_id ? (
           <>
             {DIVIDER}
             <SectionLabel>REASON</SectionLabel>

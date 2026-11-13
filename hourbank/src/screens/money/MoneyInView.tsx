@@ -11,12 +11,15 @@ import { COLORS } from '../../theme/colors';
 import { F, MIN_TOUCH } from '../../theme/fonts';
 import {
   getMonthSummary,
+  localMonthBounds,
   listSessionsForMonth,
   listTopUpsForMonth,
   listTravelSettlementsForMonth,
   MonthSummary,
   SessionListRow,
 } from '../../db/reports';
+import { itemTotals } from '../../db/items';
+import { Mixed } from '../../components/Num';
 import { listTravelOwedByStudent } from '../../db/travel';
 import { aggregateBySubject, kmLabel } from '../../utils/travelBilling';
 import { listActiveStudents, listArchivedStudents, listPausedStudents } from '../../db/students';
@@ -96,6 +99,7 @@ export function MoneyInView() {
   const [travelOwed, setTravelOwed] = useState<TravelOwedRow[]>([]);
   const [list, setList] = useState<List>('cash');
   const [error, setError] = useState(false);
+  const [items, setItems] = useState<{ count: number; hours: number; rand: number } | null>(null);
   const navigating = useRef(false);
 
   const load = useCallback(() => {
@@ -104,6 +108,8 @@ export function MoneyInView() {
       setSummary(getMonthSummary(year, monthIdx));
       setCashRows(mergeCashRows(listTopUpsForMonth(year, monthIdx), listTravelSettlementsForMonth(year, monthIdx)));
       setLessons(listSessionsForMonth(year, monthIdx));
+      const bounds = localMonthBounds(year, monthIdx);
+      setItems(itemTotals(bounds.start, bounds.end));
       // Archived students who still owe hours stay in what is owed (B6).
       const balances = [
         ...[...listActiveStudents(), ...listPausedStudents()].map(s => s.current_balance),
@@ -186,6 +192,20 @@ export function MoneyInView() {
             sub={taughtLessonsLabel(summary.totalLessons)}
             note={noShowChargedLabel(summary.noShowLessons, summary.noShowHours)}
           />
+        </View>
+      ) : null}
+
+      {items && items.count > 0 ? (
+        <View
+          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: MIN_TOUCH, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, marginBottom: 12 }}
+          accessibilityLabel={`Items charged to credit: ${items.count} ${pluralize(items.count, 'item')}, ${formatHours(items.hours)}${items.rand > 0 ? `, ${formatRand(items.rand)}` : ''}`}
+        >
+          <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>
+            <Mixed text={`Items charged · ${items.count} ${pluralize(items.count, 'item')}`} />
+          </Text>
+          <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.ink }}>
+            {items.rand > 0 ? `${formatHours(items.hours)} · ${formatRand(items.rand)}` : formatHours(items.hours)}
+          </Text>
         </View>
       ) : null}
 

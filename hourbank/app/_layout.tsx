@@ -94,6 +94,7 @@ export default function RootLayout() {
               <Stack.Screen name="start-lesson" options={{ headerShown: false }} />
               <Stack.Screen name="transaction/[id]" options={{ headerShown: false }} />
               <Stack.Screen name="lesson/[sessionId]" options={{ headerShown: false }} />
+              <Stack.Screen name="settings" options={{ headerShown: false }} />
             </Stack>
             <OrphanRecovery />
           </SessionTimerProvider>

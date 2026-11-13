@@ -226,6 +226,7 @@ export default function StudentDetailScreen() {
 
   const menuItems: ActionSheetItem[] = [
     { label: 'Edit details', icon: 'edit-2', onPress: () => { setShowMenu(false); router.push(`/student/${id}/edit`); } },
+    { label: 'Charge an item', icon: 'shopping-bag', onPress: () => { setShowMenu(false); router.push(`/student/${id}/charge-item`); } },
     { label: 'Correct balance', icon: 'sliders', onPress: () => { setShowMenu(false); router.push(`/student/${id}/adjust`); } },
     ...(student.status === 'active'
       ? [{ label: 'Pause student', icon: 'pause-circle', onPress: () => { setShowMenu(false); handlePause(); } }]
