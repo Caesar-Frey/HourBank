@@ -17,6 +17,7 @@ import {
   projectedBalanceWithBookings,
   shortRef,
   shouldOfferTopUpReminder,
+  balanceStatusChip,
   showPreferredContactChoice,
   stepMinutes,
   studentContactPayload,
@@ -46,11 +47,19 @@ describe('balances', () => {
     expect(balanceReviewLine(1, 11)).toBe('Balance 1h → 11h');
   });
 
-  it('offers a reminder under 1h or when owing', () => {
-    expect(shouldOfferTopUpReminder(1)).toBe(false);
+  it('offers a reminder whenever credit is running low, low or owing (C1)', () => {
+    expect(shouldOfferTopUpReminder(3)).toBe(false);
+    expect(shouldOfferTopUpReminder(2.999999)).toBe(false); // rounds to 180 min
+    expect(shouldOfferTopUpReminder(2.5)).toBe(true);
     expect(shouldOfferTopUpReminder(0.75)).toBe(true);
     expect(shouldOfferTopUpReminder(-2)).toBe(true);
-    expect(shouldOfferTopUpReminder(0.999999)).toBe(false); // rounds to 60 min
+  });
+
+  it('labels the balance status in words', () => {
+    expect(balanceStatusChip(4)).toBeNull();
+    expect(balanceStatusChip(2)).toEqual({ label: 'RUNNING LOW', tone: 'warn' });
+    expect(balanceStatusChip(0.75)).toEqual({ label: 'LOW · TOP-UP DUE', tone: 'low' });
+    expect(balanceStatusChip(-1)).toEqual({ label: 'OWES', tone: 'owes' });
   });
 
   it('warns only when an upcoming lesson projects negative', () => {

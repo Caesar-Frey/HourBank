@@ -11,15 +11,18 @@ import { COLORS } from '../../theme/colors';
 import { F, MIN_TOUCH } from '../../theme/fonts';
 import {
   getMonthSummary,
+  localMonthBounds,
   listSessionsForMonth,
   listTopUpsForMonth,
   listTravelSettlementsForMonth,
   MonthSummary,
   SessionListRow,
 } from '../../db/reports';
+import { itemTotals } from '../../db/items';
+import { Mixed } from '../../components/Num';
 import { listTravelOwedByStudent } from '../../db/travel';
 import { aggregateBySubject, kmLabel } from '../../utils/travelBilling';
-import { listActiveStudents, listPausedStudents } from '../../db/students';
+import { listActiveStudents, listArchivedStudents, listPausedStudents } from '../../db/students';
 import { formatHours, formatLedgerDate, formatRand, pluralize } from '../../utils/format';
 import { SegmentedControl } from '../../components/calendar/SegmentedControl';
 import { modeLabel, paymentMethodLabel, sessionTypeLabel } from '../schedule/labels';
@@ -40,13 +43,13 @@ import {
 
 type List = 'cash' | 'lessons' | 'students' | 'subjects';
 
-type TravelOwedRow = { student_id: string; full_name: string; amount: number; lessonCount: number };
+type TravelOwedRow = { student_id: string; full_name: string; amount: number; lessonCount: number; archived?: boolean };
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const EYEBROW = {
   fontFamily: F.mono,
-  fontSize: 9,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase' as const,
   letterSpacing: 0.5,
@@ -60,8 +63,8 @@ function Tile({ label, value, sub, note }: { label: string; value: string; sub?:
       <Text style={{ fontFamily: F.mono, fontSize: 17, color: COLORS.ink }} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>
-      {sub ? <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, marginTop: 2 }}>{sub}</Text> : null}
-      {note ? <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.oxblood, marginTop: 2 }}>{note}</Text> : null}
+      {sub ? <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, marginTop: 2 }}>{sub}</Text> : null}
+      {note ? <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.oxblood, marginTop: 2 }}>{note}</Text> : null}
     </View>
   );
 }
@@ -71,7 +74,7 @@ function DateCol({ iso }: { iso: string }) {
   return (
     <View style={{ alignItems: 'center', minWidth: 32 }}>
       <Text style={{ fontFamily: F.mono, fontSize: 16, color: COLORS.ink, lineHeight: 18 }}>{day}</Text>
-      <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint }}>{month}</Text>
+      <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{month}</Text>
     </View>
   );
 }
@@ -96,6 +99,7 @@ export function MoneyInView() {
   const [travelOwed, setTravelOwed] = useState<TravelOwedRow[]>([]);
   const [list, setList] = useState<List>('cash');
   const [error, setError] = useState(false);
+  const [items, setItems] = useState<{ count: number; hours: number; rand: number } | null>(null);
   const navigating = useRef(false);
 
   const load = useCallback(() => {
@@ -104,7 +108,13 @@ export function MoneyInView() {
       setSummary(getMonthSummary(year, monthIdx));
       setCashRows(mergeCashRows(listTopUpsForMonth(year, monthIdx), listTravelSettlementsForMonth(year, monthIdx)));
       setLessons(listSessionsForMonth(year, monthIdx));
-      const balances = [...listActiveStudents(), ...listPausedStudents()].map(s => s.current_balance);
+      const bounds = localMonthBounds(year, monthIdx);
+      setItems(itemTotals(bounds.start, bounds.end));
+      // Archived students who still owe hours stay in what is owed (B6).
+      const balances = [
+        ...[...listActiveStudents(), ...listPausedStudents()].map(s => s.current_balance),
+        ...listArchivedStudents().map(s => s.current_balance).filter(b => b < 0),
+      ];
       setOutstanding(outstandingFromBalances(balances));
       setTravelOwed(listTravelOwedByStudent());
       setError(false);
@@ -114,6 +124,8 @@ export function MoneyInView() {
   }, [year, monthIdx]);
 
   useFocusEffect(load);
+
+  const travelOwedTotal = travelOwed.reduce((a, r) => a + r.amount, 0);
 
   function move(delta: number) {
     const next = shiftMonth(year, monthIdx, delta);
@@ -132,7 +144,7 @@ export function MoneyInView() {
   const atCurrentMonth = isFutureMonth(nextMonth.year, nextMonth.monthIdx);
 
   return (
-    <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
       {/* Month switcher */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
         <TouchableOpacity
@@ -183,6 +195,20 @@ export function MoneyInView() {
         </View>
       ) : null}
 
+      {items && items.count > 0 ? (
+        <View
+          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: MIN_TOUCH, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge, marginBottom: 12 }}
+          accessibilityLabel={`Items charged to credit: ${items.count} ${pluralize(items.count, 'item')}, ${formatHours(items.hours)}${items.rand > 0 ? `, ${formatRand(items.rand)}` : ''}`}
+        >
+          <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>
+            <Mixed text={`Items charged · ${items.count} ${pluralize(items.count, 'item')}`} />
+          </Text>
+          <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.ink }}>
+            {items.rand > 0 ? `${formatHours(items.hours)} · ${formatRand(items.rand)}` : formatHours(items.hours)}
+          </Text>
+        </View>
+      ) : null}
+
       {outstanding ? (
         <View style={{ borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 14, padding: 14, marginBottom: 20 }}>
           <Text style={EYEBROW}>Outstanding right now</Text>
@@ -192,6 +218,9 @@ export function MoneyInView() {
             </Text>
             <Text style={{ fontFamily: F.monoMed, fontSize: 15, color: outstanding.owedHours > 0 ? COLORS.crimson : COLORS.ink }}>
               {formatHours(outstanding.owedHours)}
+              {travelOwedTotal > 0 ? (
+                <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.amberText }}>{` + ${formatRand(travelOwedTotal)} travel`}</Text>
+              ) : null}
             </Text>
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -209,14 +238,17 @@ export function MoneyInView() {
               {travelOwed.map(r => (
                 <TouchableOpacity
                   key={r.student_id}
-                  onPress={() => go(`/student/${r.student_id}/travel`)}
+                  onPress={() => go(r.archived ? `/student/${r.student_id}?from=MONEY` : `/student/${r.student_id}/travel`)}
                   activeOpacity={0.7}
                   accessibilityRole="button"
-                  accessibilityLabel={`${r.full_name} travel owed ${formatRand(r.amount)}`}
+                  accessibilityLabel={`${r.full_name}${r.archived ? ', archived,' : ''} travel owed ${formatRand(r.amount)}`}
                   style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, gap: 8 }}
                 >
                   <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{r.full_name}</Text>
-                  <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>
+                  {r.archived ? (
+                    <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, letterSpacing: 0.5 }}>ARCHIVED</Text>
+                  ) : null}
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>
                     {`${r.lessonCount} ${pluralize(r.lessonCount, 'lesson')}`}
                   </Text>
                   <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.ink, minWidth: 84, textAlign: 'right' }}>{formatRand(r.amount)}</Text>
@@ -255,7 +287,7 @@ export function MoneyInView() {
               <DateCol iso={row.created_at} />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: F.serif, fontSize: 15, color: COLORS.ink }} numberOfLines={1}>{row.student_full_name}</Text>
-                <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, marginTop: 2 }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, marginTop: 2 }}>
                   {(row.kind === 'package'
                     ? [paymentMethodLabel(row.method), `+${formatHours(row.hours)}`, row.subject]
                     : ['Travel', paymentMethodLabel(row.method), row.withTopUp ? 'with top-up' : null]
@@ -296,9 +328,9 @@ export function MoneyInView() {
                 <DateCol iso={row.ended_at} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontFamily: F.serif, fontSize: 15, color: COLORS.ink }} numberOfLines={1}>{row.student_full_name}</Text>
-                  <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, marginTop: 2 }}>{meta}</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, marginTop: 2 }}>{meta}</Text>
                   {noShow ? (
-                    <Text style={{ fontFamily: F.sansMed, fontSize: 11, color: COLORS.oxblood, marginTop: 2 }}>No-show · charged</Text>
+                    <Text style={{ fontFamily: F.sansMed, fontSize: 12, color: COLORS.oxblood, marginTop: 2 }}>No-show · charged</Text>
                   ) : null}
                 </View>
                 <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.ink }}>{lessonBilledLabel(row)}</Text>
@@ -315,20 +347,20 @@ export function MoneyInView() {
           <View>
             <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}>
               <Text style={[EYEBROW, { flex: 1, marginBottom: 0 }]}>Subject</Text>
-              <Text style={[EYEBROW, { width: 56, textAlign: 'right', marginBottom: 0 }]}>Stdnts</Text>
-              <Text style={[EYEBROW, { width: 44, textAlign: 'right', marginBottom: 0 }]}>Lsns</Text>
+              <Text style={[EYEBROW, { width: 76, textAlign: 'right', marginBottom: 0 }]}>Students</Text>
+              <Text style={[EYEBROW, { width: 64, textAlign: 'right', marginBottom: 0 }]}>Lessons</Text>
               <Text style={[EYEBROW, { width: 72, textAlign: 'right', marginBottom: 0 }]}>Hours</Text>
             </View>
             {aggregateBySubject(summary.perSubject).map(r => (
               <View
                 key={r.subject}
                 accessible
-                accessibilityLabel={`${r.subject}: ${r.students} students, ${r.sessions} lessons, ${formatHours(r.hours)}`}
+                accessibilityLabel={`${r.subject}: ${r.students} ${pluralize(r.students, 'student')}, ${r.sessions} ${pluralize(r.sessions, 'lesson')}, ${formatHours(r.hours)}`}
                 style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}
               >
                 <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{r.subject}</Text>
-                <Text style={{ width: 56, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.students}</Text>
-                <Text style={{ width: 44, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.sessions}</Text>
+                <Text style={{ width: 76, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.students}</Text>
+                <Text style={{ width: 64, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.sessions}</Text>
                 <Text style={{ width: 72, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{formatHours(r.hours)}</Text>
               </View>
             ))}
@@ -342,21 +374,21 @@ export function MoneyInView() {
           <View>
             <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}>
               <Text style={[EYEBROW, { flex: 1, marginBottom: 0 }]}>Student</Text>
-              <Text style={[EYEBROW, { width: 44, textAlign: 'right', marginBottom: 0 }]}>Lsns</Text>
+              <Text style={[EYEBROW, { width: 64, textAlign: 'right', marginBottom: 0 }]}>Lessons</Text>
               <Text style={[EYEBROW, { width: 64, textAlign: 'right', marginBottom: 0 }]}>Hours</Text>
               <Text style={[EYEBROW, { width: 96, textAlign: 'right', marginBottom: 0 }]}>Cash</Text>
             </View>
             {summary.perStudent.map(r => (
               <TouchableOpacity
                 key={r.studentId}
-                onPress={() => go(`/student/${r.studentId}`)}
+                onPress={() => go(`/student/${r.studentId}?from=MONEY`)}
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel={`${r.name}: ${r.sessions} lessons, ${formatHours(r.hours)}, ${formatRand(r.cashRand)}`}
+                accessibilityLabel={`${r.name}: ${r.sessions} ${pluralize(r.sessions, 'lesson')}, ${formatHours(r.hours)}, ${formatRand(r.cashRand)}`}
                 style={{ flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH, borderBottomWidth: 1, borderBottomColor: COLORS.paperEdge }}
               >
                 <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{r.name}</Text>
-                <Text style={{ width: 44, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.sessions}</Text>
+                <Text style={{ width: 64, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{r.sessions}</Text>
                 <Text style={{ width: 64, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{formatHours(r.hours)}</Text>
                 <Text style={{ width: 96, textAlign: 'right', fontFamily: F.mono, fontSize: 12, color: COLORS.ink }} numberOfLines={1}>
                   {formatRand(r.cashRand)}

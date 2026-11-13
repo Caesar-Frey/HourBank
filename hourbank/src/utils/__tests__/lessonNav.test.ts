@@ -88,12 +88,25 @@ describe('lessonSavedNav', () => {
     });
   });
 
-  test('falls back to replacing with the summary', () => {
+  test('started from Home: drops the timer stack so Back from the summary lands on Home (B3)', () => {
     const state = { routes: [home, studentStack(timer('s1'), review('s1'))], index: 1 };
     expect(lessonSavedNav({ rootState: state, studentId: 's1', lessonHref: '/lesson/sess-1' })).toEqual({
-      type: 'replace',
-      href: '/lesson/sess-1',
+      type: 'dismissFlow',
+      resetState: { routes: [home], index: 0 },
+      lessonHref: '/lesson/sess-1',
     });
+  });
+
+  test('started from Home via the picker: the picker goes too', () => {
+    const state = { routes: [home, { name: 'start-lesson' }, studentStack(timer('s1'))], index: 2 };
+    const nav = lessonSavedNav({ rootState: state, studentId: 's1', lessonHref: '/lesson/sess-1' });
+    expect(nav).toMatchObject({ type: 'dismissFlow', resetState: { routes: [home], index: 0 } });
+  });
+
+  test('nothing to drop → replace', () => {
+    expect(lessonSavedNav({ rootState: { routes: [studentStack(timer('s1'))], index: 0 }, studentId: 's1', lessonHref: '/l' }))
+      .toEqual({ type: 'replace', href: '/l' });
+    expect(lessonSavedNav({ rootState: null, studentId: 's1', lessonHref: '/l' })).toEqual({ type: 'replace', href: '/l' });
   });
 });
 

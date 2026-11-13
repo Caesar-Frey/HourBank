@@ -150,6 +150,8 @@ export function ActionSheet({ visible, onDismiss, items, theme = 'paper' }: Acti
             <TouchableOpacity
               key={item.label}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={item.label}
               onPress={() => handleItemPress(item)}
               style={{
                 flexDirection: 'row',

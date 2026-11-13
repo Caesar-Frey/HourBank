@@ -70,7 +70,7 @@ export default function ArchivedStudentsScreen() {
                 kind: 'success',
                 message: `${first} restored`,
                 actionLabel: 'Open',
-                onAction: () => router.push(`/student/${row.id}`),
+                onAction: () => router.push(`/student/${row.id}?from=ARCHIVED`),
               });
               load();
             } catch {
@@ -122,7 +122,7 @@ export default function ArchivedStudentsScreen() {
                 accessibilityLabel={`${item.full_name}, ${owes ? 'owes' : 'balance'} ${formatHours(Math.abs(item.current_balance))}. View ledger`}
               >
                 <Text style={{ fontFamily: F.serif, fontSize: 17, color: COLORS.ink }}>{item.full_name}</Text>
-                <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginTop: 2 }}>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>
                   {`GR ${item.grade} · ${item.subjects.map(x => x.name).join(', ')}`}
                 </Text>
                 <Text style={{ fontFamily: F.mono, fontSize: 12, color: balanceColour(balanceStatus(Math.min(...item.subjects.map(x => x.balance)))), marginTop: 4 }}>

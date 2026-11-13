@@ -3,8 +3,9 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { getDb } from '../db/client';
 import { newId } from '../db/uuid';
-import { escapeHtml, escapeHtmlMultiline } from './html';
-import { formatDateLong, formatHours, formatMinutes, formatRand, formatTime } from './format';
+import { formatDateDocument, formatDateLong, formatHours, formatMinutes, formatRandDocument, formatTime } from './format';
+import { buildDocumentHtml, businessFooter, type DocumentBrand } from './documentHtml';
+import { loadDocumentBrand } from './documentBrand';
 import { buildLessonReceiptText, buildLowBalanceReminderText, buildTopUpText, buildTravelPaymentText } from './parentMessages';
 import type { MessageAudience } from './parentMessages';
 import { getLedgerEntryById, getSessionDeduction, currentBalance } from '../db/ledger';
@@ -12,6 +13,7 @@ import { getSubjectBalances, listStudentSubjects } from '../db/subjects';
 import { getTravelOwed, getTravelSettlement, listTravelSettlementsForPackage } from '../db/travel';
 import { getOrCreateTutorProfile, PackageTier } from '../db/tutorProfile';
 import { getStudent } from '../db/students';
+import { paymentDetailsForMessages } from '../db/invoices';
 import { suggestTopUpPackage } from '../components/student/flowLogic';
 import { buildPaymentReference } from './paymentReference';
 import { kmLabel } from './travelBilling';
@@ -39,7 +41,9 @@ function receiptFilename(prefix: string, studentName: string, date: Date): strin
   const d = String(date.getDate()).padStart(2, '0');
   const m = MONTH_ABBR[date.getMonth()];
   const y = date.getFullYear();
-  return `${prefix}_${sanitized}_${d}${m}${y}.pdf`;
+  const hm = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}`;
+  // -HHmm: two documents for one student on one day no longer overwrite each other (B10).
+  return `${prefix}_${sanitized}_${d}${m}${y}-${hm}.pdf`;
 }
 
 type ReceiptRow = {
@@ -81,14 +85,15 @@ function upsertReceiptRow(
   }
 }
 
-/** Ledger-derived balance immediately after a given entry (append-only ⇒ rowid order). */
+/** Ledger-derived balance immediately after a given entry (date order, then insert order — as history shows it). */
 function balanceThroughEntry(studentId: string, entryId: string | null): number {
   const db = getDb();
   const row = entryId
     ? db.getFirstSync<{ bal: number | null }>(
-        `SELECT SUM(hours_delta) AS bal FROM ledger_entries
-         WHERE student_id = ? AND rowid <= (SELECT rowid FROM ledger_entries WHERE id = ?)`,
-        [studentId, entryId]
+        `SELECT SUM(l.hours_delta) AS bal FROM ledger_entries l, ledger_entries e
+         WHERE e.id = ? AND l.student_id = ?
+           AND (l.created_at < e.created_at OR (l.created_at = e.created_at AND l.rowid <= e.rowid))`,
+        [entryId, studentId]
       )
     : db.getFirstSync<{ bal: number | null }>(
         'SELECT SUM(hours_delta) AS bal FROM ledger_entries WHERE student_id = ?',
@@ -112,30 +117,30 @@ function parseTopics(raw: string | null | undefined): string[] {
   }
 }
 
-// ─── Pure HTML builders ───────────────────────────────────────────────────────
+// ─── Pure HTML builders (shared document frame, F2) ──────────────────────────
 
-const PAGE_STYLE = 'font-family: -apple-system, Helvetica, Arial, sans-serif; padding: 32px; max-width: 600px; color: black;';
-const MONO = "font-family: 'Courier New', monospace;";
-
-function row(label: string, valueHtml: string, mono = true): string {
-  return `<tr><td style="padding: 4px 16px 4px 0; color: gray; vertical-align: top;">${label}</td>` +
-    `<td style="padding: 4px 0; ${mono ? MONO : ''}">${valueHtml}</td></tr>`;
+function brandOf(d: { brand?: DocumentBrand | null; tutorName?: string | null }): DocumentBrand {
+  return { ...(d.brand ?? {}), name: d.brand?.name ?? d.tutorName?.trim() ?? null };
 }
 
-function header(title: string, tutor: string | null | undefined): string {
-  const brand = tutor?.trim() ? escapeHtml(tutor.trim()) : 'HourBank';
-  return `<p style="margin: 0; font-size: 18px;">${brand}</p>
-      <h2 style="margin: 4px 0 20px 0; font-weight: normal; font-style: italic;">${title}</h2>`;
+function frame(d: { brand?: DocumentBrand | null; tutorName?: string | null }) {
+  const b = brandOf(d);
+  return { logoDataUri: b.logoDataUri, brandName: b.name, footer: businessFooter(b) };
 }
 
-function balanceHtml(balance: number): string {
-  return Math.round(balance * 60) < 0
-    ? `Owing ${escapeHtml(formatHours(-balance))}`
-    : escapeHtml(formatHours(balance));
+function balanceText(balance: number): string {
+  return Math.round(balance * 60) < 0 ? `Owing ${formatHours(-balance)}` : formatHours(balance);
 }
+
+const RECEIPT_COLUMNS = [
+  { label: 'Item', width: '20%' },
+  { label: 'Description', align: 'left' as const },
+  { label: 'Amount', width: '24%' },
+];
 
 export type SessionReceiptData = {
   tutorName?: string | null;
+  brand?: DocumentBrand | null;
   studentName: string;
   startedAt: string | null;
   endedAt: string | null;
@@ -152,7 +157,7 @@ export type SessionReceiptData = {
 
 function travelChargeLabel(charge: number, km: number | null | undefined): string {
   const k = kmLabel('in_person', km);
-  return `${formatRand(charge)}${k ? ` (${k})` : ''}`;
+  return `${formatRandDocument(charge)}${k ? ` (${k})` : ''}`;
 }
 
 export function buildSessionReceiptHtml(d: SessionReceiptData): string {
@@ -162,31 +167,29 @@ export function buildSessionReceiptHtml(d: SessionReceiptData): string {
     ? `${formatTime(d.startedAt)}–${formatTime(d.endedAt)}`
     : when ? formatTime(when) : '—';
   const topics = d.topics.map(t => t.trim()).filter(Boolean);
-  return `
-    <html>
-    <body style="${PAGE_STYLE}">
-      ${header('Lesson receipt', d.tutorName)}
-      <table style="border-collapse: collapse;">
-        ${row('Student', escapeHtml(d.studentName), false)}
-        ${d.subjectName ? row('Subject', escapeHtml(d.subjectName), false) : ''}
-        ${row('Date', escapeHtml(date))}
-        ${row('Time', escapeHtml(time))}
-        ${row('Billed', escapeHtml(formatMinutes(d.billedMinutes)))}
-        ${topics.length ? row('Topics', topics.map(escapeHtml).join(', '), false) : ''}
-        ${d.notes?.trim() ? row('Notes', escapeHtmlMultiline(d.notes.trim()), false) : ''}
-        ${row('Credits used', escapeHtml(formatHours(d.creditsUsedHours)))}
-        ${d.travelCharge && d.travelCharge > 0 ? row('Travel', escapeHtml(travelChargeLabel(d.travelCharge, d.travelKm))) : ''}
-        ${row(d.subjectName ? `${escapeHtml(d.subjectName)} balance` : 'Balance after', balanceHtml(d.balanceAfter))}
-      </table>
-    </body>
-    </html>
-  `;
+  const rows: string[][] = [[
+    'Lesson',
+    [d.subjectName, topics.length ? topics.join(', ') : null, `${formatMinutes(d.billedMinutes)} billed`].filter(Boolean).join(' · '),
+    `${formatHours(d.creditsUsedHours)} credit`,
+  ]];
+  if (d.travelCharge && d.travelCharge > 0) rows.push(['Travel', 'In-person lesson', travelChargeLabel(d.travelCharge, d.travelKm)]);
+  return buildDocumentHtml({
+    title: 'RECEIPT',
+    ...frame(d),
+    left: { heading: 'LESSON FOR:', lines: [{ text: d.studentName, strong: true }, ...(d.subjectName ? [{ text: d.subjectName }] : [])] },
+    right: [date, time],
+    table: { columns: RECEIPT_COLUMNS, rows, minHeight: 160 },
+    notes: d.notes?.trim() ? [`Notes: ${d.notes.trim()}`] : undefined,
+    subtotals: [{ label: 'Credits used', value: formatHours(d.creditsUsedHours) }],
+    total: { label: d.subjectName ? `${d.subjectName} credit` : 'Credit left', value: balanceText(d.balanceAfter) },
+  });
 }
 
 const PAYMENT_LABEL: Record<string, string> = { eft: 'EFT', cash: 'Cash', card: 'Card', other: 'Other' };
 
 export type TopUpReceiptData = {
   tutorName?: string | null;
+  brand?: DocumentBrand | null;
   studentName: string;
   hoursAdded: number;
   amountPaid: number;
@@ -201,25 +204,26 @@ export type TopUpReceiptData = {
 
 export function buildTopUpReceiptHtml(d: TopUpReceiptData): string {
   const travel = d.travelSettled && d.travelSettled > 0 ? d.travelSettled : 0;
-  return `
-    <html>
-    <body style="${PAGE_STYLE}">
-      ${header('Payment receipt', d.tutorName)}
-      <table style="border-collapse: collapse;">
-        ${row('Student', escapeHtml(d.studentName), false)}
-        ${row('Date', escapeHtml(formatDateLong(d.paidAt)))}
-        ${d.subjectName ? row('Subject', escapeHtml(d.subjectName), false) : ''}
-        ${row('Hours added', escapeHtml(formatHours(d.hoursAdded)))}
-        ${row(travel > 0 ? 'Lessons' : 'Amount paid', escapeHtml(formatRand(d.amountPaid)))}
-        ${travel > 0 ? row('Travel settled', escapeHtml(formatRand(travel))) : ''}
-        ${travel > 0 ? row('Total paid', escapeHtml(formatRand(d.amountPaid + travel))) : ''}
-        ${d.paymentMethod ? row('Method', escapeHtml(PAYMENT_LABEL[d.paymentMethod] ?? d.paymentMethod), false) : ''}
-        ${row(d.subjectName ? `${escapeHtml(d.subjectName)} balance` : 'New balance', balanceHtml(d.newBalance))}
-        ${d.travelStillOwed && d.travelStillOwed > 0 ? row('Travel still owed', escapeHtml(formatRand(d.travelStillOwed))) : ''}
-      </table>
-    </body>
-    </html>
-  `;
+  const rows: string[][] = [[
+    'Tutoring',
+    `${formatHours(d.hoursAdded)} of ${d.subjectName ? `${d.subjectName} ` : ''}lessons`,
+    formatRandDocument(d.amountPaid),
+  ]];
+  if (travel > 0) rows.push(['Travel', 'Travel owed, settled', formatRandDocument(travel)]);
+  const subtotals = [
+    ...(d.paymentMethod ? [{ label: 'Method', value: PAYMENT_LABEL[d.paymentMethod] ?? d.paymentMethod }] : []),
+    { label: d.subjectName ? `${d.subjectName} credit` : 'New balance', value: balanceText(d.newBalance) },
+    ...(d.travelStillOwed && d.travelStillOwed > 0 ? [{ label: 'Travel still owed', value: formatRandDocument(d.travelStillOwed) }] : []),
+  ];
+  return buildDocumentHtml({
+    title: 'RECEIPT',
+    ...frame(d),
+    left: { heading: 'RECEIVED FOR:', lines: [{ text: d.studentName, strong: true }] },
+    right: [formatDateDocument(d.paidAt), 'Payment received'],
+    table: { columns: RECEIPT_COLUMNS, rows, minHeight: 160 },
+    subtotals,
+    total: { label: 'Total paid', value: formatRandDocument(d.amountPaid + travel) },
+  });
 }
 
 // ─── Data loaders (existing columns only) ─────────────────────────────────────
@@ -252,6 +256,7 @@ function loadSessionReceiptData(sessionId: string): (SessionReceiptData & { stud
     travelCharge: s.parent_travel_fee,
     travelKm: s.travel_km,
     tutorName: tutorName(),
+    brand: loadDocumentBrand(),
     studentName: s.student_name,
     startedAt: s.started_at,
     endedAt: s.ended_at,
@@ -287,6 +292,7 @@ function loadTopUpReceiptData(packageId: string): TopUpReceiptData | null {
     travelSettled,
     travelStillOwed: travelSettled > 0 ? getTravelOwed(p.student_id).amount : null,
     tutorName: tutorName(),
+    brand: loadDocumentBrand(),
     studentName: p.student_name,
     hoursAdded: p.hours_added,
     amountPaid: p.amount_paid,
@@ -370,7 +376,7 @@ export function getLowBalanceReminderText(studentId: string, opts: ReceiptTextOp
       ? subjects.map(b => ({ subject: b.subject, balanceHours: b.balance_hours }))
       : null,
     suggestedPackage: pkg ? { hours: pkg.hours, price: pkg.price } : null,
-    paymentDetails: profile.payment_details,
+    paymentDetails: paymentDetailsForMessages(),
     paymentReference: buildPaymentReference(profile.payment_reference_template, student),
     travelOwed: owed.amount > 0 ? { amount: owed.amount, lessonCount: owed.lessonCount } : null,
   });
@@ -380,6 +386,7 @@ export function getLowBalanceReminderText(studentId: string, opts: ReceiptTextOp
 
 export type TravelPaymentReceiptData = {
   tutorName?: string | null;
+  brand?: DocumentBrand | null;
   studentName: string;
   amount: number;
   paidAt: string;
@@ -389,30 +396,28 @@ export type TravelPaymentReceiptData = {
 };
 
 export function buildTravelPaymentHtml(d: TravelPaymentReceiptData): string {
-  return `
-    <html>
-    <body style="${PAGE_STYLE}">
-      ${header('Travel payment receipt', d.tutorName)}
-      <table style="border-collapse: collapse;">
-        ${row('Student', escapeHtml(d.studentName), false)}
-        ${row('Date', escapeHtml(formatDateLong(d.paidAt)))}
-        ${row('Travel paid', escapeHtml(formatRand(d.amount)))}
-        ${d.paymentMethod ? row('Method', escapeHtml(PAYMENT_LABEL[d.paymentMethod] ?? d.paymentMethod), false) : ''}
-        ${d.note?.trim() ? row('Note', escapeHtmlMultiline(d.note.trim()), false) : ''}
-        ${row('Travel still owed', escapeHtml(formatRand(d.stillOwed)))}
-      </table>
-    </body>
-    </html>
-  `;
+  return buildDocumentHtml({
+    title: 'RECEIPT',
+    ...frame(d),
+    left: { heading: 'RECEIVED FOR:', lines: [{ text: d.studentName, strong: true }] },
+    right: [formatDateDocument(d.paidAt), 'Travel payment'],
+    table: { columns: RECEIPT_COLUMNS, rows: [['Travel', d.note?.trim() || 'Travel to lessons', formatRandDocument(d.amount)]], minHeight: 160 },
+    subtotals: [
+      ...(d.paymentMethod ? [{ label: 'Method', value: PAYMENT_LABEL[d.paymentMethod] ?? d.paymentMethod }] : []),
+      { label: 'Travel still owed', value: formatRandDocument(d.stillOwed) },
+    ],
+    total: { label: 'Total paid', value: formatRandDocument(d.amount) },
+  });
 }
 
 function loadTravelPaymentData(settlementId: string): TravelPaymentReceiptData | null {
   const t = getTravelSettlement(settlementId);
   if (!t) return null;
-  const student = getStudent(t.student_id);
+  const student = getStudent(t.student_id, { includeArchived: true });
   if (!student) return null;
   return {
     tutorName: tutorName(),
+    brand: loadDocumentBrand(),
     studentName: student.full_name,
     amount: t.amount,
     paidAt: t.created_at,

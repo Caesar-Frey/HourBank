@@ -16,6 +16,8 @@ export function RestoreBackupModal({
   lessonInProgress,
   onCancel,
   onConfirm,
+  onBackupFirst,
+  backingUp = false,
 }: {
   /** null = hidden. */
   summary: BackupSummary | null;
@@ -23,6 +25,9 @@ export function RestoreBackupModal({
   lessonInProgress: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  /** Export the current data before replacing it (B7). */
+  onBackupFirst?: () => void;
+  backingUp?: boolean;
 }) {
   const [typed, setTyped] = useState('');
   useEffect(() => {
@@ -106,6 +111,31 @@ export function RestoreBackupModal({
               marginBottom: 20,
             }}
           />
+          {onBackupFirst ? (
+            <TouchableOpacity
+              onPress={onBackupFirst}
+              disabled={busy || backingUp}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: busy || backingUp, busy: backingUp }}
+              testID="restore-backup-first"
+              style={{
+                minHeight: MIN_TOUCH,
+                borderWidth: 1,
+                borderColor: COLORS.ink,
+                borderRadius: 10,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 12,
+              }}
+            >
+              {backingUp ? (
+                <ActivityIndicator color={COLORS.inkSoft} />
+              ) : (
+                <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>Back up this phone first</Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <TouchableOpacity
               onPress={onCancel}

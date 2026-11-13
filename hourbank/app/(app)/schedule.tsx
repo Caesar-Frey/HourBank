@@ -39,7 +39,7 @@ export default function ScheduleTab() {
       <TabHeader
         title="Schedule"
         divider={false}
-        right={<HeaderIconButton icon="play" label="Start" accessibilityLabel="Start a lesson" onPress={startLesson} color={COLORS.oxblood} />}
+        right={<HeaderIconButton icon="check-square" label="Record" accessibilityLabel="Record a lesson" onPress={startLesson} color={COLORS.oxblood} />}
       />
       <SegmentedControl
         options={SEGMENTS}

@@ -5,7 +5,7 @@ import type { Agenda, AgendaItem, OweCheck } from '../../db/sessions';
 import { DEFAULT_LESSON_MINUTES } from '../../db/sessions';
 import type { Session, Student } from '../../db/schema';
 import type { StudentSubjectBalanceSummary } from '../../db/students';
-import { formatDayShort, formatHours, formatMinutes, formatTime, pluralize } from '../../utils/format';
+import { formatDayShort, formatHours, formatMinutes, formatRand, formatTime, pluralize } from '../../utils/format';
 import { getCurrentNudgeTier, shouldShowNudge } from '../../utils/backup';
 import { rosterSubjectBalances, worstSubjectBalance } from '../../utils/subjectBalances';
 
@@ -69,7 +69,7 @@ export function lessonEndIso(item: Pick<Session, 'scheduled_for' | 'estimated_du
 
 // ─── Needs attention ─────────────────────────────────────────────────────────
 
-export type AttentionKind = 'overdue' | 'owing' | 'low';
+export type AttentionKind = 'overdue' | 'owing' | 'low' | 'invoice';
 
 export type AttentionItem = {
   key: string;
@@ -110,9 +110,22 @@ export function bookedSubjectKeys(agenda: Agenda, students: RosterStudent[]): Se
  * students under 1h with a lesson booked (→ student). Order: overdue (oldest
  * first), owing (most owed first), low (lowest first).
  */
-export function buildNeedsAttention(input: { agenda: Agenda; students: RosterStudent[] }): AttentionItem[] {
+export type OverdueInvoiceLike = { id: string; number: number; student_id: string; student_name: string; total_rand: number; due_at: string };
+
+export function buildNeedsAttention(input: { agenda: Agenda; students: RosterStudent[]; overdueInvoices?: OverdueInvoiceLike[] }): AttentionItem[] {
   const { agenda, students } = input;
   const items: AttentionItem[] = [];
+
+  // Invoices past their due date (F2).
+  for (const inv of input.overdueInvoices ?? []) {
+    items.push({
+      key: `invoice:${inv.id}`,
+      kind: 'invoice',
+      title: inv.student_name,
+      detail: `Invoice ${String(inv.number).padStart(4, '0')} · ${formatRand(inv.total_rand)} · due ${formatDayShort(inv.due_at)}`,
+      href: `/student/${inv.student_id}`,
+    });
+  }
 
   for (const l of agenda.overdue) {
     const when = l.scheduled_for ? `${formatDayShort(l.scheduled_for)} ${formatTime(l.scheduled_for)}` : '';
@@ -150,12 +163,13 @@ export function buildNeedsAttention(input: { agenda: Agenda; students: RosterStu
 
   const booked = bookedStudentIds(agenda, students);
   const bookedSubjects = bookedSubjectKeys(agenda, students);
+  // Low credit needs attention whether or not a lesson is booked (C2).
   const low = rows
     .filter(r => r.balance >= 0 && r.balance < 1)
-    .filter(r => (r.multi ? bookedSubjects.has(`${r.student.id}:${r.subjectId}`) : booked.has(r.student.id)))
     .sort((a, b) => a.balance - b.balance);
   for (const r of low) {
-    const left = `${formatHours(r.balance)} left · lesson booked`;
+    const isBooked = r.multi ? bookedSubjects.has(`${r.student.id}:${r.subjectId}`) : booked.has(r.student.id);
+    const left = `${formatHours(r.balance)} left${isBooked ? ' · lesson booked' : ''}`;
     items.push({
       key: key('low', r),
       kind: 'low',
@@ -171,12 +185,25 @@ export function buildNeedsAttention(input: { agenda: Agenda; students: RosterStu
 
 export type SortMode = 'balance' | 'next_session' | 'name' | 'grade';
 
-export const SORT_OPTIONS: { value: SortMode; label: string; summary: string }[] = [
-  { value: 'balance', label: 'Lowest balance first', summary: 'lowest balance' },
-  { value: 'next_session', label: 'Next lesson', summary: 'next lesson' },
-  { value: 'name', label: 'Name A–Z', summary: 'name' },
-  { value: 'grade', label: 'Grade', summary: 'grade' },
+export const SORT_OPTIONS: { value: SortMode; label: string; summary: string; heading: string }[] = [
+  { value: 'balance', label: 'Lowest balance first', summary: 'lowest balance', heading: 'LOWEST FIRST' },
+  { value: 'next_session', label: 'Next lesson', summary: 'next lesson', heading: 'NEXT LESSON FIRST' },
+  { value: 'name', label: 'Name A–Z', summary: 'name', heading: 'A–Z' },
+  { value: 'grade', label: 'Grade', summary: 'grade', heading: 'BY GRADE' },
 ];
+
+/** Caption above a roster balance: OWES / LOW / LEFT (C2). */
+export function rosterStatusWord(status: 'ok' | 'warn' | 'low' | 'owes'): string {
+  if (status === 'owes') return 'OWES';
+  if (status === 'low') return 'LOW';
+  return 'LEFT';
+}
+
+/** Section label that states the sort, e.g. "STUDENTS · LOWEST FIRST" (C2). */
+export function rosterHeading(mode: SortMode): string {
+  const h = SORT_OPTIONS.find(o => o.value === mode)?.heading;
+  return h ? `STUDENTS · ${h}` : 'STUDENTS';
+}
 
 export function isSortMode(v: unknown): v is SortMode {
   return SORT_OPTIONS.some(o => o.value === v);
@@ -239,6 +266,6 @@ export function backupNudge(input: {
   const show = (!never || input.hasStudents) && shouldShowNudge(days, input.dismissedTier);
   const message = never
     ? "You haven't backed up yet. Settings → Back up now."
-    : `Last backup created ${Math.floor(days)} ${pluralize(Math.floor(days), 'day')} ago. Settings → Back up now.`;
+    : `Last backup exported ${Math.floor(days)} ${pluralize(Math.floor(days), 'day')} ago. Settings → Back up now.`;
   return { show, tier, message };
 }

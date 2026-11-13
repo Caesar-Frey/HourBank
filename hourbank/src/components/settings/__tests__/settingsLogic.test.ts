@@ -109,10 +109,10 @@ describe('backupErrorDetail', () => {
 });
 
 describe('billing rounding', () => {
-  test('options', () => expect(BILLING_ROUND_OPTIONS).toEqual([5, 10, 15, 30]));
+  test('options', () => expect(BILLING_ROUND_OPTIONS).toEqual([15, 30]));
   test('explanation names tolerance and unit', () => {
-    expect(billingRoundingExplanation(10)).toBe(
-      'If a lesson runs within 15 min of its booked length, the booked length is billed. Otherwise the actual time is rounded to the nearest 10 min. You can always adjust before saving.'
+    expect(billingRoundingExplanation(30)).toBe(
+      'If a lesson runs within 15 min of its booked length, the booked length is billed. Otherwise the actual time is rounded to the nearest 30 min. Lesson lengths go up and down in 30 min steps.'
     );
   });
 });

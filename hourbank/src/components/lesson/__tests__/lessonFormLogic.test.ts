@@ -7,10 +7,8 @@ import {
   defaultSubjectId,
   defaultTravelKm,
   parseKmInput,
-  parseMinutesInput,
   stepBilled,
   timerReviewOverrides,
-  timerReviewSaveRoute,
   topicsAfterSubjectChange,
   topicsUpdatedNote,
   travelPreview,
@@ -81,17 +79,16 @@ describe('inputs', () => {
     expect(parseKmInput('-3').error).toBeTruthy();
   });
 
-  test('parseMinutesInput: digits only, clamps to 15..480', () => {
-    expect(parseMinutesInput('75')).toBe(75);
-    expect(parseMinutesInput('5')).toBe(15);
-    expect(parseMinutesInput('999')).toBe(480);
-    expect(parseMinutesInput('')).toBeNull();
-  });
-
-  test('stepBilled: 15-min steps within bounds', () => {
-    expect(stepBilled(60, 1)).toBe(75);
-    expect(stepBilled(15, -1)).toBe(15);
-    expect(stepBilled(70, -1)).toBe(55);
+  test('stepBilled: moves along the 15 or 30 minute grid, never below one step', () => {
+    expect(stepBilled(60, 1)).toBe(90);
+    expect(stepBilled(60, 1, 15)).toBe(75);
+    expect(stepBilled(30, -1)).toBe(30);
+    expect(stepBilled(15, -1, 15)).toBe(15);
+    // off-grid stored length snaps only when changed
+    expect(stepBilled(50, 1)).toBe(60);
+    expect(stepBilled(50, -1)).toBe(30);
+    expect(stepBilled(70, -1, 15)).toBe(60);
+    expect(stepBilled(480, 1)).toBe(480);
   });
 });
 
@@ -210,13 +207,6 @@ describe('timer review save decision', () => {
     expect(timerReviewOverrides({ ...base, subjectId: null })).toEqual({});
   });
 
-  it('recordLesson only for a billed, started lesson with changes; else endSession', () => {
-    expect(timerReviewSaveRoute({ overrides: { subjectId: 'ss-2' }, billedMinutes: 60, hasStarted: true })).toBe('record');
-    expect(timerReviewSaveRoute({ overrides: {}, billedMinutes: 60, hasStarted: true })).toBe('end');
-    // Zero-billed: endSession, which applies the same overrides (nothing dropped).
-    expect(timerReviewSaveRoute({ overrides: { travelKm: 14 }, billedMinutes: 0, hasStarted: true })).toBe('end');
-    expect(timerReviewSaveRoute({ overrides: { subjectId: 'ss-2' }, billedMinutes: 60, hasStarted: false })).toBe('end');
-  });
 });
 
 describe('topicsAfterSubjectChange', () => {

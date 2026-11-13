@@ -17,10 +17,12 @@ interface Props {
   students: PickerStudent[];
   onPick: (studentId: string) => void;
   onClose: () => void;
+  /** Shown as a button when there are no students yet (C4). */
+  onAddStudent?: () => void;
 }
 
 /** Bottom sheet listing students with search; used by "Book a lesson". */
-export function StudentPickerSheet({ visible, title, students, onPick, onClose }: Props) {
+export function StudentPickerSheet({ visible, title, students, onPick, onClose, onAddStudent }: Props) {
   const insets = useSafeAreaInsets();
   const keyboard = useKeyboardHeight();
   const [query, setQuery] = useState('');
@@ -48,7 +50,7 @@ export function StudentPickerSheet({ visible, title, students, onPick, onClose }
         <Text
           style={{
             fontFamily: F.mono,
-            fontSize: 11,
+            fontSize: 12,
             color: COLORS.inkFaint,
             textTransform: 'uppercase',
             letterSpacing: 0.8,
@@ -103,8 +105,20 @@ export function StudentPickerSheet({ visible, title, students, onPick, onClose }
           ))}
           {shown.length === 0 ? (
             <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkFaint, paddingHorizontal: 20, paddingVertical: 16 }}>
-              {students.length === 0 ? 'No students yet — add one from Home.' : `No students match “${query}”`}
+              {students.length === 0 ? 'No students yet.' : `No students match “${query}”`}
             </Text>
+          ) : null}
+          {students.length === 0 && onAddStudent ? (
+            <TouchableOpacity
+              onPress={onAddStudent}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              testID="picker-add-student"
+              style={{ marginHorizontal: 20, minHeight: 48, borderWidth: 1, borderColor: COLORS.ink, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 }}
+            >
+              <Feather name="user-plus" size={16} color={COLORS.ink} />
+              <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>Add a student</Text>
+            </TouchableOpacity>
           ) : null}
         </ScrollView>
       </View>

@@ -2,6 +2,7 @@
 module.exports = {
   preset: 'jest-expo',
   testEnvironment: 'node',
+  globalSetup: './jest.globalSetup.js',
   setupFilesAfterEnv: ['./jest.setup.js'],
   transformIgnorePatterns: [
     '/node_modules/(?!(.pnpm|react-native|@react-native|@react-native-community|expo|@expo|@expo-google-fonts|react-navigation|@react-navigation))',

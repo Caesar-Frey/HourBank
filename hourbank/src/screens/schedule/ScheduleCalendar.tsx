@@ -243,7 +243,7 @@ export function ScheduleCalendar({ view, onChangeView }: Props) {
       </View>
 
       {filterActive ? (
-        <View style={{ flexDirection: 'row', paddingHorizontal: 16, marginBottom: 6 }}>
+        <View style={{ flexDirection: 'row', paddingHorizontal: 24, marginBottom: 6 }}>
           <TouchableOpacity
             onPress={resetFilters}
             activeOpacity={0.75}
@@ -303,11 +303,11 @@ export function ScheduleCalendar({ view, onChangeView }: Props) {
         style={{
           position: 'absolute',
           bottom: 24,
-          right: 20,
+          right: 24,
           width: 56,
           height: 56,
           borderRadius: 28,
-          backgroundColor: COLORS.ink,
+          backgroundColor: COLORS.oxblood,
           alignItems: 'center',
           justifyContent: 'center',
           shadowColor: COLORS.ink,
@@ -363,6 +363,10 @@ export function ScheduleCalendar({ view, onChangeView }: Props) {
         onPick={id => {
           setShowPicker(false);
           go(`/student/${id}/schedule?date=${dateParam}`);
+        }}
+        onAddStudent={() => {
+          setShowPicker(false);
+          go('/student/new');
         }}
       />
     </View>

@@ -6,10 +6,11 @@ import { COLORS } from '../../theme/colors';
 import { ledgerDeltaColor } from '../../theme/eventColors';
 import { formatHoursSigned, formatLedgerDate } from '../../utils/format';
 import { LedgerEntry } from '../../db/schema';
-import { formatBalance, ledgerDescription } from './flowLogic';
+import { formatBalance, isStruckEntry, ledgerDescription } from './flowLogic';
+import { Mixed } from '../Num';
 
 interface Props {
-  entry: LedgerEntry;
+  entry: LedgerEntry & { reversed?: number };
   /** JSON topics of the linked lesson (deductions). */
   sessionTopics?: string | null;
   /** Subject the row is booked to — pass only for multi-subject students. */
@@ -31,23 +32,26 @@ export function StudentLedgerRow({ entry, sessionTopics, subjectName, onPress }:
   const { day, month } = formatLedgerDate(entry.created_at);
   const description = ledgerDescription(entry, sessionTopics);
   const delta = formatHoursSigned(entry.hours_delta);
+  // A removed item charge and its reversal both show struck through.
+  const struck = isStruckEntry(entry);
+  const strike = struck ? ({ textDecorationLine: 'line-through', color: COLORS.inkFaint } as const) : null;
   const inner = (
     <>
       <View style={{ width: 40 }}>
         <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.ink }}>{day}</Text>
-        <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>{month}</Text>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{month}</Text>
       </View>
       <View style={{ flex: 1, paddingHorizontal: 8 }}>
-        <Text numberOfLines={2} style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }}>{description}</Text>
+        <Text numberOfLines={2} style={[{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }, strike]}><Mixed text={description} /></Text>
         {subjectName ? (
-          <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, marginTop: 2, textTransform: 'uppercase' }}>
+          <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 2, textTransform: 'uppercase' }}>
             {subjectName}
           </Text>
         ) : null}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ fontFamily: F.monoMed, fontSize: 14, color: ledgerDeltaColor(entry.type, entry.hours_delta) }}>{delta}</Text>
-        <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, marginTop: 2 }}>
+        <Text style={[{ fontFamily: F.monoMed, fontSize: 14, color: ledgerDeltaColor(entry.type, entry.hours_delta) }, strike]}>{delta}</Text>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>
           {`bal ${formatBalance(entry.balance_after)}`}
         </Text>
       </View>
@@ -61,7 +65,7 @@ export function StudentLedgerRow({ entry, sessionTopics, subjectName, onPress }:
       activeOpacity={0.7}
       style={ROW}
       accessibilityRole="button"
-      accessibilityLabel={`${subjectName ? `${subjectName}: ` : ''}${description}, ${delta}, balance ${formatBalance(entry.balance_after)}`}
+      accessibilityLabel={`${subjectName ? `${subjectName}: ` : ''}${description}${struck ? ' (removed)' : ''}, ${delta}, balance ${formatBalance(entry.balance_after)}`}
     >
       {inner}
     </TouchableOpacity>

@@ -3,6 +3,7 @@ import { LedgerEntry, CreditPackage } from './schema';
 import { newId } from './uuid';
 import { effectiveSubjectIdSql } from './migrations';
 import { resolveSubjectIdInTx, getSubjectBalance } from './subjects';
+import { normaliseHours } from '../utils/balance';
 
 export function currentBalance(studentId: string): number {
   const db = getDb();
@@ -10,7 +11,7 @@ export function currentBalance(studentId: string): number {
     'SELECT COALESCE(SUM(hours_delta), 0) AS balance FROM ledger_entries WHERE student_id = ?',
     [studentId]
   );
-  return row?.balance ?? 0;
+  return normaliseHours(row?.balance ?? 0);
 }
 
 type AppendEntryInput = {
@@ -22,6 +23,12 @@ type AppendEntryInput = {
   reason?: string;
   /** Subject balance to move; omitted = the student's primary subject. */
   subjectId?: string | null;
+  /** Entry date; omitted = now. A top-up uses the day the parent paid (B1). */
+  createdAt?: string;
+  /** Item charge fields (migration 014). Set at insert: ledger rows are never updated. */
+  itemName?: string | null;
+  itemPriceRand?: number | null;
+  relatedEntryId?: string | null;
 };
 
 // Use this inside an existing withTransactionSync block to avoid nesting.
@@ -31,11 +38,14 @@ export function appendEntryInTx(entry: AppendEntryInput): LedgerEntry {
   const subjectId = resolveSubjectIdInTx(entry.studentId, entry.subjectId);
   const balanceAfter = getSubjectBalance(entry.studentId, subjectId) + entry.hoursDelta;
   const id = newId();
-  const createdAt = new Date().toISOString();
+  const createdAt = entry.createdAt ?? new Date().toISOString();
+  const hasItem = entry.itemName != null || entry.relatedEntryId != null;
 
   db.runSync(
-    `INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_session_id, related_package_id, reason, created_at, subject_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    // Item columns (migration 014) are only named when used, so older schemas
+    // (migration tests that stop part-way) still insert ordinary rows.
+    `INSERT INTO ledger_entries (id, student_id, type, hours_delta, balance_after, related_session_id, related_package_id, reason, created_at, subject_id${hasItem ? ', item_name, item_price_rand, related_entry_id' : ''})
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?${hasItem ? ', ?, ?, ?' : ''})`,
     [
       id,
       entry.studentId,
@@ -47,6 +57,7 @@ export function appendEntryInTx(entry: AppendEntryInput): LedgerEntry {
       entry.reason ?? null,
       createdAt,
       subjectId,
+      ...(hasItem ? [entry.itemName ?? null, entry.itemPriceRand ?? null, entry.relatedEntryId ?? null] : []),
     ]
   );
 
@@ -61,6 +72,9 @@ export function appendEntryInTx(entry: AppendEntryInput): LedgerEntry {
     reason: entry.reason ?? null,
     created_at: createdAt,
     subject_id: subjectId,
+    item_name: entry.itemName ?? null,
+    item_price_rand: entry.itemPriceRand ?? null,
+    related_entry_id: entry.relatedEntryId ?? null,
   };
 }
 
@@ -78,12 +92,12 @@ export function getBalanceAt(studentId: string, isoTimestamp: string): number {
     'SELECT COALESCE(SUM(hours_delta), 0) AS balance FROM ledger_entries WHERE student_id = ? AND created_at <= ?',
     [studentId, isoTimestamp]
   );
-  return row?.balance ?? 0;
+  return normaliseHours(row?.balance ?? 0);
 }
 
 /**
  * Ledger read columns. `balance_after` is recomputed LIVE as the running
- * balance of the row's subject (insert order), so it stays correct after a past
+ * balance of the row's subject (date order, then insert order — a backdated top-up sits where it was paid), so it stays correct after a past
  * lesson's deduction is edited — the stored column is only an insert-time snapshot.
  * `subject_id` is the effective subject (legacy NULL → primary).
  */
@@ -91,17 +105,24 @@ function ledgerSelectSql(alias: string): string {
   const eff = effectiveSubjectIdSql(alias);
   return `${alias}.id, ${alias}.student_id, ${alias}.type, ${alias}.hours_delta,
     ${alias}.related_session_id, ${alias}.related_package_id, ${alias}.reason, ${alias}.created_at,
+    ${alias}.item_name, ${alias}.item_price_rand, ${alias}.related_entry_id,
+    EXISTS (SELECT 1 FROM ledger_entries rv WHERE rv.related_entry_id = ${alias}.id) AS reversed,
     ${eff} AS subject_id,
     (SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${eff}) AS subject_name,
     (SELECT COALESCE(SUM(l2.hours_delta), 0) FROM ledger_entries l2
-      WHERE l2.student_id = ${alias}.student_id AND l2.rowid <= ${alias}.rowid
+      WHERE l2.student_id = ${alias}.student_id
+        AND (l2.created_at < ${alias}.created_at OR (l2.created_at = ${alias}.created_at AND l2.rowid <= ${alias}.rowid))
         AND ${effectiveSubjectIdSql('l2')} IS ${eff}) AS balance_after`;
 }
 
-export type LedgerRow = LedgerEntry & { subject_name: string | null };
+export type LedgerRow = LedgerEntry & {
+  subject_name: string | null;
+  /** 1 when a later row reverses this one (a removed item charge). */
+  reversed?: number;
+};
 
 function roundRow<T extends { balance_after: number }>(r: T): T {
-  return { ...r, balance_after: Math.round(r.balance_after * 1e6) / 1e6 };
+  return { ...r, balance_after: normaliseHours(r.balance_after) };
 }
 
 /** Most recent N entries (all subjects, or one with `subjectId`), newest first. */
@@ -143,6 +164,8 @@ export type LedgerEntryDetail = LedgerEntry & {
   package?: CreditPackage;
   studentName?: string;
   subject_name?: string | null;
+  /** Id of the row that reverses this one (a removed item charge). */
+  reversed_by?: string | null;
 };
 
 export function getLedgerEntryById(id: string): LedgerEntryDetail | null {
@@ -160,6 +183,10 @@ export function getLedgerEntryById(id: string): LedgerEntryDetail | null {
     l_created_at: string;
     l_subject_id: string | null;
     l_subject_name: string | null;
+    l_item_name: string | null;
+    l_item_price_rand: number | null;
+    l_related_entry_id: string | null;
+    l_reversed_by: string | null;
     // credit_packages columns (nullable when no package)
     p_id: string | null;
     p_student_id: string | null;
@@ -181,7 +208,8 @@ export function getLedgerEntryById(id: string): LedgerEntryDetail | null {
        l.type          AS l_type,
        l.hours_delta   AS l_hours_delta,
        (SELECT COALESCE(SUM(l2.hours_delta), 0) FROM ledger_entries l2
-         WHERE l2.student_id = l.student_id AND l2.rowid <= l.rowid
+         WHERE l2.student_id = l.student_id
+           AND (l2.created_at < l.created_at OR (l2.created_at = l.created_at AND l2.rowid <= l.rowid))
            AND ${effectiveSubjectIdSql('l2')} IS ${effectiveSubjectIdSql('l')}) AS l_balance_after,
        ${effectiveSubjectIdSql('l')} AS l_subject_id,
        (SELECT ss.subject FROM student_subjects ss WHERE ss.id = ${effectiveSubjectIdSql('l')}) AS l_subject_name,
@@ -189,6 +217,10 @@ export function getLedgerEntryById(id: string): LedgerEntryDetail | null {
        l.related_package_id AS l_related_package_id,
        l.reason        AS l_reason,
        l.created_at    AS l_created_at,
+       l.item_name     AS l_item_name,
+       l.item_price_rand AS l_item_price_rand,
+       l.related_entry_id AS l_related_entry_id,
+       (SELECT rv.id FROM ledger_entries rv WHERE rv.related_entry_id = l.id LIMIT 1) AS l_reversed_by,
        p.id            AS p_id,
        p.student_id    AS p_student_id,
        p.hours_added   AS p_hours_added,
@@ -213,7 +245,7 @@ export function getLedgerEntryById(id: string): LedgerEntryDetail | null {
     student_id: row.l_student_id,
     type: row.l_type,
     hours_delta: row.l_hours_delta,
-    balance_after: Math.round(row.l_balance_after * 1e6) / 1e6,
+    balance_after: normaliseHours(row.l_balance_after),
     related_session_id: row.l_related_session_id,
     related_package_id: row.l_related_package_id,
     reason: row.l_reason,
@@ -221,6 +253,10 @@ export function getLedgerEntryById(id: string): LedgerEntryDetail | null {
     subject_id: row.l_subject_id,
     subject_name: row.l_subject_name,
     studentName: row.student_name ?? undefined,
+    item_name: row.l_item_name,
+    item_price_rand: row.l_item_price_rand,
+    related_entry_id: row.l_related_entry_id,
+    reversed_by: row.l_reversed_by,
   };
 
   if (row.p_id) {

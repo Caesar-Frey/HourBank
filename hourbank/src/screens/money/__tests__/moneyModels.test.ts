@@ -21,7 +21,7 @@ import {
 
 const line = (id: string, student: string, name: string, day: number, total = 100, over: Partial<ClaimablePoolLine> = {}): ClaimablePoolLine => ({
   session_id: id, student_id: student, student_full_name: name, ended_at: new Date(2026, 9, day, 10).toISOString(),
-  mode: 'in_person', billed_hours: 1, lesson_fee: total, travel_fee: 0, line_total: total, ...over,
+  mode: 'in_person', billed_hours: 1, rate: total, lesson_fee: total, travel_fee: 0, line_total: total, ...over,
 });
 
 describe('claim period', () => {

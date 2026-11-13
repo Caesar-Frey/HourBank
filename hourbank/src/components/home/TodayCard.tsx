@@ -10,7 +10,7 @@ import { lessonEndIso, type TodaySplit } from './homeLogic';
 
 const EYEBROW = {
   fontFamily: F.mono,
-  fontSize: 10,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase',
   letterSpacing: 0.5,
@@ -46,7 +46,7 @@ export function LiveLessonPill({
       }}
     >
       <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: F.mono, fontSize: 11, color: paused ? COLORS.amber : COLORS.paper60, letterSpacing: 0.5 }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: paused ? COLORS.amberText : COLORS.paper60, letterSpacing: 0.5 }}>
           {paused ? '❚❚ PAUSED' : '● LIVE'}
           <Text style={{ color: COLORS.paper }}>{`  ${formatDuration(elapsedSeconds)}`}</Text>
         </Text>
@@ -69,14 +69,12 @@ export function TodayCard({
   starting,
   onStart,
   onOpenLesson,
-  onStartAdHoc,
 }: {
   today: TodaySplit;
   /** Session id currently being started (guards double taps). */
   starting: string | null;
   onStart: (lesson: AgendaItem) => void;
   onOpenLesson: (lesson: AgendaItem) => void;
-  onStartAdHoc: () => void;
 }) {
   const router = useRouter();
   const { next, lessons } = today;
@@ -200,17 +198,6 @@ export function TodayCard({
         </View>
       )}
 
-      <TouchableOpacity
-        onPress={onStartAdHoc}
-        activeOpacity={0.7}
-        accessibilityRole="button"
-        style={{ minHeight: MIN_TOUCH, flexDirection: 'row', alignItems: 'center', marginTop: 8 }}
-      >
-        <Feather name="plus" size={14} color={COLORS.oxblood} />
-        <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood, marginLeft: 6 }}>
-          New lesson — record or time one
-        </Text>
-      </TouchableOpacity>
     </View>
   );
 }

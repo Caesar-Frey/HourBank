@@ -20,6 +20,8 @@ export type NavStateLike = {
 
 export type LessonSavedNav =
   | { type: 'returnToStudent'; resetState: NavStateLike; lessonHref: string }
+  /** No student page in the stack (lesson started from Home): drop the timer/form stacks, then push. */
+  | { type: 'dismissFlow'; resetState: NavStateLike; lessonHref: string }
   | { type: 'replace'; href: string };
 
 function paramId(params: object | undefined): unknown {
@@ -75,6 +77,25 @@ export function truncateToStudentPage<S extends NavStateLike>(
   return null;
 }
 
+/** Root routes that belong to the lesson flow being left: the picker and student stacks (timer, review, form). */
+function isLessonFlowRoute(route: NavRouteLike): boolean {
+  return route.name === 'student' || route.name === 'start-lesson';
+}
+
+/**
+ * The root state with the trailing lesson-flow routes removed (B3), so Back
+ * from the summary returns to Home instead of re-entering the dead timer.
+ * null when nothing would be removed or nothing would remain.
+ */
+export function truncateLessonFlow<S extends NavStateLike>(state: S | null | undefined): S | null {
+  if (!state?.routes?.length) return null;
+  let end = Math.min(typeof state.index === 'number' ? state.index : state.routes.length - 1, state.routes.length - 1);
+  const last = end;
+  while (end >= 0 && isLessonFlowRoute(state.routes[end])) end--;
+  if (end === last || end < 0) return null;
+  return { ...state, routes: state.routes.slice(0, end + 1), index: end };
+}
+
 export function lessonSavedNav(args: {
   rootState: NavStateLike | null | undefined;
   studentId: string;
@@ -82,6 +103,8 @@ export function lessonSavedNav(args: {
 }): LessonSavedNav {
   const resetState = truncateToStudentPage(args.rootState, args.studentId);
   if (resetState) return { type: 'returnToStudent', resetState, lessonHref: args.lessonHref };
+  const base = truncateLessonFlow(args.rootState);
+  if (base) return { type: 'dismissFlow', resetState: base, lessonHref: args.lessonHref };
   return { type: 'replace', href: args.lessonHref };
 }
 
@@ -102,7 +125,7 @@ export function applyLessonSavedNav(
   nav: LessonSavedNav,
   makeReset: (state: NavStateLike) => unknown,
 ): void {
-  if (nav.type === 'returnToStudent') {
+  if (nav.type === 'returnToStudent' || nav.type === 'dismissFlow') {
     container.dispatch(makeReset(nav.resetState) as never);
     router.push(nav.lessonHref as never);
   } else {

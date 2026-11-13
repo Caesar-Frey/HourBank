@@ -61,7 +61,7 @@ function DateCol({ iso }: { iso: string }) {
   return (
     <View style={{ alignItems: 'center', minWidth: 32 }}>
       <Text style={{ fontFamily: F.mono, fontSize: 16, color: COLORS.ink, lineHeight: 18 }}>{day}</Text>
-      <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint }}>{month}</Text>
+      <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{month}</Text>
     </View>
   );
 }
@@ -211,7 +211,7 @@ export default function TravelScreen() {
                   <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>
                     {l.subject_name ?? 'Lesson'}
                   </Text>
-                  <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, marginTop: 2 }}>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, marginTop: 2 }}>
                     {[km, partial ? `part paid · ${formatRand(l.parent_travel_fee)} charged` : null].filter(Boolean).join(' · ') || 'Flat fee'}
                   </Text>
                 </View>
@@ -278,7 +278,7 @@ export default function TravelScreen() {
                 <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }}>
                   {t.package_id ? 'With top-up' : 'Travel payment'}
                 </Text>
-                <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, marginTop: 2 }} numberOfLines={1}>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, marginTop: 2 }} numberOfLines={1}>
                   {[METHOD_LABEL[t.payment_method] ?? t.payment_method, t.note].filter(Boolean).join(' · ')}
                 </Text>
               </View>

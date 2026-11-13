@@ -22,7 +22,7 @@ export function RecipientChooser({ student, value, onChange, style }: Props) {
   if (options.length === 0) return null;
   return (
     <View style={[{ gap: 6 }, style]}>
-      <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, letterSpacing: 0.5 }}>SEND TO</Text>
+      <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, letterSpacing: 0.5 }}>SEND TO</Text>
       <SegmentedControl options={options} value={value} onChange={onChange} accessibilityLabel="Send to" />
     </View>
   );

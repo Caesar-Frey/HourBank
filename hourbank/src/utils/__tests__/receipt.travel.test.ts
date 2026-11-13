@@ -60,7 +60,7 @@ describe('receipts and reminders with subjects + travel', () => {
     const { lesson } = setup(true);
     const t = getLessonReceiptText(lesson.id)!;
     expect(t).toContain('Subject: Maths');
-    expect(t).toContain('Maths balance remaining: 4h');
+    expect(t).toContain('Maths credit: 4h');
   });
 
   it('top-up confirmation includes travel settled with the package', () => {
@@ -71,7 +71,7 @@ describe('receipts and reminders with subjects + travel', () => {
     expect(t).toContain('Hours added: 10h Maths');
     expect(t).toContain(`Travel settled: ${R(40)}`);
     expect(t).toContain(`Total received: ${R(5540)}`);
-    expect(t).toContain('Maths balance: 14h');
+    expect(t).toContain('Maths credit: 14h');
     expect(t).toContain(`Travel still owed: ${R(20)}`);
   });
 
@@ -92,7 +92,7 @@ describe('receipts and reminders with subjects + travel', () => {
     expect(t).toContain(`Travel still owed: ${R(40)}`);
     await expect(shareTravelPaymentReceipt(st.id)).resolves.toEqual({ shared: true, uri: expect.any(String) });
     const html = (Print.printToFileAsync as jest.Mock).mock.calls[0][0].html as string;
-    expect(html).toContain('Travel payment receipt');
+    expect(html).toContain('Travel payment');
     expect(html).toContain('Cash');
     await expect(shareTravelPaymentReceipt('nope')).resolves.toEqual({ shared: false, uri: null });
   });

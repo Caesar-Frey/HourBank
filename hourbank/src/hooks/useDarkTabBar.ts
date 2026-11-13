@@ -3,8 +3,6 @@ import { useFocusEffect } from 'expo-router';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS } from '../theme/colors';
 
-const PAPER_12 = 'rgba(244,239,230,0.12)';
-const PAPER_40 = 'rgba(244,239,230,0.4)';
 
 export function useDarkTabBar() {
   const navigation = useNavigation();
@@ -12,9 +10,9 @@ export function useDarkTabBar() {
     useCallback(() => {
       const parent = navigation.getParent();
       parent?.setOptions({
-        tabBarStyle: { backgroundColor: COLORS.sessionBg, borderTopColor: PAPER_12 },
+        tabBarStyle: { backgroundColor: COLORS.sessionBg, borderTopColor: COLORS.paper12 },
         tabBarActiveTintColor: COLORS.paper,
-        tabBarInactiveTintColor: PAPER_40,
+        tabBarInactiveTintColor: COLORS.paper40,
       });
       return () => {
         parent?.setOptions({

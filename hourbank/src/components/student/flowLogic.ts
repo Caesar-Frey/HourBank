@@ -27,9 +27,18 @@ export function balanceReviewLine(before: number, after: number): string {
   return `Balance ${formatBalance(before)} → ${formatBalance(after)}`;
 }
 
-/** A top-up reminder is worth sending when under 1h remains (incl. owing). */
+/** A top-up reminder is offered whenever credit is not healthy: running low, low or owing (C1). */
 export function shouldOfferTopUpReminder(balance: number): boolean {
-  return Math.round(balance * 60) < 60;
+  return Math.round(balance * 60) < 180;
+}
+
+/** Text status next to the balance, so status is never colour-only (C1). null when healthy. */
+export function balanceStatusChip(balance: number): { label: string; tone: 'owes' | 'low' | 'warn' } | null {
+  const m = Math.round(balance * 60);
+  if (m < 0) return { label: 'OWES', tone: 'owes' };
+  if (m < 60) return { label: 'LOW · TOP-UP DUE', tone: 'low' };
+  if (m < 180) return { label: 'RUNNING LOW', tone: 'warn' };
+  return null;
 }
 
 /** Upcoming-row warning, e.g. "will owe 1h 30m"; null while still in credit. */
@@ -357,7 +366,14 @@ export type LedgerLike = {
   hours_delta: number;
   created_at: string;
   reason: string | null;
+  item_name?: string | null;
+  related_entry_id?: string | null;
 };
+
+/** A removed item charge and its reversal are both shown struck through. */
+export function isStruckEntry(e: { reversed?: number | boolean | null; related_entry_id?: string | null }): boolean {
+  return !!e.reversed || !!e.related_entry_id;
+}
 
 export function ledgerDescription(entry: LedgerLike, sessionTopics?: string | null): string {
   switch (entry.type) {
@@ -373,6 +389,8 @@ export function ledgerDescription(entry: LedgerLike, sessionTopics?: string | nu
       return first ? `${base} — ${first}` : base;
     }
     case 'adjustment':
+      if (entry.item_name) return entry.item_name;
+      if (entry.related_entry_id) return entry.reason?.trim() || 'Item charge removed';
       return entry.reason?.trim() ? `Correction — ${entry.reason.trim()}` : 'Correction';
     case 'refund':
       return entry.reason?.trim() ? `Refund — ${entry.reason.trim()}` : 'Refund';
@@ -415,4 +433,20 @@ export function shortRef(id: string): string {
 export function ledgerRowHref(entry: { id: string; type: LedgerLike['type']; related_session_id: string | null }): string | null {
   if (entry.related_session_id) return `/lesson/${entry.related_session_id}`;
   return `/transaction/${entry.id}`;
+}
+
+/**
+ * Top-up "Paid on" (B1) → stored timestamp. Today keeps the current time (so
+ * the entry sorts after today's lessons); an earlier day is stamped at 12:00
+ * local so it lands in that day and month. Future days clamp to now.
+ */
+export function paidAtIso(paidOn: Date, now: Date = new Date()): string {
+  const sameDay =
+    paidOn.getFullYear() === now.getFullYear() &&
+    paidOn.getMonth() === now.getMonth() &&
+    paidOn.getDate() === now.getDate();
+  if (sameDay || paidOn.getTime() > now.getTime()) return now.toISOString();
+  const d = new Date(paidOn);
+  d.setHours(12, 0, 0, 0);
+  return d.toISOString();
 }

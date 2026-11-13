@@ -8,10 +8,10 @@
  * Owing past the tutor's limit is a nudge (confirm), never a block.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Text, TextInput, View } from 'react-native';
+import { Alert, Switch, Text, TextInput, View } from 'react-native';
 import { useNavigationContainerRef, useRouter } from 'expo-router';
 import { CommonActions } from '@react-navigation/native';
-import { F } from '../../theme/fonts';
+import { F, MIN_TOUCH } from '../../theme/fonts';
 import { COLORS } from '../../theme/colors';
 import { FormScreen } from '../FormScreen';
 import { ScreenHeader } from '../ScreenHeader';
@@ -20,17 +20,21 @@ import { DateTimeField } from '../student/DateTimeField';
 import { Banner, Button, ChoicePills, FieldError, LoadingState, NotFoundState, PageHeading, SectionLabel } from '../student/ui';
 import { getStudent } from '../../db/students';
 import {
-  checkOweLimit, editLesson, getSession, isChargedNoShow, isEditableLesson, isSessionError, isSessionInClaim, parseSessionTopics, recordLesson,
+  checkOweLimit, editLesson, findOverlappingLesson, getSession, isChargedNoShow, isEditableLesson, isSessionError, isSessionInClaim,
+  parseSessionTopics, recordLesson,
 } from '../../db/sessions';
 import { getSubjectBalance, isSubjectError } from '../../db/subjects';
 import { isTravelError } from '../../db/travel';
 import { addCustomTopicForSubject } from '../../db/catalog';
 import type { Session, Student } from '../../db/schema';
 import { applyLessonSavedNav, lessonSavedNav } from '../../utils/lessonNav';
-import { formatDateLong, formatHours, formatMinutes, formatTime } from '../../utils/format';
+import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
+import { formatDateLong, formatDayShort, formatHours, formatMinutes, formatRand, formatTime, formatTimeRange } from '../../utils/format';
+import { ClaimedLineInfo, getClaimedLineForSession } from '../../db/claims';
 import {
   balancePreview,
   buildEditPatch,
+  claimEditEffect,
   claimWarning,
   defaultRecordMinutes,
   defaultRecordStart,
@@ -46,6 +50,7 @@ import {
   type LessonMode,
 } from './lessonFormLogic';
 import {
+  billingRoundMinutes,
   builtinCatalogTopics,
   catalogTopics,
   claimLabelForSession,
@@ -70,6 +75,7 @@ type Ctx = {
   movedFromBooking: boolean;
   inClaim: boolean;
   claimLabel: string | null;
+  claimLine: ClaimedLineInfo | null;
 };
 
 function kmText(km: number | null): string {
@@ -113,6 +119,9 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [topicsNote, setTopicsNote] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
+  /** Charged no-show only: "Include travel" (owner decision 2026-11-12, default off). */
+  const [noShowTravel, setNoShowTravel] = useState(false);
+  const [step] = useState(billingRoundMinutes);
   const [showErrors, setShowErrors] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -184,6 +193,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
       setSelectedTopics(preselected);
       setTopics([...catalog, ...preselected.filter(t => !catalog.includes(t))]);
       setNotes(notesValue);
+      setNoShowTravel(session?.no_show_travel === 1);
 
       const inClaim = isEdit ? isSessionInClaim(session!.id) : false;
       setCtx({
@@ -206,6 +216,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
         movedFromBooking,
         inClaim,
         claimLabel: inClaim ? claimLabelForSession(session!.id) : null,
+        claimLine: inClaim ? getClaimedLineForSession(session!.id) : null,
       });
     } catch {
       setLoadError('Couldn’t load this lesson.');
@@ -220,6 +231,18 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
     if (!ctx) return '';
     return ctx.options.find(o => o.id === subjectId)?.subject ?? (ctx.fallbackSubject?.id === subjectId ? ctx.fallbackSubject.name : ctx.student.subject);
   }, [ctx, subjectId]);
+
+  // Unsaved-changes guard (D7): dirty once anything differs from the loaded form.
+  const formKey = JSON.stringify([subjectId, start.getTime(), billed, mode, km, selectedTopics, notes, noShowTravel]);
+  const baselineRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loaded && ctx && baselineRef.current === null) baselineRef.current = formKey;
+  }, [loaded, ctx, formKey]);
+  const dirty = baselineRef.current !== null && baselineRef.current !== formKey;
+  const { allowLeave } = useUnsavedChangesGuard(dirty, {
+    title: isEdit ? 'Discard your changes?' : 'Discard this lesson?',
+    message: isEdit ? 'Your changes to this lesson will be lost.' : 'It hasn’t been recorded yet.',
+  });
 
   if (!loaded) return <LoadingState />;
   if (loadError || !ctx) return <NotFoundState title={loadError ?? 'Lesson not found'} onBack={() => router.back()} />;
@@ -291,6 +314,7 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
   }
 
   function goToSummary(sessionId: string) {
+    allowLeave();
     if (props.kind === 'record' && props.from === 'lesson' && session && router.canGoBack()) {
       router.back();
       return;
@@ -334,15 +358,18 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
       // No-show: time/mode/travel aren't editable — never send them.
       ...(noShow ? { start: original.start, mode: original.mode, travelKm: original.travelKm, topics: original.topics } : {}),
     });
+    if (noShow && noShowTravel !== (session.no_show_travel === 1)) patch.noShowTravel = noShowTravel;
     if (Object.keys(patch).length === 0) {
       release();
       toast.show({ kind: 'info', message: 'No changes to save' });
+      allowLeave();
       router.back();
       return;
     }
     try {
       editLesson(session.id, patch);
       toast.show({ kind: 'success', message: 'Lesson updated' });
+      allowLeave();
       router.back();
     } catch (e) {
       release();
@@ -368,19 +395,65 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
         over = false;
       }
     }
-    if (over) {
+    // Same lesson twice? Ask before recording another (A6) — a nudge, never a block.
+    let duplicate: Session | null = null;
+    if (!isEdit) {
+      try {
+        duplicate = findOverlappingLesson(student.id, start.toISOString(), billed, session?.id ?? null);
+      } catch {
+        duplicate = null;
+      }
+    }
+    const confirmDuplicate = () => {
+      if (!duplicate?.started_at) return commit();
+      const end = duplicate.ended_at ?? new Date(new Date(duplicate.started_at).getTime() + (duplicate.billed_minutes ?? 60) * 60_000).toISOString();
+      Alert.alert(
+        'Already recorded?',
+        `${firstName} already has a lesson recorded ${formatDayShort(duplicate.started_at)} ${formatTimeRange(duplicate.started_at, end)}. Record another?`,
+        [
+          { text: 'Cancel', style: 'cancel', onPress: release },
+          { text: 'Record another', onPress: commit },
+        ],
+        { cancelable: true, onDismiss: release },
+      );
+    };
+
+    const confirmOver = () => {
+      if (!over) return confirmDuplicate();
       Alert.alert(
         `${firstName} will owe ${formatHours(-balance.after)}`,
         `${subjectName} goes past your owing limit. ${isEdit ? 'Save' : 'Record'} anyway and remind the parent to top up?`,
         [
           { text: 'Cancel', style: 'cancel', onPress: release },
-          { text: isEdit ? 'Save anyway' : 'Record anyway', onPress: commit },
+          { text: isEdit ? 'Save anyway' : 'Record anyway', onPress: confirmDuplicate },
         ],
         { cancelable: true, onDismiss: release },
       );
+    };
+
+    // Lesson inside a finalised claim: keep the nudge, but say the rand effect (B4).
+    const line = ctx?.claimLine ?? null;
+    const effect = isEdit && line
+      ? claimEditEffect({
+          claimLabel: line.periodLabel,
+          claimTotal: line.claimTotal,
+          claimedHours: line.billedHours,
+          claimedMode: line.mode,
+          claimedTravel: line.travelFee,
+          rate: line.rate,
+          newBilledMinutes: billed,
+          newMode: mode,
+          formatRand,
+        })
+      : null;
+    if (effect) {
+      Alert.alert(effect.title, effect.message, [
+        { text: 'Cancel', style: 'cancel', onPress: release },
+        { text: 'Save anyway', onPress: confirmOver },
+      ], { cancelable: true, onDismiss: release });
       return;
     }
-    commit();
+    confirmOver();
   }
 
   const heading = noShow
@@ -460,6 +533,8 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
         <BilledMinutesField
           value={billed}
           onChange={setBilled}
+          step={step}
+          presets={!isEdit}
           caption={
             session?.estimated_duration_minutes && !isEdit
               ? `booked ${formatMinutes(session.estimated_duration_minutes)}`
@@ -469,6 +544,24 @@ export function LessonFormScreen(props: LessonFormScreenProps) {
           }
         />
       </View>
+
+      {noShow && session?.mode === 'in_person' ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: MIN_TOUCH, marginTop: 20 }}>
+          <View style={{ flexShrink: 1 }}>
+            <Text style={{ fontFamily: F.sansMed, fontSize: 15, color: COLORS.ink }}>Include travel</Text>
+            <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft, marginTop: 2 }}>
+              Charge the parent travel and claim your travel for this lesson.
+            </Text>
+          </View>
+          <Switch
+            value={noShowTravel}
+            onValueChange={setNoShowTravel}
+            trackColor={{ false: COLORS.paperEdge, true: COLORS.oxblood }}
+            thumbColor={COLORS.paper}
+            accessibilityLabel="Include travel"
+          />
+        </View>
+      ) : null}
 
       {!noShow ? (
       <View style={{ marginTop: 24 }}>

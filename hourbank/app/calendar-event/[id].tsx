@@ -135,7 +135,7 @@ export default function CalendarEventDetailScreen() {
           paddingVertical: 4,
         }}
       >
-        <Text style={{ fontFamily: F.sansMed, fontSize: 11, color: style.fg, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        <Text style={{ fontFamily: F.sansMed, fontSize: 12, color: style.fg, textTransform: 'uppercase', letterSpacing: 0.5 }}>
           {style.label}
         </Text>
       </View>
@@ -149,7 +149,7 @@ export default function CalendarEventDetailScreen() {
 
       {current.student_id && current.student_name ? (
         <TouchableOpacity
-          onPress={() => router.push(`/student/${current.student_id}` as Href)}
+          onPress={() => router.push(`/student/${current.student_id}?from=SCHEDULE` as Href)}
           activeOpacity={0.7}
           accessibilityRole="link"
           style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: MIN_TOUCH, marginBottom: 8 }}
@@ -168,7 +168,7 @@ export default function CalendarEventDetailScreen() {
 
       {current.notes ? (
         <View style={{ marginBottom: 32 }}>
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 6 }}>Notes</Text>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 6 }}>Notes</Text>
           <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkSoft, lineHeight: 20 }}>{current.notes}</Text>
         </View>
       ) : null}

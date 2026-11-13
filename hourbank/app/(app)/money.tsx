@@ -18,13 +18,13 @@ export default function MoneyTab() {
       <TabHeader title="Money" divider={false} />
       <SegmentedControl
         options={[
-          { value: 'in', label: 'In' },
-          { value: 'out', label: 'Out' },
+          { value: 'in', label: 'From parents' },
+          { value: 'out', label: 'My claims' },
         ]}
         value={segment}
         onChange={setSegment}
         accessibilityLabel="Money direction"
-        style={{ marginHorizontal: 16, marginBottom: 4 }}
+        style={{ marginHorizontal: 24, marginBottom: 4 }}
       />
       <View style={{ flex: 1 }}>{segment === 'in' ? <MoneyInView /> : <MoneyOutView />}</View>
     </SafeAreaView>

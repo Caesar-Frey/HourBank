@@ -11,9 +11,7 @@ import { Feather } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { F } from '../theme/fonts';
 
-const MIN_MINUTES = 15;
 const MAX_MINUTES = 480;
-const STEP = 15;
 
 export function formatCustomDuration(minutes: number): string {
   const h = Math.floor(minutes / 60);
@@ -28,6 +26,8 @@ export interface DurationStepperSheetProps {
   initialMinutes: number;
   onConfirm: (minutes: number) => void;
   onCancel: () => void;
+  /** Lesson-length step from Settings (15 or 30). Also the minimum. */
+  step?: number;
 }
 
 export function DurationStepperSheet({
@@ -35,7 +35,10 @@ export function DurationStepperSheet({
   initialMinutes,
   onConfirm,
   onCancel,
+  step = 30,
 }: DurationStepperSheetProps) {
+  const STEP = step > 0 ? step : 30;
+  const MIN_MINUTES = STEP;
   const insets = useSafeAreaInsets();
   const [minutes, setMinutes] = useState(initialMinutes);
 
@@ -49,7 +52,7 @@ export function DurationStepperSheet({
       );
       setMinutes(snapped);
     }
-  }, [visible, initialMinutes]);
+  }, [visible, initialMinutes, STEP, MIN_MINUTES]);
 
   function decrement() {
     setMinutes(prev => Math.max(MIN_MINUTES, prev - STEP));
@@ -114,7 +117,7 @@ export function DurationStepperSheet({
         <Text
           style={{
             fontFamily: F.sansMed,
-            fontSize: 11,
+            fontSize: 12,
             color: COLORS.inkFaint,
             textTransform: 'uppercase',
             letterSpacing: 1.5,

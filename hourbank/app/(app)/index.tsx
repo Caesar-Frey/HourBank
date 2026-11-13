@@ -12,12 +12,17 @@ import { useToast } from '../../src/components/Toast';
 import { RosterStudentCard } from '../../src/components/home/RosterStudentCard';
 import { TodayCard, LiveLessonPill } from '../../src/components/home/TodayCard';
 import { NeedsAttentionCard } from '../../src/components/home/NeedsAttentionCard';
+import { listOverdueInvoices, type OverdueInvoice } from '../../src/db/invoices';
+import { SetupCard } from '../../src/components/home/SetupCard';
+import { StudentPickerSheet } from '../../src/components/calendar/StudentPickerSheet';
+import { getOrCreateTutorProfile, getSetupStatus, type SetupStatus } from '../../src/db/tutorProfile';
 import {
   RosterStudent,
   SortMode,
   SORT_OPTIONS,
   isSortMode,
   sortRoster,
+  rosterHeading,
   rosterSummary,
   splitToday,
   buildNeedsAttention,
@@ -62,7 +67,7 @@ function getDateEyebrow(): string {
 
 const SECTION_LABEL = {
   fontFamily: F.mono,
-  fontSize: 11,
+  fontSize: 12,
   color: COLORS.ink,
   textTransform: 'uppercase',
   letterSpacing: 0.5,
@@ -76,10 +81,10 @@ const TILE = {
   backgroundColor: COLORS.cardFill,
   padding: 16,
 } as const;
-const TILE_LABEL = { fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 } as const;
+const TILE_LABEL = { fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase', marginBottom: 4 } as const;
 const TILE_NUMBER = { fontFamily: F.mono, fontSize: 18, color: COLORS.ink } as const;
 const TILE_UNIT = { fontFamily: F.serifItalic, fontSize: 13, color: COLORS.inkSoft } as const;
-const TILE_SUB = { fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginTop: 2 } as const;
+const TILE_SUB = { fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 } as const;
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -93,11 +98,14 @@ export default function HomeScreen() {
 
   // null until AsyncStorage answers → the roster never renders in the wrong order first.
   const [sortMode, setSortMode] = useState<SortMode | null>(null);
+  const [bookPicker, setBookPicker] = useState(false);
   const [sortSheetVisible, setSortSheetVisible] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [search, setSearch] = useState('');
   const [data, setData] = useState<HomeData | null>(null);
+  const [setup, setSetup] = useState<{ status: SetupStatus; rate: number } | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [overdueInvoices, setOverdueInvoices] = useState<OverdueInvoice[]>([]);
   const [weekStats, setWeekStats] = useState<WeekLessonStats>(EMPTY_WEEK);
   const [nudge, setNudge] = useState<{ show: boolean; tier: number | null; message: string }>({
     show: false,
@@ -115,6 +123,17 @@ export default function HomeScreen() {
 
   const load = useCallback(() => {
     let hasStudents = false;
+    try {
+      setOverdueInvoices(listOverdueInvoices());
+    } catch {
+      setOverdueInvoices([]);
+    }
+    try {
+      const p = getOrCreateTutorProfile();
+      setSetup({ status: getSetupStatus(p), rate: p.hourly_rate });
+    } catch {
+      setSetup(null);
+    }
     try {
       const active = listActiveStudents();
       const paused = listPausedStudents();
@@ -176,8 +195,8 @@ export default function HomeScreen() {
 
   const today = useMemo(() => (data ? splitToday(data.agenda) : null), [data]);
   const attention = useMemo(
-    () => (data ? buildNeedsAttention({ agenda: data.agenda, students: [...data.active, ...data.paused] }) : []),
-    [data]
+    () => (data ? buildNeedsAttention({ agenda: data.agenda, students: [...data.active, ...data.paused], overdueInvoices }) : []),
+    [data, overdueInvoices]
   );
 
   const { hoursBanked, hoursOwed } = useMemo(() => {
@@ -311,6 +330,15 @@ export default function HomeScreen() {
           />
         )}
 
+        {/* Finish setting up (A5) — above Today */}
+        {setup ? (
+          <SetupCard
+            status={setup.status}
+            starterRate={setup.rate}
+            onOpen={target => router.navigate(`/profile?focus=${target}`)}
+          />
+        ) : null}
+
         {/* Today */}
         {today && (
           <TodayCard
@@ -318,9 +346,16 @@ export default function HomeScreen() {
             starting={starting}
             onStart={item => startLesson(item)}
             onOpenLesson={item => router.push(`/lesson/${item.id}`)}
-            onStartAdHoc={() => router.push('/start-lesson')}
           />
         )}
+
+        {/* Record / book from Home (C2): both pick the student first. */}
+        {ready && !noStudents ? (
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+            <HomeAction icon="check" label="Record a lesson" onPress={() => router.push('/start-lesson')} testID="home-record" />
+            <HomeAction icon="calendar" label="Book a lesson" onPress={() => setBookPicker(true)} testID="home-book" />
+          </View>
+        ) : null}
 
         {/* Needs attention (collapses when empty) */}
         <NeedsAttentionCard items={attention} onPress={item => router.push(item.href)} />
@@ -366,7 +401,7 @@ export default function HomeScreen() {
 
         {/* ── Students ─────────────────────────────────────────────────── */}
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-          <Text style={[SECTION_LABEL, { flex: 1 }]}>Students</Text>
+          <Text style={[SECTION_LABEL, { flex: 1 }]} numberOfLines={1}>{rosterHeading(sortMode ?? 'balance')}</Text>
           {active.length > 1 && (
             <TouchableOpacity
               onPress={() => setSortSheetVisible(true)}
@@ -490,7 +525,7 @@ export default function HomeScreen() {
               <RosterStudentCard
                 key={student.id}
                 student={student}
-                onPress={() => router.push(`/student/${student.id}`)}
+                onPress={() => router.push(`/student/${student.id}?from=HOME`)}
               />
             ))}
           </View>
@@ -498,7 +533,7 @@ export default function HomeScreen() {
 
         {ready && !loadError && active.length > 0 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, marginBottom: 20 }}>
-            <Text style={{ flex: 1, fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint }}>
+            <Text style={{ flex: 1, fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>
               {rosterSummary(displayed.length, active.length, sortMode ?? 'balance')}
             </Text>
             {active.length > ROSTER_LIMIT && (
@@ -513,7 +548,7 @@ export default function HomeScreen() {
                 style={{ minHeight: MIN_TOUCH, justifyContent: 'center', paddingLeft: 12 }}
               >
                 <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.oxblood }}>
-                  {showAll ? 'Show fewer' : 'All →'}
+                  {showAll ? 'Show fewer' : `All ${active.length} →`}
                 </Text>
               </TouchableOpacity>
             )}
@@ -530,7 +565,7 @@ export default function HomeScreen() {
                   key={student.id}
                   student={student}
                   paused
-                  onPress={() => router.push(`/student/${student.id}`)}
+                  onPress={() => router.push(`/student/${student.id}?from=HOME`)}
                 />
               ))}
             </View>
@@ -564,7 +599,45 @@ export default function HomeScreen() {
         )}
       </ScrollView>
 
+      <StudentPickerSheet
+        visible={bookPicker}
+        title="Book a lesson"
+        students={[...active, ...paused]}
+        onClose={() => setBookPicker(false)}
+        onPick={sid => {
+          setBookPicker(false);
+          router.push(`/student/${sid}/schedule`);
+        }}
+        onAddStudent={() => {
+          setBookPicker(false);
+          router.push('/student/new');
+        }}
+      />
       <ActionSheet visible={sortSheetVisible} onDismiss={() => setSortSheetVisible(false)} items={sortItems} />
     </SafeAreaView>
+  );
+}
+
+function HomeAction({ icon, label, onPress, testID }: {
+  icon: React.ComponentProps<typeof Feather>['name'];
+  label: string;
+  onPress: () => void;
+  testID?: string;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      testID={testID}
+      style={{
+        flex: 1, minHeight: 48, borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 14,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 8,
+      }}
+    >
+      <Feather name={icon} size={15} color={COLORS.oxblood} />
+      <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }} numberOfLines={1}>{label}</Text>
+    </TouchableOpacity>
   );
 }

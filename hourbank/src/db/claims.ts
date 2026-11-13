@@ -19,6 +19,7 @@ import { getDb } from './client';
 import { Claim, ClaimLine } from './schema';
 import { newId } from './uuid';
 import { effectiveRate, lessonFee, travelFee, roundCents } from '../utils/claim';
+import { formatClaimPeriod } from '../utils/format';
 
 // Claim periods are stored half-open [start, end) with `end` = local midnight
 // AFTER the last included day. Always display through formatClaimPeriod.
@@ -52,6 +53,8 @@ export type ClaimablePoolLine = {
   ended_at: string;
   mode: 'in_person' | 'online';
   billed_hours: number;
+  /** Payout rate (R/h) this line is priced at. */
+  rate: number;
   lesson_fee: number; // computed live
   travel_fee: number; // computed live
   line_total: number;
@@ -84,6 +87,9 @@ type RawPoolRow = {
   /** Per-lesson km (sessions.travel_km) falling back to the student default. */
   travel_distance_km: number;
   payout_rate_override: number | null;
+  status: string;
+  /** 1 = a charged no-show the tutor marked "Include travel" (migration 011). */
+  no_show_travel: number | null;
 };
 
 type Db = ReturnType<typeof getDb>;
@@ -109,7 +115,10 @@ function priceLine(raw: RawPoolRow, profile: ProfileConfig): ClaimablePoolLine {
   const billedHours = (raw.billed_minutes ?? raw.duration_minutes ?? 0) / 60;
   const rate = effectiveRate(raw.payout_rate_override, profile.hourly_rate);
   const lesson = lessonFee(billedHours, rate);
-  const travel = travelFee({
+  // A charged no-show carries a travel allowance only when the tutor switched
+  // "Include travel" on for it (owner decision 2026-11-12).
+  const noShowWithoutTravel = raw.status === 'cancelled' && !raw.no_show_travel;
+  const travel = noShowWithoutTravel ? 0 : travelFee({
     mode: raw.mode,
     travelMode: profile.travel_mode,
     flatFee: raw.travel_flat_fee,
@@ -123,6 +132,7 @@ function priceLine(raw: RawPoolRow, profile: ProfileConfig): ClaimablePoolLine {
     ended_at: raw.ended_at,
     mode: raw.mode,
     billed_hours: billedHours,
+    rate,
     lesson_fee: lesson,
     travel_fee: travel,
     line_total: roundCents(lesson + travel),
@@ -139,16 +149,18 @@ function priceLine(raw: RawPoolRow, profile: ProfileConfig): ClaimablePoolLine {
  */
 function derivePoolLines(
   db: Db,
-  opts: { range?: { start: string; end: string }; sessionIds?: string[] }
+  opts: { range?: { start: string; end: string }; sessionIds?: string[]; includeClaimed?: boolean }
 ): ClaimablePoolLine[] {
   const where: string[] = [billableSessionSql('s')];
   const params: (string | number)[] = [];
 
-  where.push(`NOT EXISTS (
-    SELECT 1 FROM claim_lines cl
-    JOIN claims c ON c.id = cl.claim_id
-    WHERE cl.session_id = s.id AND c.voided_at IS NULL
-  )`);
+  if (!opts.includeClaimed) {
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM claim_lines cl
+      JOIN claims c ON c.id = cl.claim_id
+      WHERE cl.session_id = s.id AND c.voided_at IS NULL
+    )`);
+  }
 
   if (opts.range) {
     where.push(`julianday(${billableSessionDateSql('s')}) >= julianday(?) AND julianday(${billableSessionDateSql('s')}) < julianday(?)`);
@@ -165,7 +177,8 @@ function derivePoolLines(
   const rows = db.getAllSync<RawPoolRow>(
     `SELECT s.id AS session_id, s.student_id, st.full_name AS student_full_name,
             ${billableSessionDateSql('s')} AS ended_at, s.mode, s.billed_minutes, s.duration_minutes,
-            st.travel_flat_fee, COALESCE(s.travel_km, st.travel_distance_km) AS travel_distance_km, st.payout_rate_override
+            st.travel_flat_fee, COALESCE(s.travel_km, st.travel_distance_km) AS travel_distance_km, st.payout_rate_override,
+            s.status, s.no_show_travel
      FROM sessions s
      JOIN students st ON st.id = s.student_id
      WHERE ${where.join(' AND ')}
@@ -233,6 +246,98 @@ export function getClaimLines(claimId: string): ClaimLine[] {
     'SELECT * FROM claim_lines WHERE claim_id = ? ORDER BY created_at ASC',
     [claimId]
   );
+}
+
+/** The payout rate a frozen line was priced at: stored (migration 012), else derived, else null. */
+export function claimLineRate(line: Pick<ClaimLine, 'rate' | 'lesson_fee' | 'billed_hours'>): number | null {
+  if (line.rate != null) return line.rate;
+  return line.billed_hours > 0 ? roundCents(line.lesson_fee / line.billed_hours) : null;
+}
+
+export type ClaimedLineInfo = {
+  claimId: string;
+  periodLabel: string | null;
+  billedHours: number;
+  mode: ClaimLine['mode'];
+  rate: number | null;
+  lessonFee: number;
+  travelFee: number;
+  lineTotal: number;
+  claimTotal: number;
+};
+
+/** The non-voided claim line holding this lesson, or null. */
+export function getClaimedLineForSession(sessionId: string): ClaimedLineInfo | null {
+  const row = getDb().getFirstSync<ClaimLine & { period_start: string | null; period_end: string | null; grand_total: number }>(
+    `SELECT cl.*, c.period_start, c.period_end, c.grand_total
+       FROM claim_lines cl JOIN claims c ON c.id = cl.claim_id
+      WHERE cl.session_id = ? AND c.voided_at IS NULL
+      ORDER BY c.created_at DESC LIMIT 1`,
+    [sessionId]
+  );
+  if (!row) return null;
+  return {
+    claimId: row.claim_id,
+    periodLabel: formatClaimPeriod(row.period_start, row.period_end) || null,
+    billedHours: row.billed_hours,
+    mode: row.mode,
+    rate: claimLineRate(row),
+    lessonFee: row.lesson_fee,
+    travelFee: row.travel_fee,
+    lineTotal: roundCents(row.lesson_fee + row.travel_fee),
+    claimTotal: row.grand_total,
+  };
+}
+
+export type EditedClaimLine = {
+  session_id: string;
+  student_full_name: string;
+  /** Frozen in the claim. */
+  claimed_hours: number;
+  /** As the lesson stands now. */
+  current_hours: number;
+  mode_changed: boolean;
+  /** Rand difference at the claim's rate for this line (+ = the claim pays less than now owed). */
+  difference: number;
+};
+
+/**
+ * Lessons in this claim whose hours or mode were edited after it was made
+ * (B4). The claim stays frozen; this only makes the difference visible.
+ */
+export function listEditedClaimLines(claimId: string): EditedClaimLine[] {
+  const db = getDb();
+  const lines = getClaimLines(claimId);
+  if (lines.length === 0) return [];
+  const live = new Map(
+    derivePoolLines(db, { sessionIds: lines.map(l => l.session_id), includeClaimed: true }).map(l => [l.session_id, l])
+  );
+  const out: EditedClaimLine[] = [];
+  for (const line of lines) {
+    const now = live.get(line.session_id);
+    const currentHours = now?.billed_hours ?? 0;
+    const hoursChanged = Math.round(currentHours * 60) !== Math.round(line.billed_hours * 60);
+    const modeChanged = !!now && now.mode !== line.mode;
+    if (!hoursChanged && !modeChanged && now) continue;
+    const rate = claimLineRate(line) ?? now?.rate ?? 0;
+    const currentLesson = roundCents(currentHours * rate);
+    const currentTravel = now ? now.travel_fee : 0;
+    const name = now?.student_full_name
+      ?? db.getFirstSync<{ full_name: string }>(
+        'SELECT st.full_name FROM sessions s JOIN students st ON st.id = s.student_id WHERE s.id = ?',
+        [line.session_id]
+      )?.full_name
+      ?? 'Lesson';
+    out.push({
+      session_id: line.session_id,
+      student_full_name: name,
+      claimed_hours: line.billed_hours,
+      current_hours: currentHours,
+      mode_changed: modeChanged,
+      difference: roundCents(currentLesson + (modeChanged ? currentTravel : line.travel_fee) - line.lesson_fee - line.travel_fee),
+    });
+  }
+  return out;
 }
 
 // ── Write functions (transactional, immutable) ───────────────────────────────
@@ -317,9 +422,9 @@ export function finaliseClaim(input: {
     for (const line of lines) {
       db.runSync(
         `INSERT INTO claim_lines
-          (id, claim_id, session_id, billed_hours, mode, lesson_fee, travel_fee, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [newId(), id, line.session_id, line.billed_hours, line.mode, line.lesson_fee, line.travel_fee, now]
+          (id, claim_id, session_id, billed_hours, mode, lesson_fee, travel_fee, created_at, rate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [newId(), id, line.session_id, line.billed_hours, line.mode, line.lesson_fee, line.travel_fee, now, line.rate]
       );
     }
 

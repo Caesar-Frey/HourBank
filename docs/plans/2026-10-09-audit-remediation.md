@@ -2,7 +2,7 @@
 
 Source: 5 parallel audits (screenshots, WIP, core UX, secondary UX, data layer). Baseline = WIP committed as 6 commits on `main` (55908e6..2a36e90), tsc + jest green (162 tests).
 
-Code root: `/Users/mag/Documents/HourBank/hourbank`. Stack: Expo SDK 54, RN 0.81, React 19, expo-router v6, local SQLite (expo-sqlite) — NOT Supabase/SDK 52 as CLAUDE.md claims. Design rules from CLAUDE.md still apply (Fraunces never bold; all numbers GeistMono; no inline hex outside colors/tailwind/balance.ts; ledger append-only; archive not delete).
+Code root: `hourbank/`. Stack: Expo SDK 54, RN 0.81, React 19, expo-router v6, local SQLite (expo-sqlite) — NOT Supabase/SDK 52 as CLAUDE.md claims. Design rules from CLAUDE.md still apply (Fraunces never bold; all numbers GeistMono; no inline hex outside colors/tailwind/balance.ts; ledger append-only; archive not delete).
 
 ## User decisions (2026-10-09)
 - Build: bug fixes + **Lesson lifecycle** + **Safety net** + **Parent comms**. Recurring lessons → FUTURE_TODOS.

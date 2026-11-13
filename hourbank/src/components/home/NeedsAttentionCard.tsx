@@ -10,6 +10,7 @@ const KIND_STYLE: Record<AttentionKind, { icon: React.ComponentProps<typeof Feat
   overdue: { icon: 'alert-circle', color: COLORS.oxblood, tag: 'OVERDUE' },
   owing: { icon: 'arrow-down-circle', color: COLORS.oxblood, tag: 'OWES' },
   low: { icon: 'battery', color: COLORS.crimson, tag: 'LOW' },
+  invoice: { icon: 'file-text', color: COLORS.oxblood, tag: 'UNPAID' },
 };
 
 /** Renders nothing when there is nothing to act on. */
@@ -44,7 +45,7 @@ export function NeedsAttentionCard({
       <Text
         style={{
           fontFamily: F.mono,
-          fontSize: 10,
+          fontSize: 12,
           color: COLORS.oxblood,
           textTransform: 'uppercase',
           letterSpacing: 0.5,
@@ -76,7 +77,7 @@ export function NeedsAttentionCard({
               <Text numberOfLines={1} style={{ fontFamily: F.serif, fontSize: 15, color: COLORS.ink }}>
                 {item.title}
               </Text>
-              <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 11, color: k.color, marginTop: 1 }}>
+              <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 12, color: k.color, marginTop: 1 }}>
                 {item.detail}
               </Text>
             </View>

@@ -10,7 +10,7 @@ import { COLORS } from '../../theme/colors';
 import { TopicChip } from '../TopicChip';
 import { formatHours, formatMinutes } from '../../utils/format';
 import { balanceColour, balanceStatus } from '../../utils/balance';
-import { LESSON_MAX_MINUTES, LESSON_MIN_MINUTES, LESSON_STEP_MINUTES, parseMinutesInput } from './lessonFormLogic';
+import { LESSON_LENGTH_PRESETS, LESSON_STEP_MINUTES, stepBilled } from './lessonFormLogic';
 import type { SubjectOption } from './lessonFormData';
 
 // ─── Subject ─────────────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ export function SubjectPicker({
             <Text
               style={{
                 fontFamily: F.mono,
-                fontSize: 11,
+                fontSize: 12,
                 color: active ? COLORS.paper60 : balanceColour(balanceStatus(o.balance)),
               }}
             >
@@ -90,97 +90,97 @@ export function SubjectPicker({
 
 // ─── Billed minutes ──────────────────────────────────────────────────────────
 
-/** −15m / value / +15m with ≥44pt targets; tap the value to type minutes. */
+/**
+ * Lesson length stepper: − / value / + moving by the tutor's step (15 or 30,
+ * Settings), with ≥44pt targets. No free typing (owner decision 2026-11-12).
+ * `presets` adds quick picks (30m · 1h · 1h 30m · 2h) for the record form.
+ */
 export function BilledMinutesField({
   value,
   onChange,
   caption,
+  step = LESSON_STEP_MINUTES,
+  presets = false,
+  label = 'Bill',
 }: {
   value: number;
   onChange: (minutes: number) => void;
   caption?: string;
+  step?: number;
+  presets?: boolean;
+  /** Verb for screen readers ("Bill 30 minutes more", "Charge …"). */
+  label?: string;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState('');
-
-  const step = (label: string, dir: 1 | -1, a11y: string) => {
-    const enabled = dir < 0 ? value > LESSON_MIN_MINUTES : value < LESSON_MAX_MINUTES;
+  const stepBtn = (dir: 1 | -1) => {
+    const next = stepBilled(value, dir, step);
+    const enabled = next !== value;
+    const a11y = `${label} ${step} minutes ${dir > 0 ? 'more' : 'less'}`;
     return (
       <TouchableOpacity
-        onPress={() => onChange(Math.min(LESSON_MAX_MINUTES, Math.max(LESSON_MIN_MINUTES, value + dir * LESSON_STEP_MINUTES)))}
+        onPress={() => onChange(next)}
         disabled={!enabled}
         accessibilityRole="button"
         accessibilityLabel={a11y}
         activeOpacity={0.7}
         style={{
-          minWidth: MIN_TOUCH + 8,
-          minHeight: MIN_TOUCH,
+          width: MIN_TOUCH,
+          height: MIN_TOUCH,
+          borderRadius: MIN_TOUCH / 2,
           borderWidth: 1,
-          borderColor: COLORS.paperEdge,
-          borderRadius: 10,
+          borderColor: COLORS.ink,
           alignItems: 'center',
           justifyContent: 'center',
           opacity: enabled ? 1 : 0.4,
         }}
       >
-        <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.ink }}>{label}</Text>
+        <Feather name={dir > 0 ? 'plus' : 'minus'} size={18} color={COLORS.ink} />
       </TouchableOpacity>
     );
   };
 
-  function onType(t: string) {
-    setText(t);
-    const n = parseMinutesInput(t);
-    if (n !== null) onChange(n);
-  }
-
   return (
     <View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        {step(`−${LESSON_STEP_MINUTES}m`, -1, `Bill ${LESSON_STEP_MINUTES} minutes less`)}
-        {editing ? (
-          <TextInput
-            autoFocus
-            value={text}
-            onChangeText={onType}
-            onSubmitEditing={() => setEditing(false)}
-            onBlur={() => setEditing(false)}
-            keyboardType="number-pad"
-            returnKeyType="done"
-            selectTextOnFocus
-            maxLength={3}
-            accessibilityLabel="Billed minutes"
-            style={{
-              fontFamily: F.monoMed,
-              fontSize: 18,
-              color: COLORS.ink,
-              minWidth: 88,
-              minHeight: MIN_TOUCH,
-              textAlign: 'center',
-              borderBottomWidth: 1,
-              borderBottomColor: COLORS.oxblood,
-            }}
-          />
-        ) : (
-          <TouchableOpacity
-            onPress={() => {
-              setText(String(value));
-              setEditing(true);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={`Billed ${formatMinutes(value)}. Tap to type minutes.`}
-            style={{ minWidth: 88, minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Text style={{ fontFamily: F.monoMed, fontSize: 20, color: COLORS.ink }}>{formatMinutes(value)}</Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint, letterSpacing: 0.5 }}>TAP TO TYPE</Text>
-          </TouchableOpacity>
-        )}
-        {step(`+${LESSON_STEP_MINUTES}m`, 1, `Bill ${LESSON_STEP_MINUTES} minutes more`)}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        {stepBtn(-1)}
+        <View
+          accessible
+          accessibilityLabel={`${formatMinutes(value)}`}
+          style={{ minWidth: 88, minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Text style={{ fontFamily: F.monoMed, fontSize: 20, color: COLORS.ink }}>{formatMinutes(value)}</Text>
+        </View>
+        {stepBtn(1)}
       </View>
-      {editing ? (
-        <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 6 }}>Type minutes, e.g. 75.</Text>
-      ) : caption ? (
-        <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginTop: 6 }}>{caption}</Text>
+      {presets ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+          {LESSON_LENGTH_PRESETS.map(m => {
+            const selected = m === value;
+            return (
+              <TouchableOpacity
+                key={m}
+                onPress={() => onChange(m)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                accessibilityLabel={`${formatMinutes(m)} lesson`}
+                activeOpacity={0.7}
+                style={{
+                  minHeight: MIN_TOUCH,
+                  paddingHorizontal: 14,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: selected ? COLORS.ink : COLORS.paperEdge,
+                  backgroundColor: selected ? COLORS.ink : COLORS.transparent,
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ fontFamily: F.mono, fontSize: 14, color: selected ? COLORS.paper : COLORS.ink }}>{formatMinutes(m)}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
+      {caption ? (
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginTop: 6 }}>{caption}</Text>
       ) : null}
     </View>
   );
@@ -223,7 +223,7 @@ export function TravelKmField({
         />
         <Text style={{ fontFamily: F.mono, fontSize: 14, color: COLORS.inkSoft }}>km</Text>
         {defaultKm != null ? (
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, marginLeft: 8, flexShrink: 1 }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, marginLeft: 8, flexShrink: 1 }}>
             {`student default ${defaultKm} km`}
           </Text>
         ) : null}

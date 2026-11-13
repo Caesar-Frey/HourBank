@@ -6,7 +6,7 @@ import { COLORS } from '../../theme/colors';
 
 export const SECTION_LABEL = {
   fontFamily: F.mono,
-  fontSize: 10,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase',
   letterSpacing: 0.5,
@@ -26,7 +26,7 @@ export const ROW_CONTAINER = {
 
 export const FIELD_LABEL = {
   fontFamily: F.mono,
-  fontSize: 10,
+  fontSize: 12,
   color: COLORS.inkFaint,
   textTransform: 'uppercase',
   letterSpacing: 0.3,
@@ -65,7 +65,9 @@ export function SettingsField({
   multiline = false,
   keyboardType,
   testID,
+  inputRef,
 }: {
+  inputRef?: React.Ref<TextInput>;
   label: string;
   value: string;
   onChangeText: (v: string) => void;
@@ -83,6 +85,7 @@ export function SettingsField({
     <View style={ROW_CONTAINER}>
       <Text style={FIELD_LABEL}>{label}</Text>
       <TextInput
+        ref={inputRef}
         testID={testID}
         accessibilityLabel={label}
         value={value}

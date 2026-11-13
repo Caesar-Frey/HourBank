@@ -1,8 +1,3 @@
-/** @deprecated Use `defaultBilledMinutes` (booked-length aware, 15-min rounding). */
-export function roundToBilledMinutes(seconds: number): number {
-  return Math.round(seconds / 60 / 30) * 30;
-}
-
 /** Actual vs booked tolerance (minutes) within which the booked length is billed. */
 export const BILLING_TOLERANCE_MINUTES = 15;
 
@@ -31,4 +26,41 @@ export function shouldWarnBilledDeviation(
   changedByTutor: boolean,
 ): boolean {
   return changedByTutor && Math.abs(billedMinutes - actualMinutes) > BILLING_TOLERANCE_MINUTES;
+}
+
+/** Longest an unbooked timer may run before it is treated as forgotten. */
+export const RUNAWAY_UNBOOKED_MINUTES = 4 * 60;
+
+/**
+ * A timer is *runaway* (almost certainly forgotten) when it has run longer than
+ * max(booked × 2, booked + 60 min), or longer than 4h when nothing was booked.
+ */
+export function isRunawayTimer(elapsedMinutes: number, bookedMinutes: number | null | undefined): boolean {
+  if (!Number.isFinite(elapsedMinutes)) return false;
+  if (bookedMinutes && bookedMinutes > 0) {
+    return elapsedMinutes > Math.max(bookedMinutes * 2, bookedMinutes + 60);
+  }
+  return elapsedMinutes > RUNAWAY_UNBOOKED_MINUTES;
+}
+
+/** Suggested end of a runaway lesson: start + booked length (start + 1h when unbooked). */
+export function runawayDefaultEnd(startedAt: string, bookedMinutes: number | null | undefined): Date {
+  const minutes = bookedMinutes && bookedMinutes > 0 ? bookedMinutes : 60;
+  return new Date(new Date(startedAt).getTime() + minutes * 60_000);
+}
+
+/**
+ * Taught minutes when the tutor sets the end time themselves: chosen end −
+ * start − paused time (never more pause than the span itself).
+ */
+export function taughtMinutesUntil(startedAt: string, endedAt: Date, pausedSeconds: number): number {
+  const spanSec = Math.max(0, Math.floor((endedAt.getTime() - new Date(startedAt).getTime()) / 1000));
+  const paused = Math.min(Math.max(0, pausedSeconds), spanSec);
+  return (spanSec - paused) / 60;
+}
+
+/** Snap minutes to the lesson-length grid (nearest step, minimum one step). */
+export function snapToStep(minutes: number, step: number): number {
+  const unit = step > 0 ? step : 30;
+  return Math.max(unit, Math.round(Math.max(0, minutes) / unit) * unit);
 }

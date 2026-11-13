@@ -83,7 +83,7 @@ export function PaymentReferenceField({ value, onChangeText, onCommit, sampleStu
         {`Preview: ${preview.reference}`}
       </Text>
       {preview.tooLong ? (
-        <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.amber, marginTop: 4 }}>
+        <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.amberText, marginTop: 4 }}>
           {'Most banks allow '}
           <Text style={{ fontFamily: F.mono }}>{PAYMENT_REFERENCE_MAX}</Text>
           {' characters — this is '}

@@ -60,10 +60,41 @@ describe('buildClaimReportHtml', () => {
       lines: [{ line, studentName: 'Amara', lessonAt: '2026-09-15T07:00:00.000Z' }],
     });
     expect(html).toContain('1 Sep – 30 Sep 2026');
-    expect(html).not.toContain('1 Oct');
-    expect(html).toContain('R\u00A0650.00');
-    expect(html).toContain('R\u00A0600.00/h');
+    expect(html).not.toContain('– 1 Oct');
+    expect(html).toContain('R650');
+    expect(html).toContain('R600/h');
     expect(html).not.toContain('VOID');
+  });
+
+  it('is auditable: number, created date, lesson count, hours and the rate per line (B5)', () => {
+    const html = buildClaimReportHtml({
+      claim: claim({ id: 'abcd1234-ffff' }),
+      tutorName: 'Mag',
+      lines: [
+        { line: { ...line, rate: 600 }, studentName: 'Amara', lessonAt: '2026-09-15T07:00:00.000Z' },
+        { line: { ...line, id: 'cl2', session_id: 'l2', billed_hours: 0.5, lesson_fee: 300, rate: 600 }, studentName: 'Bo', lessonAt: '2026-09-16T07:00:00.000Z' },
+      ],
+    });
+    expect(html).toContain('#ABCD1234');
+    expect(html).toContain('Thu 1 Oct 2026');
+    expect(html).toContain('Lessons: 2');
+    expect(html).toContain('1h 30m');
+    expect(html).toContain('Payout rate');
+    expect(html).not.toMatch(/rgba|gray|crimson|black/);
+  });
+
+  it('hides the header rate when lines differ, and prints — for an unknown rate', () => {
+    const html = buildClaimReportHtml({
+      claim: claim(),
+      tutorName: 'Mag',
+      lines: [
+        { line: { ...line, rate: 600 }, studentName: 'Amara', lessonAt: '2026-09-15T07:00:00.000Z' },
+        { line: { ...line, id: 'cl2', billed_hours: 0, lesson_fee: 0, rate: null }, studentName: 'Bo', lessonAt: null },
+      ],
+    });
+    expect(html).not.toContain('Payout rate');
+    expect(html).toContain('R600/h');
+    expect(html).toContain('>—<');
   });
 
   it('watermarks voided claims with VOID and the (escaped) reason', () => {

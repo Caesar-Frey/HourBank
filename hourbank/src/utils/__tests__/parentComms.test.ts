@@ -202,10 +202,13 @@ describe('message wording for parent vs student recipient', () => {
     expect(owing).toContain('your lesson account is owing 1h.');
   });
 
-  it('reminder uses the supplied payment reference only with payment details', () => {
+  it('reminder always carries the payment reference, with or without payment details (A5)', () => {
     const base = { studentName: 'Amahle Dlamini', balanceHours: 0.5, paymentReference: 'DLAMINIA' };
-    expect(buildLowBalanceReminderText({ ...base, paymentDetails: 'FNB 1' })).toContain('Reference: DLAMINIA');
-    expect(buildLowBalanceReminderText(base)).not.toContain('Reference');
+    expect(buildLowBalanceReminderText({ ...base, paymentDetails: 'FNB 1' })).toContain('Payment details:\nFNB 1\nReference: DLAMINIA');
+    const bare = buildLowBalanceReminderText(base);
+    expect(bare).toContain('Reference: DLAMINIA');
+    expect(bare).not.toContain('Payment details');
+    expect(bare.endsWith('Thank you!')).toBe(true);
   });
 
   it('parentName still works as the greeting name (back-compat)', () => {

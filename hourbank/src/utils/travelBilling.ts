@@ -95,21 +95,6 @@ export function topUpTravelToggleLabel(amount: number, lessonCount: number): str
   return `Travel owed ${formatRand(amount)} (${lessonCount} ${pluralize(lessonCount, 'lesson')})`;
 }
 
-/** Success toast after a top-up. */
-export function topUpSuccessMessage(args: {
-  hours: number;
-  subjectName?: string | null;
-  balanceLabel: string;
-  travelSettled?: number;
-  travelFailed?: boolean;
-}): string {
-  const subj = args.subjectName ? ` ${args.subjectName}` : '';
-  let msg = `Added ${formatHours(args.hours)}${subj} · balance ${args.balanceLabel}`;
-  if (args.travelSettled && args.travelSettled > 0) msg += ` · travel ${formatRand(args.travelSettled)} settled`;
-  if (args.travelFailed) msg += " · travel payment wasn't recorded — record it on the travel screen";
-  return msg;
-}
-
 // ─── Per-subject money table ─────────────────────────────────────────────────
 
 export type SubjectTotalsRow = { subject: string; students: number; sessions: number; hours: number };

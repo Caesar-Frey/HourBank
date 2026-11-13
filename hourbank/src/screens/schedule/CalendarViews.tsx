@@ -137,7 +137,7 @@ export function CalendarEmpty({
             minHeight: MIN_TOUCH,
             paddingHorizontal: 16,
             borderRadius: 10,
-            backgroundColor: COLORS.ink,
+            backgroundColor: COLORS.oxblood,
             justifyContent: 'center',
             flexDirection: 'row',
             alignItems: 'center',
@@ -167,7 +167,7 @@ export function DayView({ day, events, onEventPress, empty }: DayViewProps) {
   return (
     <ScrollView
       style={{ flex: 1 }}
-      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: FAB_CLEARANCE }}
+      contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: FAB_CLEARANCE }}
       showsVerticalScrollIndicator={false}
     >
       {items.length === 0
@@ -215,7 +215,7 @@ export function WeekView({ cursor, events, onDayPress, onEventPress, empty }: We
               accessibilityLabel={`Open ${formatDayShort(day)}`}
               style={{ width: 56, alignItems: 'center', paddingVertical: 12, minHeight: MIN_TOUCH }}
             >
-              <Text style={{ fontFamily: F.sansMed, fontSize: 10, color: COLORS.inkFaint, textTransform: 'uppercase' }}>
+              <Text style={{ fontFamily: F.sansMed, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase' }}>
                 {DAY_SHORT[i]}
               </Text>
               <Text style={{ fontFamily: F.mono, fontSize: 18, color: isToday ? COLORS.oxblood : COLORS.ink, marginTop: 2 }}>
@@ -262,7 +262,7 @@ export function MonthView({ cursor, events, onSelectDay, onOpenDay, onEventPress
         <View style={{ flexDirection: 'row', marginBottom: 4 }}>
           {DAY_ABBREVS.map(abbr => (
             <View key={abbr} style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
-              <Text style={{ fontFamily: F.sansMed, fontSize: 11, color: COLORS.inkFaint }}>{abbr}</Text>
+              <Text style={{ fontFamily: F.sansMed, fontSize: 12, color: COLORS.inkFaint }}>{abbr}</Text>
             </View>
           ))}
         </View>
@@ -336,7 +336,7 @@ export function MonthView({ cursor, events, onSelectDay, onOpenDay, onEventPress
                           numberOfLines={1}
                           style={{
                             fontFamily: e.kind === 'top_up' ? F.monoMed : F.sans,
-                            fontSize: 9,
+                            fontSize: 10, // month-grid chips: the one exception to the 12pt minimum (cells are ~48pt wide)
                             color: COLORS.ink,
                             textDecorationLine: s.strike ? 'line-through' : 'none',
                           }}
@@ -347,7 +347,7 @@ export function MonthView({ cursor, events, onSelectDay, onOpenDay, onEventPress
                     );
                   })}
                   {extra > 0 ? (
-                    <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkSoft, paddingLeft: 2 }}>+{extra}</Text>
+                    <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkSoft, paddingLeft: 2 }}>+{extra}</Text>
                   ) : null}
                 </TouchableOpacity>
               );
@@ -357,9 +357,9 @@ export function MonthView({ cursor, events, onSelectDay, onOpenDay, onEventPress
       </View>
 
       {/* Selected day list */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ paddingHorizontal: 24, paddingTop: 16 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             {formatDayShort(cursor)}
           </Text>
           <TouchableOpacity

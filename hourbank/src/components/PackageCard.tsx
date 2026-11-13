@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { F } from '../theme/fonts';
 import { COLORS } from '../theme/colors';
-import { formatRand } from '../utils/format';
+import { formatRand, formatHours } from '../utils/format';
 
 interface PackageCardProps {
   /** Authoritative package size — rendered as the big mono number. */
@@ -34,7 +34,7 @@ export function PackageCard({
   const border = selected ? SELECTED_BORDER : UNSELECTED_BORDER;
   const a11yLabel = isCustom
     ? 'Other amount, custom'
-    : `${hours} hours${price !== null ? `, ${formatRand(price)}` : ''}${badge ? `, ${badge}` : ''}`;
+    : `${formatHours(hours)}${price !== null ? `, ${formatRand(price)}` : ''}${badge ? `, ${badge}` : ''}`;
 
   return (
     <TouchableOpacity
@@ -58,7 +58,7 @@ export function PackageCard({
           <View style={{ backgroundColor: COLORS.oxblood, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, flexShrink: 1, marginRight: 6 }}>
             <Text
               numberOfLines={1}
-              style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.paper, textTransform: 'uppercase', letterSpacing: 0.5 }}
+              style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper, textTransform: 'uppercase', letterSpacing: 0.5 }}
             >
               {badge}
             </Text>
@@ -113,17 +113,7 @@ export function PackageCard({
         <>
           <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'baseline' }}>
             <Text style={{ fontFamily: F.mono, fontSize: 28, color: COLORS.ink }}>
-              {hours}
-            </Text>
-            <Text
-              style={{
-                fontFamily: F.serifItalic,
-                fontSize: 14,
-                color: COLORS.inkSoft,
-                marginLeft: 2,
-              }}
-            >
-              hrs
+              {formatHours(hours)}
             </Text>
           </View>
 
@@ -144,7 +134,7 @@ export function PackageCard({
             <Text
               style={{
                 fontFamily: F.mono,
-                fontSize: 11,
+                fontSize: 12,
                 color: COLORS.moss,
                 marginTop: 2,
               }}

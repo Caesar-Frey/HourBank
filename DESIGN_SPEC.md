@@ -1,6 +1,6 @@
 # HourBank — Design & Feature Reference
 
-This file captures all UI/UX decisions, screen-by-screen feature requirements, and design source decisions. It supersedes and refines the original `hourbank_claude_code_prompt.md` where the two conflict. Do not repeat yourself to future Claude instances — read this file instead.
+This file captures all UI/UX decisions, screen-by-screen feature requirements, and design source decisions. It supersedes and refines the original `docs/history/hourbank_claude_code_prompt.md` where the two conflict. Do not repeat yourself to future Claude instances — read this file instead.
 
 ---
 
@@ -9,7 +9,7 @@ This file captures all UI/UX decisions, screen-by-screen feature requirements, a
 **Primary reference: the mockup screenshots** (the still-frame designs with the warm cream/paper aesthetic).
 The prototype screens are a secondary reference — only specific elements are adopted from them (called out below per screen).
 
-Design system (colours, fonts, spacing) remains as specified in `hourbank_claude_code_prompt.md` and `CLAUDE.md`. No changes there.
+Design system (colours, fonts, spacing) remains as specified in `docs/history/hourbank_claude_code_prompt.md` and `CLAUDE.md`. No changes there.
 
 ---
 

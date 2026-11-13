@@ -8,7 +8,8 @@ import { parentTravelCharge } from '../../utils/travel';
 
 export type LessonMode = Session['mode'];
 
-export const LESSON_STEP_MINUTES = 15;
+/** Default lesson-length step; the tutor may switch to 15 in Settings. */
+export const LESSON_STEP_MINUTES = 30;
 export const LESSON_MIN_MINUTES = 15;
 export const LESSON_MAX_MINUTES = 480;
 export const LESSON_DEFAULT_MINUTES = 60;
@@ -98,16 +99,20 @@ export function parseKmInput(text: string): { value: number | null; error: strin
   return { value: Math.round(n * 10) / 10, error: null };
 }
 
-/** Typed minutes → clamped value, or null when nothing usable was typed. */
-export function parseMinutesInput(text: string): number | null {
-  const n = parseInt(text.replace(/\D/g, ''), 10);
-  if (!Number.isFinite(n)) return null;
-  return Math.min(LESSON_MAX_MINUTES, Math.max(LESSON_MIN_MINUTES, n));
-}
+/** Quick picks on the record form (owner decision 2026-11-12). */
+export const LESSON_LENGTH_PRESETS = [30, 60, 90, 120] as const;
 
-export function stepBilled(current: number, dir: 1 | -1): number {
-  const next = current + dir * LESSON_STEP_MINUTES;
-  return Math.min(LESSON_MAX_MINUTES, Math.max(LESSON_MIN_MINUTES, next));
+/**
+ * One stepper tap on a lesson length. Moves to the next grid line of `step`
+ * (15 or 30), so an off-grid stored length (e.g. 50m) snaps only when the tutor
+ * changes it: + → 60, − → 30 on a 30 grid. Never below one step.
+ */
+export function stepBilled(current: number, dir: 1 | -1, step: number = LESSON_STEP_MINUTES): number {
+  const unit = step > 0 ? step : LESSON_STEP_MINUTES;
+  const next = dir > 0
+    ? Math.floor(current / unit + EPS) * unit + unit
+    : Math.ceil(current / unit - EPS) * unit - unit;
+  return Math.min(LESSON_MAX_MINUTES, Math.max(unit, next));
 }
 
 // ─── Previews ────────────────────────────────────────────────────────────────
@@ -221,6 +226,42 @@ export function claimWarning(inClaim: boolean, claimLabel?: string | null): stri
   return `This lesson is in ${which}. You can still edit it, but the submitted claim won’t change.`;
 }
 
+/**
+ * Edit confirm for a lesson inside a finalised claim (B4): the claim stays
+ * frozen, so say what that means in rand. null when nothing priced changed.
+ */
+export function claimEditEffect(a: {
+  claimLabel: string | null;
+  claimTotal: number;
+  claimedHours: number;
+  claimedMode: 'in_person' | 'online';
+  claimedTravel: number;
+  rate: number | null;
+  newBilledMinutes: number;
+  newMode: 'in_person' | 'online';
+  formatRand: (n: number) => string;
+}): { title: string; message: string } | null {
+  const hoursChanged = Math.round(a.claimedHours * 60) !== Math.round(a.newBilledMinutes);
+  const modeChanged = a.claimedMode !== a.newMode;
+  if (!hoursChanged && !modeChanged) return null;
+  const which = a.claimLabel ? `the ${a.claimLabel} claim` : 'a claim';
+  const stays = `The claim stays at ${a.formatRand(a.claimTotal)}`;
+  let diff = a.rate != null ? Math.round((a.newBilledMinutes / 60 - a.claimedHours) * a.rate * 100) / 100 : null;
+  if (diff != null && modeChanged && a.newMode === 'online') diff = Math.round((diff - a.claimedTravel) * 100) / 100;
+  const travelUnknown = modeChanged && a.newMode === 'in_person';
+  let tail: string;
+  if (diff == null || (diff === 0 && travelUnknown)) {
+    tail = 'the change is only paid if you void and re-claim.';
+  } else if (diff > 0) {
+    tail = `the extra ${a.formatRand(diff)}${travelUnknown ? ' (plus travel)' : ''} is only paid if you void and re-claim.`;
+  } else if (diff < 0) {
+    tail = `it pays ${a.formatRand(-diff)} more than this lesson is now worth until you void and re-claim.`;
+  } else {
+    tail = 'nothing changes in rand.';
+  }
+  return { title: 'Already claimed', message: `This lesson is in ${which}. ${stays}; ${tail}` };
+}
+
 // ─── Timer review (end-session) ──────────────────────────────────────────────
 
 export type TimerReviewOverrides = { subjectId?: string; travelKm?: number | null };
@@ -237,19 +278,6 @@ export function timerReviewOverrides(a: {
   if (a.subjectId && a.subjectId !== a.bookedSubjectId) o.subjectId = a.subjectId;
   if (a.mode === 'in_person' && a.km !== a.initialKm) o.travelKm = a.km;
   return o;
-}
-
-/**
- * recordLesson for a billed, started lesson with review changes (it re-derives
- * the end from the start); otherwise endSession — which takes the same
- * overrides, so a zero-billed lesson never drops a subject/km change.
- */
-export function timerReviewSaveRoute(a: {
-  overrides: TimerReviewOverrides;
-  billedMinutes: number;
-  hasStarted: boolean;
-}): 'record' | 'end' {
-  return Object.keys(a.overrides).length > 0 && a.billedMinutes > 0 && a.hasStarted ? 'record' : 'end';
 }
 
 /**

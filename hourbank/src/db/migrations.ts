@@ -83,11 +83,7 @@ export function runMigrations(migrations: Migration[]): void {
   }
 }
 
-export const MIGRATION_002: Migration = {
-  version: '002_post_grilling',
-  // Rebuilds `sessions`; FKs must be off or DROP TABLE nulls ledger_entries.related_session_id.
-  foreignKeysOff: true,
-  sql: `
+const MIGRATION_002_SQL = `
     CREATE TABLE IF NOT EXISTS sessions_v2 (
       id TEXT PRIMARY KEY,
       student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
@@ -109,11 +105,7 @@ export const MIGRATION_002: Migration = {
       tutor_id TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-    INSERT INTO sessions_v2 (id, student_id, mode, scheduled_for, estimated_duration_minutes, started_at, ended_at, paused_seconds, duration_minutes, topics, session_notes, status, verified_at, created_at)
-      SELECT id, student_id, mode, scheduled_for, estimated_duration_minutes, started_at, ended_at, paused_seconds, duration_minutes, topics, session_notes,
-        CASE status WHEN 'pending_verification' THEN 'completed' WHEN 'verified' THEN 'completed' WHEN 'disputed' THEN 'cancelled' ELSE status END,
-        verified_at, created_at
-      FROM sessions;
+    __COPY_SESSIONS__;
     DROP TABLE sessions;
     ALTER TABLE sessions_v2 RENAME TO sessions;
     CREATE INDEX IF NOT EXISTS idx_sessions_student_status ON sessions(student_id, status);
@@ -169,7 +161,41 @@ export const MIGRATION_002: Migration = {
       shared_at TEXT,
       created_at TEXT NOT NULL
     )
-  `,
+`;
+
+/** Columns a pre-002 `sessions` table may already carry; copied when present (B8). */
+const MIGRATION_002_OPTIONAL_COLUMNS = ['billed_minutes', 'paused_at', 'cancel_reason'] as const;
+
+export const MIGRATION_002: Migration = {
+  version: '002_post_grilling',
+  // Rebuilds `sessions`; FKs must be off or DROP TABLE nulls ledger_entries.related_session_id.
+  foreignKeysOff: true,
+  run: (db) => {
+    const statements = MIGRATION_002_SQL.split(';').map(st => st.trim()).filter(st => st.length > 0);
+    for (const stmt of statements) {
+      if (stmt !== '__COPY_SESSIONS__') {
+        db.runSync(stmt);
+        continue;
+      }
+      // Copy every column the old table has, so a restored pre-002 backup keeps
+      // billed lengths, pauses, cancel reasons and lesson types.
+      const extra: string[] = MIGRATION_002_OPTIONAL_COLUMNS.filter(c => hasColumn(db, 'sessions', c));
+      if (hasColumn(db, 'sessions', 'session_type') && !hasColumn(db, 'sessions_v2', 'session_type')) {
+        db.runSync(
+          `ALTER TABLE sessions_v2 ADD COLUMN session_type TEXT NOT NULL DEFAULT 'general' CHECK (session_type IN ('general','review','test_prep','exam_prep'))`
+        );
+        extra.push('session_type');
+      }
+      const cols = ['id', 'student_id', 'mode', 'scheduled_for', 'estimated_duration_minutes', 'started_at', 'ended_at',
+        'paused_seconds', 'duration_minutes', 'topics', 'session_notes', 'status', 'verified_at', 'created_at', ...extra];
+      const select = cols.map(c => (c === 'status'
+        ? `CASE status WHEN 'pending_verification' THEN 'completed' WHEN 'verified' THEN 'completed' WHEN 'disputed' THEN 'cancelled' ELSE status END`
+        : c === 'session_type'
+          ? `CASE WHEN session_type IN ('general','review','test_prep','exam_prep') THEN session_type ELSE 'general' END`
+          : c));
+      db.runSync(`INSERT INTO sessions_v2 (${cols.join(', ')}) SELECT ${select.join(', ')} FROM sessions`);
+    }
+  },
 };
 
 export const MIGRATION_003_SESSION_TYPE: Migration = {
@@ -680,6 +706,165 @@ export const MIGRATION_010_TRAVEL_RATE_SNAPSHOT: Migration = {
   },
 };
 
+/**
+ * 011 — polish work package A (2026-11-12). Additive and idempotent:
+ * - tutor_profile.rates_confirmed_at: NULL until the tutor confirms their rates.
+ *   Existing tutors (a name, any claim or any top-up) are backfilled to now so
+ *   they are not nagged about rates they already use.
+ * - billing_round_minutes: lesson lengths move in 15 or 30 minute steps only;
+ *   5 and 10 become 15 (15 and 30 stay as they are).
+ * - sessions.no_show_travel: a charged no-show carries travel only when the
+ *   tutor switches it on (default off). Existing no-shows default to off.
+ * - sessions.removed_at: a recorded lesson struck from history (its hours are
+ *   returned by an `adjustment` ledger row; the deduction itself is never touched).
+ */
+export const MIGRATION_011_POLISH_A: Migration = {
+  version: '011_polish_a',
+  run: (db) => {
+    const now = new Date().toISOString();
+    if (!hasColumn(db, 'tutor_profile', 'rates_confirmed_at')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN rates_confirmed_at TEXT`);
+      const inUse = [
+        `TRIM(COALESCE(full_name, '')) != ''`,
+        hasTable(db, 'claims') ? `EXISTS (SELECT 1 FROM claims)` : null,
+        `EXISTS (SELECT 1 FROM credit_packages)`,
+      ].filter(Boolean).join(' OR ');
+      db.runSync(`UPDATE tutor_profile SET rates_confirmed_at = ? WHERE rates_confirmed_at IS NULL AND (${inUse})`, [now]);
+    }
+    if (hasColumn(db, 'tutor_profile', 'billing_round_minutes')) {
+      db.runSync(`UPDATE tutor_profile SET billing_round_minutes = 15 WHERE billing_round_minutes NOT IN (15, 30)`);
+    }
+    if (!hasColumn(db, 'sessions', 'no_show_travel')) {
+      db.runSync(`ALTER TABLE sessions ADD COLUMN no_show_travel INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!hasColumn(db, 'sessions', 'removed_at')) {
+      db.runSync(`ALTER TABLE sessions ADD COLUMN removed_at TEXT`);
+    }
+  },
+};
+
+/**
+ * Migration 012 — polish package B.
+ * - claim_lines.rate: the payout rate each frozen line was priced at, so the
+ *   claim report is auditable (B5). Backfilled from lesson_fee ÷ billed_hours,
+ *   which is exactly how the line was priced; NULL when hours are zero.
+ */
+export const MIGRATION_012_POLISH_B: Migration = {
+  version: '012_polish_b',
+  run: (db) => {
+    if (hasTable(db, 'claim_lines') && !hasColumn(db, 'claim_lines', 'rate')) {
+      db.runSync(`ALTER TABLE claim_lines ADD COLUMN rate REAL`);
+      db.runSync(
+        `UPDATE claim_lines SET rate = ROUND(lesson_fee / billed_hours, 2) WHERE rate IS NULL AND billed_hours > 0`
+      );
+    }
+  },
+};
+
+/**
+ * Migration 013 — polish package C.
+ * - students.last_reminded_at: shown on the student page ("Last reminded Tue 3 Nov").
+ */
+export const MIGRATION_013_POLISH_C: Migration = {
+  version: '013_polish_c',
+  run: (db) => {
+    if (!hasColumn(db, 'students', 'last_reminded_at')) {
+      db.runSync(`ALTER TABLE students ADD COLUMN last_reminded_at TEXT`);
+    }
+  },
+};
+
+/**
+ * Migration 014 — charge an item to credit (F1).
+ * An item charge is an `adjustment` ledger row (negative hours, reason = item
+ * name) with `item_name` set, so it reuses the existing type CHECK and triggers
+ * without rebuilding the ledger table. Removing a charge appends a reversing
+ * `adjustment` whose `related_entry_id` points at the charge.
+ * - ledger_entries.item_name / item_price_rand / related_entry_id
+ * - tutor_profile.sale_items: JSON list of saved items (empty by default)
+ */
+export const MIGRATION_014_ITEMS: Migration = {
+  version: '014_items',
+  run: (db) => {
+    if (!hasColumn(db, 'ledger_entries', 'item_name')) {
+      db.runSync(`ALTER TABLE ledger_entries ADD COLUMN item_name TEXT`);
+    }
+    if (!hasColumn(db, 'ledger_entries', 'item_price_rand')) {
+      db.runSync(`ALTER TABLE ledger_entries ADD COLUMN item_price_rand REAL`);
+    }
+    if (!hasColumn(db, 'ledger_entries', 'related_entry_id')) {
+      db.runSync(`ALTER TABLE ledger_entries ADD COLUMN related_entry_id TEXT`);
+    }
+    db.runSync(`CREATE INDEX IF NOT EXISTS idx_ledger_related_entry ON ledger_entries(related_entry_id)`);
+    if (!hasColumn(db, 'tutor_profile', 'sale_items')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN sale_items TEXT NOT NULL DEFAULT '[]'`);
+    }
+  },
+};
+
+/** Business and invoice settings on tutor_profile (migration 015). All optional text. */
+export const INVOICE_PROFILE_TEXT_COLUMNS = [
+  'business_name', 'business_reg_no', 'business_phone', 'business_email', 'business_address',
+  'logo_data_uri', 'bank_account_holder', 'bank_name', 'bank_account_no', 'bank_branch_code', 'bank_swift',
+] as const;
+
+/**
+ * Migration 015 — invoices (F2).
+ * - invoices / invoice_lines: an invoice asks for payment before a top-up.
+ *   Every printed business, bank, parent and student value is snapshotted on
+ *   the invoice, so re-sharing never changes it. Numbers are unique and never
+ *   reused; cancelling is a status change.
+ * - tutor_profile: business and bank details for documents, invoice numbering
+ *   and due days. The logo is stored as a data URI in the database so it is
+ *   in every backup and needs no file copy.
+ */
+export const MIGRATION_015_INVOICES: Migration = {
+  version: '015_invoices',
+  run: (db) => {
+    db.runSync(`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id TEXT PRIMARY KEY,
+        number INTEGER NOT NULL UNIQUE,
+        student_id TEXT NOT NULL REFERENCES students(id) ON DELETE RESTRICT,
+        subject_id TEXT,
+        issued_at TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'unpaid' CHECK (status IN ('unpaid','paid','cancelled')),
+        status_changed_at TEXT,
+        package_id TEXT REFERENCES credit_packages(id) ON DELETE SET NULL,
+        hours REAL NOT NULL DEFAULT 0,
+        total_rand REAL NOT NULL,
+        travel_rand REAL NOT NULL DEFAULT 0,
+        snapshot TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    db.runSync(`CREATE INDEX IF NOT EXISTS idx_invoices_student ON invoices(student_id, issued_at DESC)`);
+    db.runSync(`
+      CREATE TABLE IF NOT EXISTS invoice_lines (
+        id TEXT PRIMARY KEY,
+        invoice_id TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        item TEXT NOT NULL,
+        description TEXT NOT NULL,
+        qty_hours REAL,
+        rate_rand REAL,
+        amount_rand REAL NOT NULL
+      )
+    `);
+    db.runSync(`CREATE INDEX IF NOT EXISTS idx_invoice_lines_invoice ON invoice_lines(invoice_id, sort_order)`);
+    for (const col of INVOICE_PROFILE_TEXT_COLUMNS) {
+      if (!hasColumn(db, 'tutor_profile', col)) db.runSync(`ALTER TABLE tutor_profile ADD COLUMN ${col} TEXT`);
+    }
+    if (!hasColumn(db, 'tutor_profile', 'invoice_next_number')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN invoice_next_number INTEGER NOT NULL DEFAULT 1`);
+    }
+    if (!hasColumn(db, 'tutor_profile', 'invoice_due_days')) {
+      db.runSync(`ALTER TABLE tutor_profile ADD COLUMN invoice_due_days INTEGER NOT NULL DEFAULT 7`);
+    }
+  },
+};
+
 /** Ordered migration chain run at app boot (app/_layout.tsx) and by test DBs. */
 export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_002,
@@ -691,4 +876,9 @@ export const ALL_MIGRATIONS: Migration[] = [
   MIGRATION_008_CONTACTS_REFERENCE,
   MIGRATION_009_SUBJECTS_TRAVEL,
   MIGRATION_010_TRAVEL_RATE_SNAPSHOT,
+  MIGRATION_011_POLISH_A,
+  MIGRATION_012_POLISH_B,
+  MIGRATION_013_POLISH_C,
+  MIGRATION_014_ITEMS,
+  MIGRATION_015_INVOICES,
 ];

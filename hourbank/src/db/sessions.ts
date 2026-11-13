@@ -6,6 +6,8 @@ import { newId } from './uuid';
 import { effectiveSubjectIdSql } from './migrations';
 import { resolveSubjectIdInTx, getSubjectBalance, getPrimarySubjectId } from './subjects';
 import { parentTravelCharge } from '../utils/travel';
+import { normaliseHours } from '../utils/balance';
+import { isRunawayTimer } from '../utils/duration';
 
 // ── Typed errors ─────────────────────────────────────────────────────────────
 
@@ -69,6 +71,20 @@ export function saveLiveTopics(sessionId: string, topics: string[]): boolean {
   const res = db.runSync(
     `UPDATE sessions SET topics = ? WHERE id = ? AND status IN ('active', 'paused')`,
     [JSON.stringify(topics), sessionId]
+  );
+  return res.changes > 0;
+}
+
+/**
+ * Persist the live timer's in-person / online toggle so ending the lesson
+ * prices travel from what the tutor chose (A1). Only an active or paused
+ * lesson is touched; returns false otherwise.
+ */
+export function setInFlightMode(sessionId: string, mode: Session['mode']): boolean {
+  if (mode !== 'in_person' && mode !== 'online') throw new SessionError('INVALID_INPUT', 'Unknown lesson mode');
+  const res = getDb().runSync(
+    `UPDATE sessions SET mode = ? WHERE id = ? AND status IN ('active', 'paused')`,
+    [mode, sessionId]
   );
   return res.changes > 0;
 }
@@ -491,6 +507,8 @@ export function endSession(data: {
   subjectId?: string | null;
   /** Review override; undefined = booked km → student default. Ignored for online. */
   travelKm?: number | null;
+  /** Review override; undefined = the lesson's stored mode (kept in sync by setInFlightMode). */
+  mode?: Session['mode'];
 }): { session: Session; entry: LedgerEntry } {
   const db = getDb();
   let session: Session | null = null;
@@ -511,13 +529,16 @@ export function endSession(data: {
 
     const topicsJson = JSON.stringify(data.topics);
     const subjectId = resolveSubjectIdInTx(existing.student_id, data.subjectId ?? existing.subject_id);
-    const travel = lessonTravelInTx(existing.student_id, existing.mode, data.travelKm, existing.travel_km);
+    const mode = data.mode ?? existing.mode;
+    const travel = lessonTravelInTx(existing.student_id, mode, data.travelKm, existing.travel_km);
     const result = db.runSync(
       `UPDATE sessions SET ended_at = ?, duration_minutes = ?, billed_minutes = ?, paused_seconds = ?, paused_at = NULL, topics = ?, session_notes = ?, status = 'completed',
-         subject_id = ?, travel_km = ?, parent_travel_fee = ?
+         mode = ?, subject_id = ?, travel_km = ?, parent_travel_fee = ?,
+         parent_travel_mode_snapshot = ?, parent_travel_flat_snapshot = ?, parent_travel_per_km_snapshot = ?
        WHERE id = ? AND status IN ('active', 'paused')`,
       [data.endedAt, data.durationMinutes, data.billedMinutes, pausedSeconds, topicsJson, data.sessionNotes ?? null,
-        subjectId, travel.travelKm, travel.parentTravelFee, data.sessionId]
+        mode, subjectId, travel.travelKm, travel.parentTravelFee,
+        travel.terms.mode, travel.terms.flat, travel.terms.perKm, data.sessionId]
     );
     if (result.changes === 0) throw new SessionError('INVALID_STATE', `Failed to end session ${data.sessionId} — status may have changed`);
 
@@ -703,6 +724,8 @@ export type EditLessonPatch = {
   travelKm?: number | null;
   mode?: Session['mode'];
   sessionType?: Session['session_type'];
+  /** Charged no-show only: switch "Include travel" on or off. */
+  noShowTravel?: boolean;
   now?: Date;
 };
 
@@ -780,8 +803,14 @@ export function editLesson(sessionId: string, patch: EditLessonPatch): { session
           patch.notes !== undefined ? 1 : 0, patch.notes ?? null, now.toISOString(), sessionId]
       );
       updateDeductionInTx(existing.student_id, sessionId, billed, subjectId, now);
+      if (patch.noShowTravel !== undefined && patch.noShowTravel !== (existing.no_show_travel === 1)) {
+        setNoShowTravelInTx(existing, patch.noShowTravel);
+      }
       session = mustGet(sessionId);
       return;
+    }
+    if (patch.noShowTravel !== undefined) {
+      throw new SessionError('INVALID_INPUT', 'Include travel applies to no-shows only');
     }
 
     let startedAt = existing.started_at;
@@ -791,10 +820,15 @@ export function editLesson(sessionId: string, patch: EditLessonPatch): { session
       if (d.getTime() > now.getTime() + 60_000) throw new SessionError('INVALID_INPUT', 'A past lesson cannot start in the future');
       startedAt = d.toISOString();
     }
-    const minutes = patch.minutes ?? existing.duration_minutes ?? existing.billed_minutes ?? 0;
-    const billed = patch.billedMinutes ?? existing.billed_minutes ?? existing.duration_minutes ?? minutes;
+    const billed = patch.billedMinutes ?? existing.billed_minutes ?? existing.duration_minutes ?? patch.minutes ?? 0;
+    // A forgotten timer saved with a huge taught length (A2): once the tutor
+    // corrects the billed time, the taught length follows it so ended_at — which
+    // dates the lesson for claims — lands on the lesson's own day.
+    const storedMinutes = existing.duration_minutes ?? existing.billed_minutes ?? billed;
+    const runawayFixed = patch.minutes === undefined && patch.billedMinutes !== undefined && isRunawayTimer(storedMinutes, billed);
+    const minutes = patch.minutes ?? (runawayFixed ? billed : storedMinutes);
     const endedAt =
-      (patch.startedAt !== undefined || patch.minutes !== undefined) && startedAt
+      (patch.startedAt !== undefined || patch.minutes !== undefined || runawayFixed) && startedAt
         ? new Date(new Date(startedAt).getTime() + minutes * 60_000).toISOString()
         : existing.ended_at;
 
@@ -836,6 +870,116 @@ export function editLesson(sessionId: string, patch: EditLessonPatch): { session
   return { session: session!, inClaim: isSessionInClaim(sessionId) };
 }
 
+/**
+ * Switch a charged no-show's travel on (parent charged at the lesson's snapshot
+ * terms, else the student's current terms, then frozen) or off (no charge, no
+ * tutor allowance). Call inside a transaction.
+ */
+function setNoShowTravelInTx(existing: Session, on: boolean): void {
+  const db = getDb();
+  if (!on || existing.mode !== 'in_person') {
+    db.runSync(`UPDATE sessions SET no_show_travel = 0, parent_travel_fee = NULL WHERE id = ?`, [existing.id]);
+    return;
+  }
+  const t = lessonTravelInTx(existing.student_id, 'in_person', existing.travel_km, null, snapshotTerms(existing));
+  db.runSync(
+    `UPDATE sessions SET no_show_travel = 1, travel_km = ?, parent_travel_fee = ?,
+       parent_travel_mode_snapshot = ?, parent_travel_flat_snapshot = ?, parent_travel_per_km_snapshot = ?
+     WHERE id = ?`,
+    [t.travelKm, t.parentTravelFee, t.terms.mode, t.terms.flat, t.terms.perKm, existing.id]
+  );
+}
+
+// ── Remove a recorded lesson (A6) ────────────────────────────────────────────
+
+/** Why a lesson could not be removed. */
+export class LessonInClaimError extends SessionError {
+  constructor(sessionId: string) {
+    super('INVALID_STATE', `Session ${sessionId} is in a claim. Void the claim first.`, { inClaim: true });
+    Object.setPrototypeOf(this, LessonInClaimError.prototype);
+  }
+}
+
+/**
+ * Strike a recorded lesson (or charged no-show) from history. One transaction:
+ * appends an `adjustment` giving the billed hours back to the same subject
+ * (the deduction row itself is never touched — the ledger stays append-only),
+ * marks the lesson cancelled/removed with `removed_at`, and drops its parent
+ * travel charge. Blocked while the lesson is in a non-voided claim, because the
+ * claim snapshot would otherwise pay for a lesson that no longer exists.
+ */
+export function removeLesson(sessionId: string, now: Date = new Date()): { session: Session; entry: LedgerEntry } {
+  const db = getDb();
+  let session: Session | null = null;
+  let entry: LedgerEntry | null = null;
+  db.withTransactionSync(() => {
+    const existing = mustGet(sessionId);
+    if (!isEditableLesson(existing)) {
+      throw new SessionError('INVALID_STATE', `Only recorded lessons can be removed (status: ${existing.status})`);
+    }
+    if (isSessionInClaim(sessionId)) throw new LessonInClaimError(sessionId);
+    const deduction = db.getFirstSync<{ hours_delta: number; subject_id: string | null }>(
+      `SELECT hours_delta, ${effectiveSubjectIdSql('ledger_entries')} AS subject_id FROM ledger_entries
+       WHERE related_session_id = ? AND type = 'session_deduction' ORDER BY rowid ASC LIMIT 1`,
+      [sessionId]
+    );
+    const hoursBack = normaliseHours(-(deduction?.hours_delta ?? -((existing.billed_minutes ?? 0) / 60)));
+    const changes = db.runSync(
+      `UPDATE sessions SET status = 'cancelled', cancel_reason = 'removed', removed_at = ?, parent_travel_fee = NULL,
+         no_show_travel = 0, paused_at = NULL
+       WHERE id = ? AND status IN ('completed', 'cancelled')`,
+      [now.toISOString(), sessionId]
+    ).changes;
+    if (changes === 0) throw new SessionError('INVALID_STATE', `Session ${sessionId} changed while removing`);
+    if (hoursBack > 0) {
+      entry = appendEntryInTx({
+        studentId: existing.student_id,
+        type: 'adjustment',
+        hoursDelta: hoursBack,
+        relatedSessionId: sessionId,
+        reason: 'Lesson removed',
+        subjectId: deduction?.subject_id ?? existing.subject_id ?? null,
+      });
+    }
+    session = mustGet(sessionId);
+  });
+  return { session: session!, entry: entry! };
+}
+
+/** True when the lesson was removed from history. */
+export function isRemovedLesson(s: Pick<Session, 'status' | 'cancel_reason'>): boolean {
+  return s.status === 'cancelled' && s.cancel_reason === 'removed';
+}
+
+// ── Duplicate check (A6) ─────────────────────────────────────────────────────
+
+/**
+ * A recorded lesson of this student whose time window overlaps
+ * [startedAt, startedAt + minutes), or null. Used to confirm before recording
+ * what looks like the same lesson twice ("Record another?").
+ */
+export function findOverlappingLesson(
+  studentId: string,
+  startedAt: string,
+  minutes: number,
+  excludeSessionId?: string | null,
+): Session | null {
+  const start = new Date(startedAt).getTime();
+  if (Number.isNaN(start) || !(minutes > 0)) return null;
+  const end = start + minutes * 60_000;
+  const rows = getDb().getAllSync<Session>(
+    `SELECT * FROM sessions WHERE student_id = ? AND status = 'completed' AND started_at IS NOT NULL AND id IS NOT ?`,
+    [studentId, excludeSessionId ?? null]
+  );
+  for (const r of rows) {
+    const rs = new Date(r.started_at!).getTime();
+    const len = r.duration_minutes ?? r.billed_minutes ?? DEFAULT_LESSON_MINUTES;
+    const re = r.ended_at ? Math.max(new Date(r.ended_at).getTime(), rs + 60_000) : rs + len * 60_000;
+    if (rs < end && start < re) return r;
+  }
+  return null;
+}
+
 // ── Scheduled-lesson actions ─────────────────────────────────────────────────
 
 /**
@@ -845,7 +989,8 @@ export function editLesson(sessionId: string, patch: EditLessonPatch): { session
  */
 export function markNoShow(
   sessionId: string,
-  opts: { charge: boolean; minutes?: number },
+  /** includeTravel: charged in-person no-show only — charge parent travel and claim the tutor's allowance. */
+  opts: { charge: boolean; minutes?: number; includeTravel?: boolean },
 ): { session: Session; entry: LedgerEntry | null } {
   const db = getDb();
   let session: Session | null = null;
@@ -864,6 +1009,9 @@ export function markNoShow(
       `UPDATE sessions SET status = 'cancelled', cancel_reason = 'no_show', billed_minutes = ? WHERE id = ? AND status = 'scheduled'`,
       [minutes, sessionId]
     );
+    if (minutes !== null && opts.includeTravel && existing.mode === 'in_person') {
+      setNoShowTravelInTx(existing, true);
+    }
     if (minutes !== null) {
       entry = appendEntryInTx({
         studentId: existing.student_id,
@@ -942,13 +1090,17 @@ export function updateScheduled(
   db.withTransactionSync(() => {
     const existing = db.getFirstSync<{ student_id: string }>('SELECT student_id FROM sessions WHERE id = ?', [sessionId]);
     const subjectId = existing && data.subjectId !== undefined ? resolveSubjectIdInTx(existing.student_id, data.subjectId) : null;
-    db.runSync(
+    const when = new Date(data.scheduledFor);
+    if (Number.isNaN(when.getTime())) throw new SessionError('INVALID_INPUT', 'Invalid date');
+    const changes = db.runSync(
       `UPDATE sessions SET scheduled_for = ?, estimated_duration_minutes = ?, mode = ?, topics = ?, session_notes = ?, session_type = ?,
          subject_id = COALESCE(?, subject_id), travel_km = CASE WHEN ? THEN ? ELSE travel_km END
        WHERE id = ? AND status = 'scheduled'`,
-      [data.scheduledFor, data.estimatedDurationMinutes, data.mode, JSON.stringify(data.topics), data.notes ?? null, data.session_type,
+      [when.toISOString(), data.estimatedDurationMinutes, data.mode, JSON.stringify(data.topics), data.notes ?? null, data.session_type,
         subjectId, data.travelKm !== undefined ? 1 : 0, data.travelKm ?? null, sessionId]
-    );
+    ).changes;
+    // One write for a reschedule (D4): a lesson that started meanwhile is not moved.
+    if (changes === 0) throw new SessionError('INVALID_STATE', `Session ${sessionId} is not scheduled`);
   });
 }
 
@@ -983,7 +1135,7 @@ export function listUpcomingWithProjection(
     if (!running.has(key)) running.set(key, key ? getSubjectBalance(studentId, key) : currentBalance(studentId));
     const next = running.get(key)! - (s.estimated_duration_minutes ?? DEFAULT_LESSON_MINUTES) / 60;
     running.set(key, next);
-    return { ...s, projected_balance_after: Math.round(next * 1e6) / 1e6 };
+    return { ...s, projected_balance_after: normaliseHours(next) };
   });
 }
 

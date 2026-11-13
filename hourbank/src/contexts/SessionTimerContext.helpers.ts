@@ -23,7 +23,7 @@ export type OrphanTrigger = 'cold_start' | 'foreground';
 export type InFlightSession = Pick<
   Session,
   'id' | 'student_id' | 'status' | 'started_at' | 'ended_at' | 'paused_at' | 'paused_seconds'
-> & { student_full_name: string };
+> & { student_full_name: string; estimated_duration_minutes?: number | null };
 
 /**
  * Whether the root layout should ask "continue or discard?" about an in-flight

@@ -91,13 +91,13 @@ export default function StudentLedgerScreen() {
           <View style={{ paddingTop: 16, paddingBottom: 8 }}>
             <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.ink }}>{name}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>
                 {`${subjectId && multiSubject ? `${data.subjects.find(s => s.id === subjectId)?.subject.toUpperCase() ?? ''} ` : ''}${Math.round(data.balance * 60) < 0 ? 'OWES' : 'BALANCE'}`}
               </Text>
               <Text style={{ fontFamily: F.monoMed, fontSize: 20, color: balanceColour(balanceStatus(data.balance)) }}>
                 {formatHours(Math.abs(data.balance))}
               </Text>
-              <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>
                 {`· ${data.entries.length} ${data.entries.length === 1 ? 'entry' : 'entries'}`}
               </Text>
             </View>
@@ -157,10 +157,10 @@ export default function StudentLedgerScreen() {
               borderBottomColor: COLORS.ink,
             }}
           >
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.ink, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.ink, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               {section.title}
             </Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkSoft }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft }}>
               {`net ${formatHoursSigned(sumHours(section.data))}`}
             </Text>
           </View>

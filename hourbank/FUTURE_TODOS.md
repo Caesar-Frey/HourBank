@@ -10,7 +10,6 @@ Approved features deferred from current build. Pick up in future sessions.
 - Color/legend customization per event kind.
 - Better empty-state illustrations and onboarding tour.
 - Async `listEventsInRange` + virtualization for very large datasets.
-- Tokenize hardcoded RGBA overlay colors in CalendarFilterSheet and FAB picker.
 
 ## Scheduling
 
@@ -42,7 +41,7 @@ Approved features deferred from current build. Pick up in future sessions.
 
 ## Billing / documents
 
-- Invoice PDF: now specified in docs/plans/2026-11-12-polish-handoff.md (F2).
+- Invoices: optional statement of several top-ups on one invoice; email sending from the app.
 
 ---
-*Updated by build: 2026-10-12*
+*Updated by build: 2026-11-13 (polish packages A to E)*

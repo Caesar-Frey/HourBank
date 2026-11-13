@@ -26,6 +26,7 @@ import {
   agendaTimeLabel,
   owedAfter,
   projectAgendaBalances,
+  splitOverdue,
   subjectBalanceMap,
 } from './agendaModel';
 
@@ -90,7 +91,7 @@ function AgendaRow({
     >
       <View style={{ width: 92 }}>
         {dateLabel ? (
-          <Text style={{ fontFamily: F.mono, fontSize: 10, color: live ? COLORS.paper60 : COLORS.inkSoft, textTransform: 'uppercase' }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: live ? COLORS.paper60 : COLORS.inkSoft, textTransform: 'uppercase' }}>
             {dateLabel}
           </Text>
         ) : null}
@@ -102,7 +103,7 @@ function AgendaRow({
         <Text numberOfLines={1} style={{ fontFamily: F.serif, fontSize: 16, color: live ? COLORS.paper : COLORS.ink }}>
           {item.student_full_name}
         </Text>
-        <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 11, color: live ? COLORS.paper60 : COLORS.inkSoft, marginTop: 2 }}>
+        <Text numberOfLines={1} style={{ fontFamily: F.mono, fontSize: 12, color: live ? COLORS.paper60 : COLORS.inkSoft, marginTop: 2 }}>
           {details.join(' · ')}
         </Text>
         {section === 'overdue' ? (
@@ -113,7 +114,7 @@ function AgendaRow({
         {owes != null ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
             <Feather name="alert-triangle" size={11} color={COLORS.crimson} />
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.crimson }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.crimson }}>
               will owe {formatHours(owes)}
             </Text>
           </View>
@@ -175,6 +176,7 @@ export function AgendaView({ onStartLesson }: { onStartLesson: () => void }) {
   const [projection, setProjection] = useState<Record<string, number>>({});
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
+  const [showOlder, setShowOlder] = useState(false);
   const navigating = useRef(false);
 
   const load = useCallback(() => {
@@ -234,11 +236,12 @@ export function AgendaView({ onStartLesson }: { onStartLesson: () => void }) {
   }
 
   const sections = agendaSections(agenda);
+  const overdueSplit = splitOverdue(agenda.overdue);
 
   return (
     <ScrollView
       style={{ flex: 1 }}
-      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 40 }}
+      contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 40 }}
       showsVerticalScrollIndicator={false}
     >
       {loaded && agendaIsEmpty(agenda) ? (
@@ -275,7 +278,7 @@ export function AgendaView({ onStartLesson }: { onStartLesson: () => void }) {
             <Text
               style={{
                 fontFamily: F.mono,
-                fontSize: 11,
+                fontSize: 12,
                 color: section.key === 'overdue' ? COLORS.oxblood : COLORS.inkSoft,
                 textTransform: 'uppercase',
                 letterSpacing: 0.6,
@@ -283,9 +286,9 @@ export function AgendaView({ onStartLesson }: { onStartLesson: () => void }) {
             >
               {section.title}
             </Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint }}>{section.items.length}</Text>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{section.items.length}</Text>
           </View>
-          {section.items.map(item => (
+          {(section.key === 'overdue' && !showOlder ? overdueSplit.recent : section.items).map(item => (
             <AgendaRow
               key={item.id}
               item={item}
@@ -296,6 +299,20 @@ export function AgendaView({ onStartLesson }: { onStartLesson: () => void }) {
               onTimer={() => timer(item)}
             />
           ))}
+          {section.key === 'overdue' && !showOlder && overdueSplit.older.length > 0 ? (
+            <TouchableOpacity
+              onPress={() => setShowOlder(true)}
+              accessibilityRole="button"
+              testID="agenda-show-older"
+              style={{ minHeight: MIN_TOUCH, justifyContent: 'center' }}
+            >
+              <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.oxblood }}>
+                {'Show older ('}
+                <Text style={{ fontFamily: F.mono }}>{overdueSplit.older.length}</Text>
+                {')'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ))}
     </ScrollView>

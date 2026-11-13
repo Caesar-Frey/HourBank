@@ -62,7 +62,7 @@ export function SubjectBalanceCard({ subject, balanceHours, archived = false, on
         style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}
       >
         <View style={{ flex: 1, paddingRight: 8 }}>
-          <Text style={{ fontFamily: F.mono, fontSize: 10, color: owes ? COLORS.oxblood : COLORS.inkFaint, letterSpacing: 0.5 }}>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: owes ? COLORS.oxblood : COLORS.inkFaint, letterSpacing: 0.5 }}>
             {archived ? 'ARCHIVED SUBJECT' : owes ? '★ HOURS OWED' : '★ BALANCE'}
           </Text>
           <Text numberOfLines={1} style={{ fontFamily: F.serif, fontSize: 20, color: COLORS.ink, marginTop: 2 }}>{subject}</Text>

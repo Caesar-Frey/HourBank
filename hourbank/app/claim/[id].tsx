@@ -1,31 +1,27 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { F } from '../../src/theme/fonts';
 import { COLORS } from '../../src/theme/colors';
-import { getClaim, getClaimLines, voidClaim, isClaimVoided } from '../../src/db/claims';
+import { getClaim, getClaimLines, voidClaim, isClaimVoided, listEditedClaimLines, EditedClaimLine } from '../../src/db/claims';
 import { getSessionWithStudent } from '../../src/db/sessions';
 import { shareClaimReport } from '../../src/utils/claimReport';
 import { Claim, ClaimLine } from '../../src/db/schema';
-import { formatRand, formatHours, formatLedgerDate, formatClaimPeriod } from '../../src/utils/format';
+import { formatRand, formatHours, formatLedgerDate, formatClaimPeriod, formatDateLong, formatTime } from '../../src/utils/format';
 import { ScreenHeader } from '../../src/components/ScreenHeader';
 import { useToast } from '../../src/components/Toast';
 import { useKeyboardOverlap } from '../../src/components/FormScreen';
 import { modeLabel } from '../../src/screens/schedule/labels';
+import { LoadingState } from '../../src/components/student/ui';
 
 // Finalised claim: lines show the frozen travel fee only — a lesson's live km may
 // since have been edited and would disagree with the snapshot.
 type DetailLine = ClaimLine & { studentName: string; endedAt: string | null };
 
 function formatFullDate(isoStr: string): string {
-  const d = new Date(isoStr);
-  const months = ['January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'];
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()} · ${hh}:${mm}`;
+  return `${formatDateLong(isoStr)} · ${formatTime(isoStr)}`;
 }
 
 const DIVIDER = (
@@ -37,6 +33,8 @@ export default function ClaimDetailScreen() {
   const router = useRouter();
   const [claim, setClaim] = useState<Claim | null | undefined>(undefined);
   const [lines, setLines] = useState<DetailLine[]>([]);
+  const [edited, setEdited] = useState<EditedClaimLine[]>([]);
+  const voidingRef = useRef(false);
   const [voidModalVisible, setVoidModalVisible] = useState(false);
   const keyboardOverlap = useKeyboardOverlap();
   const [voidReason, setVoidReason] = useState('');
@@ -59,6 +57,11 @@ export default function ClaimDetailScreen() {
         };
       });
       setLines(enriched);
+      try {
+        setEdited(listEditedClaimLines(id));
+      } catch {
+        setEdited([]);
+      }
       setLoadError(false);
     } catch {
       setLoadError(true);
@@ -82,7 +85,8 @@ export default function ClaimDetailScreen() {
   }
 
   function onConfirmVoid() {
-    if (!id) return;
+    if (!id || voidingRef.current) return;
+    voidingRef.current = true;
     try {
       const reason = voidReason.trim();
       voidClaim({ claimId: id, reason: reason.length > 0 ? reason : null });
@@ -94,11 +98,13 @@ export default function ClaimDetailScreen() {
       Alert.alert('Couldn’t void this claim', 'It was already voided, or it no longer exists. The screen has been refreshed.');
       setVoidModalVisible(false);
       load();
+    } finally {
+      voidingRef.current = false;
     }
   }
 
   // ── Early returns AFTER all hooks ──
-  if (claim === undefined) return null;
+  if (claim === undefined) return <LoadingState />;
 
   if (claim === null) {
     return (
@@ -123,7 +129,7 @@ export default function ClaimDetailScreen() {
       <ScreenHeader backLabel="MONEY" onBack={() => router.back()} title="Claim" />
       <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 40, flexGrow: 1 }}>
 
-        <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6 }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6 }}>
           Claim · {formatClaimPeriod(claim.period_start, claim.period_end)}
         </Text>
 
@@ -138,7 +144,7 @@ export default function ClaimDetailScreen() {
         {/* VOID banner */}
         {isVoid && (
           <View style={{ borderWidth: 1, borderColor: COLORS.crimson, borderRadius: 10, padding: 12, marginBottom: 20, backgroundColor: COLORS.badFill }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.crimson, letterSpacing: 0.5, marginBottom: claim.void_reason ? 4 : 0 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.crimson, letterSpacing: 0.5, marginBottom: claim.void_reason ? 4 : 0 }}>
               VOIDED{claim.voided_at ? ` · ${formatLedgerDate(claim.voided_at).day} ${formatLedgerDate(claim.voided_at).month}` : ''}
             </Text>
             {claim.void_reason ? (
@@ -149,10 +155,41 @@ export default function ClaimDetailScreen() {
           </View>
         )}
 
+        {/* Lessons edited after the claim was made (B4): the claim stays frozen. */}
+        {!isVoid && edited.length > 0 ? (
+          <View
+            style={{ borderWidth: 1, borderColor: COLORS.amber, borderRadius: 10, padding: 12, marginBottom: 20, backgroundColor: COLORS.warnFill, gap: 6 }}
+            testID="claim-edited-lessons"
+          >
+            <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.ink }}>
+              <Text style={{ fontFamily: F.mono }}>{edited.length}</Text>
+              {` ${edited.length === 1 ? 'lesson' : 'lessons'} edited since this claim`}
+            </Text>
+            <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>
+              The claim keeps what it was made with. Void and re-claim to pay the new amounts.
+            </Text>
+            {edited.map(e => (
+              <TouchableOpacity
+                key={e.session_id}
+                onPress={() => router.push(`/lesson/${e.session_id}`)}
+                accessibilityRole="link"
+                accessibilityLabel={`Open ${e.student_full_name}'s edited lesson`}
+                style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 }}
+              >
+                <Text style={{ flex: 1, fontFamily: F.serif, fontSize: 15, color: COLORS.ink }}>{e.student_full_name}</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkSoft }}>
+                  {`${formatHours(e.claimed_hours)} → ${formatHours(e.current_hours)}${e.difference !== 0 ? ` · ${e.difference > 0 ? '+' : '−'}${formatRand(Math.abs(e.difference))}` : ''}`}
+                </Text>
+                <Feather name="chevron-right" size={16} color={COLORS.inkFaint} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
+
         {DIVIDER}
 
         {/* Itemised lines */}
-        <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+        <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
           Lessons ({lines.length})
         </Text>
         {lines.map(line => {
@@ -163,22 +200,22 @@ export default function ClaimDetailScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{ alignItems: 'center', minWidth: 32 }}>
                   <Text style={{ fontFamily: F.mono, fontSize: 16, color: COLORS.ink, lineHeight: 18 }}>{dateLabel ? dateLabel.day : '—'}</Text>
-                  <Text style={{ fontFamily: F.mono, fontSize: 9, color: COLORS.inkFaint }}>{dateLabel ? dateLabel.month : ''}</Text>
+                  <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{dateLabel ? dateLabel.month : ''}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontFamily: F.serif, fontSize: 15, color: COLORS.ink }}>{line.studentName}</Text>
                   <View style={{ flexDirection: 'row', gap: 6, marginTop: 2 }}>
-                    <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>{modeLabel(line.mode)}</Text>
-                    <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>·</Text>
-                    <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>{formatHours(line.billed_hours)}</Text>
+                    <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{modeLabel(line.mode)}</Text>
+                    <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>·</Text>
+                    <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{formatHours(line.billed_hours)}</Text>
                   </View>
                 </View>
                 <Text style={{ fontFamily: F.mono, fontSize: 13, color: COLORS.ink }}>{formatRand(lineTotal)}</Text>
               </View>
               {/* Fee split */}
               <View style={{ flexDirection: 'row', gap: 14, marginTop: 6, marginLeft: 44 }}>
-                <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>Lesson {formatRand(line.lesson_fee)}</Text>
-                <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>Travel {formatRand(line.travel_fee)}</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>Lesson {formatRand(line.lesson_fee)}</Text>
+                <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>Travel {formatRand(line.travel_fee)}</Text>
               </View>
             </View>
           );
@@ -207,11 +244,12 @@ export default function ClaimDetailScreen() {
           onPress={onDownloadReport}
           disabled={downloading}
           activeOpacity={0.8}
-          style={{ borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 12, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 12, opacity: downloading ? 0.5 : 1 }}
+          accessibilityRole="button"
+          style={{ borderWidth: 1, borderColor: COLORS.paperEdge, borderRadius: 12, minHeight: 48, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 12, opacity: downloading ? 0.5 : 1 }}
         >
           <Feather name="download" size={16} color={COLORS.inkSoft} />
           <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.inkSoft }}>
-            {downloading ? 'Generating…' : 'Download report'}
+            {downloading ? 'Generating…' : 'Share report'}
           </Text>
         </TouchableOpacity>
 
@@ -219,7 +257,8 @@ export default function ClaimDetailScreen() {
           <TouchableOpacity
             onPress={() => setVoidModalVisible(true)}
             activeOpacity={0.8}
-            style={{ borderWidth: 1, borderColor: COLORS.crimson, borderRadius: 12, paddingVertical: 14, alignItems: 'center' }}
+            accessibilityRole="button"
+            style={{ borderWidth: 1, borderColor: COLORS.crimson, borderRadius: 12, minHeight: 48, justifyContent: 'center', alignItems: 'center' }}
           >
             <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.crimson }}>Void claim</Text>
           </TouchableOpacity>
@@ -227,7 +266,7 @@ export default function ClaimDetailScreen() {
 
         {/* Claim id footer */}
         <View style={{ marginTop: 'auto', paddingTop: 40 }}>
-          <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.inkFaint }}>{claim.id}</Text>
+          <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.inkFaint }}>{claim.id}</Text>
         </View>
       </ScrollView>
 

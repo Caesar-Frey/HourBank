@@ -15,8 +15,8 @@ Built with React Native and Expo, with all data stored on the device in SQLite.
 
 - React Native 0.81, Expo SDK 54, Expo Router
 - `expo-sqlite` with versioned migrations
-- NativeWind (Tailwind) styling
-- Jest tests (60+ test files across the data layer, hooks and screens)
+- Inline styles with shared colour and font tokens
+- Jest tests (68 suites across the data layer, hooks and screens), run in CI
 
 ## Repository layout
 
@@ -34,7 +34,7 @@ Built with React Native and Expo, with all data stored on the device in SQLite.
 
 ```bash
 cd hourbank
-npm install
+npm ci --legacy-peer-deps
 npx expo start
 ```
 

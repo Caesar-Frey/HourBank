@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, TouchableOpacity, Alert, Switch, TextInput, Modal, ActivityIndicator } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, Text, TouchableOpacity, Alert, Switch, TextInput, Modal, ActivityIndicator, ScrollView } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { F, MIN_TOUCH, hitSlopFor } from '../../src/theme/fonts';
 import { COLORS } from '../../src/theme/colors';
@@ -43,7 +43,6 @@ import { exportDatabase, getLastBackupAt, importBackup, BackupSummary } from '..
 import { BACKUP_READY_TOAST } from '../../src/utils/shareCopy';
 import { formatHours, formatRand } from '../../src/utils/format';
 import { useSessionTimer } from '../../src/contexts/SessionTimerContext';
-import { SHOW_ALL_GRADES_KEY } from '../../src/config';
 
 type AmountField = 'parentPrice' | 'payoutRate' | 'maxOwe' | 'perKm';
 type PendingRestore = Awaited<ReturnType<typeof importBackup>>;
@@ -70,7 +69,6 @@ export default function SettingsScreen() {
 
   const profileRef = useRef<TutorProfile | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
-  const [showAllGrades, setShowAllGrades] = useState(false);
 
   // Drafts (strings keep half-typed input like "1," intact).
   const [fullName, setFullName] = useState('');
@@ -102,6 +100,15 @@ export default function SettingsScreen() {
   const [resetConfirmText, setResetConfirmText] = useState('');
   const keyboardOverlap = useKeyboardOverlap();
 
+  // Deep links from the Home setup card: /profile?focus=name|rates|payment.
+  const { focus } = useLocalSearchParams<{ focus?: string }>();
+  const scrollRef = useRef<ScrollView | null>(null);
+  const anchors = useRef<Record<string, number>>({});
+  const nameInput = useRef<TextInput>(null);
+  const rateInput = useRef<TextInput>(null);
+  const paymentInput = useRef<TextInput>(null);
+  const [ratesConfirmed, setRatesConfirmed] = useState(true);
+
   const loadProfile = useCallback(() => {
     try {
       const p = getOrCreateTutorProfile();
@@ -122,12 +129,13 @@ export default function SettingsScreen() {
       } catch {
         setReferenceSample(SAMPLE_REFERENCE_STUDENT);
       }
-      setRoundMinutes(p.billing_round_minutes || 15);
+      setRoundMinutes(p.billing_round_minutes === 15 ? 15 : 30);
       setTravelMode(p.travel_mode === 'distance' ? 'distance' : 'flat');
       setTierEnabled(p.tier_system_enabled === 1);
       setTierDrafts(tierDraftsFromTiers(parseTiers(p.package_tiers), nextTierKey));
       setTierErrors({});
       setLastBackupAt(p.last_backup_at ?? null);
+      setRatesConfirmed(!!p.rates_confirmed_at);
       setProfileLoaded(true);
     } catch {
       toast.show({ kind: 'error', message: "Couldn't load your settings." });
@@ -136,18 +144,49 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     loadProfile();
-    AsyncStorage.getItem(SHOW_ALL_GRADES_KEY)
-      .then(v => setShowAllGrades(v === 'true'))
-      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The tab stays mounted — refresh the backup age whenever it regains focus.
+  // Latest typed values, for saving when the tab loses focus (D6).
+  const draftRef = useRef({ fullName: '', paymentDetails: '' });
+  draftRef.current = { fullName, paymentDetails };
+
+  // The tab stays mounted — refresh the backup age and the reference preview
+  // student whenever it regains focus; on blur, save any text still being typed.
   useFocusEffect(
     useCallback(() => {
       getLastBackupAt().then(setLastBackupAt).catch(() => {});
+      try {
+        const first = listActiveStudents()[0];
+        setReferenceSample(first ? { id: first.id, full_name: first.full_name } : SAMPLE_REFERENCE_STUDENT);
+      } catch { /* keep the previous sample */ }
+      return () => {
+        const current = profileRef.current;
+        if (!current) return;
+        const name = draftRef.current.fullName.trim();
+        const pay = draftRef.current.paymentDetails.trim() || null;
+        const patch: Partial<TutorProfile> = {};
+        if (name !== (current.full_name ?? '')) patch.full_name = name;
+        if (pay !== (current.payment_details ?? null)) patch.payment_details = pay;
+        if (Object.keys(patch).length === 0) return;
+        try {
+          profileRef.current = upsertTutorProfile(patch);
+        } catch { /* the field's own blur save reports errors */ }
+      };
     }, [])
   );
+
+  useEffect(() => {
+    if (!profileLoaded || !focus) return;
+    const t = setTimeout(() => {
+      const y = anchors.current[focus];
+      if (y !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
+      const input = focus === 'name' ? nameInput : focus === 'rates' ? rateInput : focus === 'payment' ? paymentInput : null;
+      input?.current?.focus();
+      router.setParams({ focus: undefined });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [focus, profileLoaded, router]);
 
   /** Autosave: write only what changed, confirm with a toast; failures are error toasts. */
   const save = useCallback(
@@ -193,7 +232,17 @@ export default function SettingsScreen() {
     const { value, error } = validateAmount(amounts[field]);
     setErrors(e => ({ ...e, [field]: error }));
     if (error || value === null) return;
-    save({ [AMOUNT_COLUMN[field]]: value } as Partial<TutorProfile>);
+    const patch = { [AMOUNT_COLUMN[field]]: value } as Partial<TutorProfile>;
+    // Saving either rate confirms the tutor has set their own (Home setup card, A5).
+    if ((field === 'parentPrice' || field === 'payoutRate') && !profileRef.current?.rates_confirmed_at) {
+      patch.rates_confirmed_at = new Date().toISOString();
+      setRatesConfirmed(true);
+    }
+    save(patch);
+  }
+
+  function confirmRatesAsTheyAre() {
+    if (save({ rates_confirmed_at: new Date().toISOString() })) setRatesConfirmed(true);
   }
 
   function amountPreview(field: AmountField, kind: 'rand' | 'hours'): string | null {
@@ -340,10 +389,12 @@ export default function SettingsScreen() {
   const backupAge = lastBackupLabel(lastBackupAt);
 
   return (
-    <FormScreen header={<TabHeader title="Settings" />} edges={['top']} contentContainerStyle={{ paddingBottom: 48 }}>
+    <FormScreen header={<TabHeader title="Settings" />} edges={['top']} contentContainerStyle={{ paddingBottom: 48 }} scrollRef={scrollRef}>
       {/* ── Profile ───────────────────────────────────────────────────── */}
       <SectionLabel>Profile</SectionLabel>
+      <View onLayout={e => { anchors.current.name = e.nativeEvent.layout.y; }} />
       <SettingsField
+        inputRef={nameInput}
         label="Your name"
         value={fullName}
         onChangeText={setFullName}
@@ -358,7 +409,23 @@ export default function SettingsScreen() {
 
       {/* ── Rates ─────────────────────────────────────────────────────── */}
       <SectionLabel>Rates</SectionLabel>
+      <View onLayout={e => { anchors.current.rates = e.nativeEvent.layout.y; }} />
+      {!ratesConfirmed ? (
+        <View style={[ROW_CONTAINER, { gap: 8 }]}>
+          <Text style={{ fontFamily: F.sans, fontSize: 14, color: COLORS.inkSoft }}>
+            These are still the starter rates. Change them, or confirm they are right.
+          </Text>
+          <TouchableOpacity
+            onPress={confirmRatesAsTheyAre}
+            accessibilityRole="button"
+            style={{ alignSelf: 'flex-start', minHeight: MIN_TOUCH, paddingHorizontal: 16, borderWidth: 1, borderColor: COLORS.ink, borderRadius: 14, justifyContent: 'center' }}
+          >
+            <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>These rates are right</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
       <SettingsField
+        inputRef={rateInput}
         testID="parent-price"
         label="Parent price per hour"
         value={amounts.parentPrice}
@@ -431,7 +498,7 @@ export default function SettingsScreen() {
       {/* ── Billing ───────────────────────────────────────────────────── */}
       <SectionLabel>Billing</SectionLabel>
       <View style={ROW_CONTAINER}>
-        <Text style={FIELD_LABEL}>Round lessons to</Text>
+        <Text style={FIELD_LABEL}>Lesson length steps</Text>
         <ChipRow
           options={BILLING_ROUND_OPTIONS}
           value={roundMinutes as (typeof BILLING_ROUND_OPTIONS)[number]}
@@ -456,7 +523,9 @@ export default function SettingsScreen() {
         preview={amountPreview('maxOwe', 'hours')}
         help={MAX_OWE_EXPLANATION}
       />
+      <View onLayout={e => { anchors.current.payment = e.nativeEvent.layout.y; }} />
       <SettingsField
+        inputRef={paymentInput}
         label="Payment details"
         value={paymentDetails}
         onChangeText={setPaymentDetails}
@@ -470,6 +539,13 @@ export default function SettingsScreen() {
         onChangeText={setReferenceTemplate}
         onCommit={commitReferenceTemplate}
         sampleStudent={referenceSample}
+      />
+
+      <SettingsLinkRow
+        icon="file-text"
+        title="Invoice details"
+        subtitle="Logo, business and bank details, invoice numbers"
+        onPress={() => router.push('/settings/invoice')}
       />
 
       {/* ── Packages ──────────────────────────────────────────────────── */}
@@ -607,6 +683,15 @@ export default function SettingsScreen() {
         </View>
       )}
 
+      {/* ── Items you sell (F1) ───────────────────────────────────────── */}
+      <SectionLabel>Items you sell</SectionLabel>
+      <SettingsLinkRow
+        icon="shopping-bag"
+        title="Items you sell"
+        subtitle="Study packs, past papers: quick picks when you charge an item"
+        onPress={() => router.push('/settings/items')}
+      />
+
       {/* ── Students ──────────────────────────────────────────────────── */}
       <SectionLabel>Students</SectionLabel>
       <SettingsLinkRow
@@ -615,28 +700,14 @@ export default function SettingsScreen() {
         subtitle="View or restore students you've archived"
         onPress={() => router.push('/student/archived')}
       />
-      <View style={[ROW_CONTAINER, { flexDirection: 'row', alignItems: 'center' }]}>
-        <View style={{ flex: 1, marginRight: 12 }}>
-          <Text style={{ fontFamily: F.sansMed, fontSize: 14, color: COLORS.ink }}>Show all grades (1–12)</Text>
-          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>
-            Off: only grades 8–12 (high school)
-          </Text>
-        </View>
-        <Switch
-          value={showAllGrades}
-          onValueChange={v => {
-            setShowAllGrades(v);
-            AsyncStorage.setItem(SHOW_ALL_GRADES_KEY, v ? 'true' : 'false').catch(() => {});
-          }}
-          trackColor={{ false: COLORS.paperEdge, true: COLORS.oxblood }}
-          thumbColor={COLORS.paper}
-        />
-      </View>
 
       {/* ── Backup & restore ──────────────────────────────────────────── */}
       <SectionLabel>Backup & restore</SectionLabel>
       <View style={[ROW_CONTAINER, { flexDirection: 'row', alignItems: 'center', minHeight: MIN_TOUCH }]}>
-        <Text style={{ flex: 1, fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>Last backup created</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft }}>Last backup exported</Text>
+          <Text style={{ fontFamily: F.sans, fontSize: 12, color: COLORS.inkFaint, marginTop: 2 }}>Check it reached Drive or WhatsApp</Text>
+        </View>
         <Text
           testID="last-backup"
           style={{ fontFamily: F.mono, fontSize: 13, color: backupAge === 'Never' ? COLORS.crimson : COLORS.ink }}
@@ -652,14 +723,22 @@ export default function SettingsScreen() {
         busy={backupBusy !== null}
         trailing={backupBusy === 'export' ? <ActivityIndicator color={COLORS.inkSoft} /> : undefined}
       />
-      <SettingsLinkRow
-        icon="download-cloud"
-        title={backupBusy === 'inspect' ? 'Checking backup…' : 'Restore from backup'}
-        subtitle="Replace the data on this phone with a backup file"
+      {/* Restore is rare and replaces everything: a quiet link, not a row like Back up (B7). */}
+      <TouchableOpacity
         onPress={handlePickRestore}
-        busy={backupBusy !== null}
-        trailing={backupBusy === 'inspect' ? <ActivityIndicator color={COLORS.inkSoft} /> : undefined}
-      />
+        disabled={backupBusy !== null}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel="Restore from backup"
+        accessibilityHint="Replaces the data on this phone with a backup file"
+        testID="restore-from-backup"
+        style={{ minHeight: MIN_TOUCH, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4, marginBottom: 8, opacity: backupBusy !== null && backupBusy !== 'inspect' ? 0.5 : 1 }}
+      >
+        {backupBusy === 'inspect' ? <ActivityIndicator size="small" color={COLORS.inkSoft} /> : <Feather name="download-cloud" size={14} color={COLORS.inkSoft} />}
+        <Text style={{ fontFamily: F.sans, fontSize: 13, color: COLORS.inkSoft, textDecorationLine: 'underline' }}>
+          {backupBusy === 'inspect' ? 'Checking backup…' : 'Restore from a backup file…'}
+        </Text>
+      </TouchableOpacity>
 
       {/* ── Dev tools ─────────────────────────────────────────────────── */}
       {__DEV__ && (
@@ -705,6 +784,8 @@ export default function SettingsScreen() {
         lessonInProgress={timerStatus !== 'idle'}
         onCancel={cancelRestore}
         onConfirm={confirmRestore}
+        onBackupFirst={handleBackup}
+        backingUp={backupBusy === 'export'}
       />
 
       <Modal

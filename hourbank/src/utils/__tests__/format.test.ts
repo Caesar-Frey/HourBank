@@ -1,9 +1,9 @@
 import { formatHours, formatBilledDuration } from '../format';
 
 describe('formatHours negative', () => {
-  it('formats -0.5 as "-30m"', () => expect(formatHours(-0.5)).toBe('-30m'));
-  it('formats -1 as "-1h"', () => expect(formatHours(-1)).toBe('-1h'));
-  it('formats -1.5 as "-1h 30m"', () => expect(formatHours(-1.5)).toBe('-1h 30m'));
+  it('formats -0.5 as "−30m"', () => expect(formatHours(-0.5)).toBe('−30m'));
+  it('formats -1 as "−1h"', () => expect(formatHours(-1)).toBe('−1h'));
+  it('formats -1.5 as "−1h 30m"', () => expect(formatHours(-1.5)).toBe('−1h 30m'));
   it('formats 0 as "0m"', () => expect(formatHours(0)).toBe('0m'));
 });
 

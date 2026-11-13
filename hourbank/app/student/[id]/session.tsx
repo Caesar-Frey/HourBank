@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useKeyboardHeight, useScrollFocusedInputIntoView } from '../../../src/components/FormScreen';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import {
   View,
@@ -8,7 +9,6 @@ import {
   Alert,
   ScrollView,
   KeyboardAvoidingView,
-  Platform,
   StatusBar,
   useWindowDimensions,
 } from 'react-native';
@@ -30,6 +30,7 @@ import {
   getSession,
   parseSessionTopics,
   saveLiveTopics,
+  setInFlightMode,
 } from '../../../src/db/sessions';
 import { listTopicsForStudentSubject } from '../../../src/db/catalog';
 import { subjectNameFor } from '../../../src/components/lesson/lessonFormData';
@@ -57,6 +58,15 @@ export default function SessionScreen() {
   selectedTopicsRef.current = selectedTopics;
   const [addingTopic, setAddingTopic] = useState(false);
   const [customTopic, setCustomTopic] = useState('');
+  // Keyboard (D1): same padding + scroll-into-view as FormScreen, so the
+  // "+ add" topic input is never hidden behind the keyboard or the controls.
+  const keyboardHeight = useKeyboardHeight();
+  const liveScrollRef = useRef<ScrollView | null>(null);
+  const liveScrollY = useRef(0);
+  const controlsHeight = useRef(0);
+  const pauseBusyRef = useRef(false);
+  const topicsSaveWarned = useRef(false);
+  useScrollFocusedInputIntoView(liveScrollRef, liveScrollY, controlsHeight);
   const [student, setStudent] = useState<Student | null>(null);
   /** The LESSON's subject (multi-subject students); falls back to students.subject. */
   const [lessonSubject, setLessonSubject] = useState<string | null>(null);
@@ -154,8 +164,28 @@ export default function SessionScreen() {
     setSelectedTopics(next);
     try {
       saveLiveTopics(sessionId, next);
+      topicsSaveWarned.current = false;
     } catch (e) {
       console.error('saveLiveTopics error', e);
+      // Say so once, not on every tap (D5); the picks still reach the review screen.
+      if (!topicsSaveWarned.current) {
+        topicsSaveWarned.current = true;
+        toast.show({ kind: 'error', message: "Couldn't save topics yet. They'll still be on the review screen." });
+      }
+    }
+  }
+
+  /** In-person ⇄ online, saved on the lesson row at once so ending prices travel from it (A1). */
+  function toggleMode() {
+    const prev = mode;
+    const next = prev === 'in_person' ? 'online' : 'in_person';
+    setMode(next);
+    try {
+      if (!setInFlightMode(sessionId, next)) throw new Error('lesson not in flight');
+    } catch (e) {
+      console.error('setInFlightMode error', e);
+      setMode(prev);
+      toast.show({ kind: 'error', message: "Couldn't switch the lesson mode — try again" });
     }
   }
 
@@ -187,9 +217,16 @@ export default function SessionScreen() {
   }
 
   function togglePause() {
-    const ok = isPaused ? resumeTimer() : pauseTimer();
-    if (!ok) toast.show({ kind: 'error', message: isPaused ? "Couldn't resume the lesson" : "Couldn't pause the lesson" });
-    reload();
+    // Ignore a second tap until the first has landed (D3).
+    if (pauseBusyRef.current) return;
+    pauseBusyRef.current = true;
+    try {
+      const ok = isPaused ? resumeTimer() : pauseTimer();
+      if (!ok) toast.show({ kind: 'error', message: isPaused ? "Couldn't resume the lesson" : "Couldn't pause the lesson" });
+      reload();
+    } finally {
+      setTimeout(() => { pauseBusyRef.current = false; }, 400);
+    }
   }
 
   function handleStart() {
@@ -260,10 +297,7 @@ export default function SessionScreen() {
   }
 
   function handleEndSession() {
-    if (selectedTopics.length < 1) {
-      Alert.alert('Select a topic', 'Select at least one topic before ending the lesson.');
-      return;
-    }
+    // Topics are optional, as on the Record form (C6).
     // Timer keeps running: Back from the review returns to a live timer.
     // The end time is frozen here so the review time isn't billed.
     const topicsParam = encodeURIComponent(JSON.stringify(selectedTopics));
@@ -334,13 +368,13 @@ export default function SessionScreen() {
 
           <View style={{ alignItems: 'center', paddingTop: 24, paddingBottom: 12, paddingHorizontal: 24 }}>
             <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.paper }}>{student?.full_name ?? ''}</Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
               {student ? `GR ${student.grade} ${(lessonSubject ?? student.subject).toUpperCase()}` : ''}
             </Text>
           </View>
 
           <View style={{ marginHorizontal: 24, borderWidth: 1, borderColor: COLORS.paper20, borderRadius: 16, padding: 20, marginBottom: 32 }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: 16 }}>SCHEDULED LESSON</Text>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: 16 }}>SCHEDULED LESSON</Text>
             <View style={{ gap: 10 }}>
               {row.scheduled_for && (
                 <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -409,7 +443,8 @@ export default function SessionScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: COLORS.sessionBg }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior="padding"
+      enabled={keyboardHeight > 0}
     >
       {statusBar}
       {/* Bottom edge too: under edge-to-edge the scroll content otherwise ends behind the nav bar. */}
@@ -437,7 +472,7 @@ export default function SessionScreen() {
           </TouchableOpacity>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity
-              onPress={() => setMode(m => (m === 'in_person' ? 'online' : 'in_person'))}
+              onPress={toggleMode}
               hitSlop={SLOP}
               accessibilityRole="button"
               accessibilityLabel={`Mode: ${mode === 'in_person' ? 'in-person' : 'online'}. Tap to switch.`}
@@ -460,16 +495,19 @@ export default function SessionScreen() {
         </View>
 
         <ScrollView
+          ref={liveScrollRef}
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 16 }}
           keyboardShouldPersistTaps="handled"
+          onScroll={e => { liveScrollY.current = e.nativeEvent.contentOffset.y; }}
+          scrollEventThrottle={32}
         >
           {/* Student name + lesson label */}
           <View style={{ alignItems: 'center', paddingTop: compact ? 4 : 12, paddingBottom: compact ? 14 : 28 }}>
             <Text style={{ fontFamily: F.serif, fontSize: 26, color: COLORS.paper }}>
               {student?.full_name ?? ''}
             </Text>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, letterSpacing: 1, marginTop: 6 }}>
               {student ? `GR ${student.grade} ${(lessonSubject ?? student.subject).toUpperCase()} · LESSON ${sessionCount}` : ''}
             </Text>
           </View>
@@ -500,7 +538,7 @@ export default function SessionScreen() {
                   borderColor: COLORS.paper12,
                 }}
               />
-              <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.paper60, letterSpacing: 2, marginBottom: 8 }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, letterSpacing: 2, marginBottom: 8 }}>
                 {isPaused ? 'PAUSED' : 'ELAPSED'}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', opacity: isPaused ? 0.6 : 1 }}>
@@ -518,7 +556,7 @@ export default function SessionScreen() {
                 {isPaused ? '▮▮ ' : '· '}
                 {remaining.label}
               </Text>
-              <Text style={{ fontFamily: F.mono, fontSize: 10, color: COLORS.paper40, letterSpacing: 1, marginTop: 4 }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper40, letterSpacing: 1, marginTop: 4 }}>
                 {remaining.caption}
               </Text>
             </View>
@@ -526,7 +564,7 @@ export default function SessionScreen() {
 
           {/* Topics section */}
           <View style={{ paddingHorizontal: 24 }}>
-            <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: compact ? 8 : 12 }}>
+            <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.paper60, letterSpacing: 1.5, marginBottom: compact ? 8 : 12 }}>
               TOPICS COVERED
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -584,7 +622,7 @@ export default function SessionScreen() {
         </ScrollView>
 
         {/* Controls pinned below the scroll area: always visible, even at 640dp. */}
-        <View style={{ paddingTop: compact ? 8 : 12, paddingBottom: compact ? 4 : 8, borderTopWidth: 1, borderTopColor: COLORS.paper12 }}>
+        <View onLayout={e => { controlsHeight.current = e.nativeEvent.layout.height; }} style={{ paddingTop: compact ? 8 : 12, paddingBottom: compact ? 4 : 8, borderTopWidth: 1, borderTopColor: COLORS.paper12 }}>
           <View style={{ flexDirection: 'row', paddingHorizontal: 24, gap: 12 }}>
             <TouchableOpacity
               onPress={togglePause}

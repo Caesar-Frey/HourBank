@@ -25,6 +25,8 @@ export type Student = {
   parent_travel_flat_fee?: number;
   /** Parent travel charge per km when mode is 'per_km' (rand/km). Migration 009. */
   parent_travel_per_km?: number;
+  /** When a top-up reminder was last opened in WhatsApp (migration 013). */
+  last_reminded_at?: string | null;
 };
 
 export type PreferredContact = 'parent' | 'student';
@@ -77,8 +79,10 @@ export type CreditPackage = {
  * - no_show: student didn't attend (may carry a deduction if charged)
  * - discarded: in-flight timer thrown away (or orphan cleaned by migration 007)
  * - student_archived: future lesson cancelled because the student was archived
+ * - removed: a recorded lesson (or charged no-show) struck from history; its
+ *   hours went back via an `adjustment` (migration 011, see removed_at)
  */
-export type SessionCancelReason = 'cancelled' | 'no_show' | 'discarded' | 'student_archived';
+export type SessionCancelReason = 'cancelled' | 'no_show' | 'discarded' | 'student_archived' | 'removed';
 
 export type Session = {
   id: string;
@@ -113,6 +117,10 @@ export type Session = {
   parent_travel_per_km_snapshot?: number | null;
   /** Set when a past lesson is edited in place. */
   edited_at?: string | null;
+  /** Charged no-show only: 1 = parent travel charged and tutor travel claimed (migration 011, default 0). */
+  no_show_travel?: number;
+  /** Set when a recorded lesson was removed (status → cancelled/removed). Migration 011. */
+  removed_at?: string | null;
 };
 
 export type LedgerEntry = {
@@ -127,6 +135,12 @@ export type LedgerEntry = {
   created_at: string;
   /** Subject balance this row moves (migration 009). */
   subject_id?: string | null;
+  /** Set on an item charge (an `adjustment` row, migration 014). */
+  item_name?: string | null;
+  /** Rand price of the item, for the record only (migration 014). */
+  item_price_rand?: number | null;
+  /** On a reversal: the entry it reverses (migration 014). */
+  related_entry_id?: string | null;
 };
 
 export type Claim = {
@@ -155,6 +169,8 @@ export type ClaimLine = {
   lesson_fee: number;
   travel_fee: number;
   created_at: string;
+  /** Payout rate (R/h) used for this line (migration 012); null when not derivable. */
+  rate?: number | null;
 };
 
 export type Topic = {

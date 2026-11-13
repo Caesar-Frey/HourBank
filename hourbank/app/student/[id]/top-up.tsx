@@ -12,25 +12,26 @@ import { useToast } from '../../../src/components/Toast';
 import { getStudent } from '../../../src/db/students';
 import { createPackage } from '../../../src/db/packages';
 import { getPrimarySubjectId, getSubjectBalances, isSubjectError, SubjectBalance } from '../../../src/db/subjects';
-import { getTravelOwed, listTravelSettlementsForPackage, settleTravel } from '../../../src/db/travel';
+import { getTravelOwed, isTravelError } from '../../../src/db/travel';
 import {
-  topUpCtaWithTravel, topUpGrandTotal, topUpSuccessMessage, topUpTravelAmount, topUpTravelToggleLabel,
+  topUpCtaWithTravel, topUpGrandTotal, topUpTravelAmount, topUpTravelToggleLabel,
 } from '../../../src/utils/travelBilling';
 import { newId } from '../../../src/db/uuid';
 import { getOrCreateTutorProfile, PackageTier, TutorProfile } from '../../../src/db/tutorProfile';
 import { CreditPackage, Student } from '../../../src/db/schema';
-import { formatRand } from '../../../src/utils/format';
+import { formatDateLong, formatRand } from '../../../src/utils/format';
 import { persistProofImage } from '../../../src/utils/proofImages';
-import { getTopUpReceiptText } from '../../../src/utils/receipt';
-import { openWhatsApp } from '../../../src/utils/whatsapp';
 import { resolveRecipient } from '../../../src/utils/recipient';
+import { DateTimeField } from '../../../src/components/student/DateTimeField';
 import { RecipientChooser } from '../../../src/components/student/RecipientChooser';
 import type { PreferredContact } from '../../../src/db/schema';
 import {
-  Button, ChoicePills, FieldHint, LoadingState, NotFoundState, PageHeading, SectionLabel,
+  Banner, Button, ChoicePills, FieldHint, LoadingState, NotFoundState, PageHeading, SectionLabel,
 } from '../../../src/components/student/ui';
+import { createInvoice, getInvoice, invoiceNumberLabel, markInvoicePaid, type Invoice } from '../../../src/db/invoices';
+import { shareInvoicePdf } from '../../../src/utils/invoicePdf';
 import {
-  balanceReviewLine, decimalPreview, formatBalance, tierSavings,
+  balanceReviewLine, decimalPreview, formatBalance, paidAtIso, tierSavings,
 } from '../../../src/components/student/flowLogic';
 
 type PaymentMethod = CreditPackage['payment_method'];
@@ -65,7 +66,7 @@ function parseTiers(p: TutorProfile): PackageTier[] {
 }
 
 export default function TopUpScreen() {
-  const { id, subjectId: subjectParam } = useLocalSearchParams<{ id: string; subjectId?: string }>();
+  const { id, subjectId: subjectParam, invoiceId } = useLocalSearchParams<{ id: string; subjectId?: string; invoiceId?: string }>();
   const router = useRouter();
   const toast = useToast();
   // Generated once per screen visit: makes a double-submitted top-up idempotent.
@@ -89,6 +90,10 @@ export default function TopUpScreen() {
   const [proofUri, setProofUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [sendTo, setSendTo] = useState<PreferredContact | null>(null);
+  const [paidOn, setPaidOn] = useState(() => new Date());
+  /** Paying an invoice (F2): prefilled from it and marked paid on save. */
+  const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [invoicing, setInvoicing] = useState(false);
 
   useEffect(() => {
     try {
@@ -108,13 +113,28 @@ export default function TopUpScreen() {
       }
       const p = getOrCreateTutorProfile();
       setProfile(p);
-      setTiers(parseTiers(p));
+      const t = parseTiers(p);
+      setTiers(t);
+      const inv = typeof invoiceId === 'string' ? getInvoice(invoiceId) : null;
+      if (inv && inv.status === 'unpaid' && inv.student_id === id) {
+        setInvoice(inv);
+        if (inv.subject_id) setSubjectId(inv.subject_id);
+        const lessonAmount = Math.round((inv.total_rand - inv.travel_rand) * 100) / 100;
+        const match = t.findIndex(x => x.hours === inv.hours && x.price === lessonAmount);
+        if (match >= 0) setSelection(match);
+        else {
+          setSelection('custom');
+          setCustomHours(String(inv.hours));
+          setCustomAmount(String(lessonAmount));
+        }
+        setIncludeTravel(inv.travel_rand > 0);
+      }
     } catch {
       // student stays null → not-found state; profile optional
     } finally {
       setLoaded(true);
     }
-  }, [id, subjectParam]);
+  }, [id, subjectParam, invoiceId]);
 
   if (!loaded) return <LoadingState />;
   if (!student) return <NotFoundState title="Student not found" onBack={() => router.back()} />;
@@ -149,16 +169,6 @@ export default function TopUpScreen() {
 
   const recipient = resolveRecipient(student, sendTo);
 
-  async function sendConfirmation(pkgId: string) {
-    try {
-      const text = getTopUpReceiptText(pkgId, { recipientName: recipient.name, audience: recipient.who });
-      if (!text) throw new Error('missing package');
-      await openWhatsApp(recipient.phone, text);
-    } catch {
-      toast.show({ kind: 'error', message: "Couldn't prepare the confirmation" });
-    }
-  }
-
   async function handleConfirm() {
     if (savingRef.current || !ready || hours === null || price === null) return;
     savingRef.current = true;
@@ -179,6 +189,7 @@ export default function TopUpScreen() {
 
     let created: ReturnType<typeof createPackage>;
     try {
+      // Package, ledger entry and travel settlement in ONE transaction (B2).
       created = createPackage({
         id: packageId,
         studentId: id,
@@ -188,6 +199,8 @@ export default function TopUpScreen() {
         paymentMethod,
         paymentRef: reference.trim() || undefined,
         proofImageUri: storedProof,
+        paidAt: paidAtIso(paidOn),
+        travelAmount: travel > 0 ? travel : undefined,
       });
     } catch (e) {
       savingRef.current = false;
@@ -196,38 +209,56 @@ export default function TopUpScreen() {
         kind: 'error',
         message: isSubjectError(e)
           ? 'That subject is no longer available — pick another'
-          : "Couldn't add the top-up — please try again",
+          : isTravelError(e)
+            ? 'Travel owed has changed — check the amount and try again'
+            : "Couldn't add the top-up — please try again",
       });
       return;
     }
 
-    // Travel owed is settled in the same payment (separate rand record, linked to the package).
-    let travelSettled = 0;
-    let travelFailed = false;
-    if (travel > 0) {
+    if (invoice) {
       try {
-        if (listTravelSettlementsForPackage(created.pkg.id).length === 0) {
-          travelSettled = settleTravel({ studentId: id, amount: travel, packageId: created.pkg.id, method: paymentMethod }).amount;
-        }
+        markInvoicePaid(invoice.id, created.pkg.id);
       } catch {
-        travelFailed = true;
+        toast.show({ kind: 'error', message: `Top-up saved, but invoice ${invoiceNumberLabel(invoice.number)} wasn't marked paid` });
       }
     }
 
-    const pkgId = created.pkg.id;
-    toast.show({
-      kind: travelFailed ? 'info' : 'success',
-      message: topUpSuccessMessage({
-        hours,
-        subjectName,
-        balanceLabel: formatBalance(created.entry.balance_after),
-        travelSettled,
-        travelFailed,
-      }),
-      actionLabel: 'Send confirmation',
-      onAction: () => { void sendConfirmation(pkgId); },
-      durationMs: travelFailed ? 10000 : 8000,
+    router.replace({
+      pathname: '/student/[id]/top-up-saved',
+      params: { id, packageId: created.pkg.id, sendTo: recipient.who },
     });
+  }
+
+  /** Save an invoice for this package (no credit added), share it, go back. */
+  async function sendInvoiceFirst() {
+    if (savingRef.current || !ready || hours === null || price === null) return;
+    savingRef.current = true;
+    setInvoicing(true);
+    let created: ReturnType<typeof createInvoice>;
+    try {
+      created = createInvoice({
+        studentId: id,
+        subjectId,
+        subjectName: subject?.subject ?? null,
+        hours,
+        amountRand: price,
+        travelRand: travel > 0 ? travel : undefined,
+        travelLessons: travel > 0 ? travelOwed.lessonCount : undefined,
+      });
+    } catch {
+      savingRef.current = false;
+      setInvoicing(false);
+      toast.show({ kind: 'error', message: "Couldn't create the invoice, please try again" });
+      return;
+    }
+    const label = invoiceNumberLabel(created.invoice.number);
+    try {
+      await shareInvoicePdf(created.invoice.id);
+      toast.show({ kind: 'success', message: `Invoice ${label} saved` });
+    } catch {
+      toast.show({ kind: 'error', message: `Invoice ${label} saved, but the PDF couldn't be shared. Share it again from ${firstName}'s page.` });
+    }
     router.back();
   }
 
@@ -249,10 +280,29 @@ export default function TopUpScreen() {
             busy={saving}
             testID="top-up-confirm"
           />
+          {!invoice ? (
+            <Button
+              label="Send invoice first"
+              icon="file-text"
+              variant="secondary"
+              onPress={sendInvoiceFirst}
+              disabled={!ready || saving}
+              busy={invoicing}
+              accessibilityHint="Saves an invoice for this package and shares the PDF. No credit is added yet."
+              testID="top-up-invoice"
+            />
+          ) : null}
         </View>
       }
     >
       <PageHeading eyebrow="★ ADD CREDITS" line1="How many" line2="hours?" />
+      {invoice ? (
+        <View style={{ marginBottom: 16 }}>
+          <Banner tone="info" icon="file-text">
+            {`Recording payment for invoice ${invoiceNumberLabel(invoice.number)} (${formatRand(invoice.total_rand)}). It is marked paid when you save.`}
+          </Banner>
+        </View>
+      ) : null}
 
       {multiSubject ? (
         <View style={{ marginBottom: 16 }}>
@@ -324,7 +374,7 @@ export default function TopUpScreen() {
           {amountPreview.text ? <FieldHint tone={amountPreview.error ? 'bad' : 'soft'}>{amountPreview.text}</FieldHint> : null}
           {customSaving ? (
             <View style={{ backgroundColor: COLORS.okFill, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginTop: 8, alignSelf: 'flex-start' }}>
-              <Text style={{ fontFamily: F.mono, fontSize: 11, color: COLORS.moss }}>
+              <Text style={{ fontFamily: F.mono, fontSize: 12, color: COLORS.moss }}>
                 {`Parent saves ${formatRand(customSaving)} vs hourly price`}
               </Text>
             </View>
@@ -368,6 +418,18 @@ export default function TopUpScreen() {
           />
         </View>
       ) : null}
+
+      <View style={{ marginTop: 24 }}>
+        <SectionLabel>PAID ON</SectionLabel>
+        <DateTimeField
+          mode="date"
+          value={paidOn}
+          onChange={setPaidOn}
+          display={formatDateLong(paidOn)}
+          accessibilityLabel="Date the parent paid"
+          maximumDate={new Date()}
+        />
+      </View>
 
       <View style={{ marginTop: 24 }}>
         <SectionLabel>PAYMENT METHOD</SectionLabel>

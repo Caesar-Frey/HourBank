@@ -12,16 +12,17 @@ import { useToast } from '../../../src/components/Toast';
 import { getStudent } from '../../../src/db/students';
 import { isSubjectError } from '../../../src/db/subjects';
 import { SubjectPicker, TravelKmField } from '../../../src/components/lesson/LessonFields';
-import { loadSubjectOptions, type SubjectOption } from '../../../src/components/lesson/lessonFormData';
+import { billingRoundMinutes, loadSubjectOptions, type SubjectOption } from '../../../src/components/lesson/lessonFormData';
 import { defaultSubjectId, parseKmInput } from '../../../src/components/lesson/lessonFormLogic';
 import {
-  createScheduled, getSession, isSessionError, listUpcomingWithProjection, rescheduleSession, updateScheduled,
+  createScheduled, getSession, isSessionError, listUpcomingWithProjection, updateScheduled,
 } from '../../../src/db/sessions';
 import { findOverlappingCalendarItems } from '../../../src/db/calendar';
 import { listTopicsForStudentSubject, addCustomTopicForSubject } from '../../../src/db/catalog';
 import { Session, Student } from '../../../src/db/schema';
 import { formatDateLong, formatMinutes, formatScheduledTime, formatTime } from '../../../src/utils/format';
 import { DateTimeField } from '../../../src/components/student/DateTimeField';
+import { useUnsavedChangesGuard } from '../../../src/hooks/useUnsavedChangesGuard';
 import {
   Banner, Button, ChoicePills, FieldError, LoadingState, NotFoundState, PageHeading, SectionLabel,
 } from '../../../src/components/student/ui';
@@ -157,6 +158,18 @@ function ScheduleScreenInner() {
     }
   }, [date, minutes, sessionId]);
 
+  // Unsaved-changes guard (D7).
+  const formKey = JSON.stringify([subjectId, km, date.getTime(), minutes, mode, sessionType, selectedTopics, notes]);
+  const baselineRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loaded && student && baselineRef.current === null) baselineRef.current = formKey;
+  }, [loaded, student, formKey]);
+  const dirty = baselineRef.current !== null && baselineRef.current !== formKey;
+  const { allowLeave } = useUnsavedChangesGuard(dirty, {
+    title: isReschedule ? 'Discard your changes?' : 'Discard this booking?',
+    message: isReschedule ? 'The lesson keeps its old time.' : 'The lesson hasn’t been booked yet.',
+  });
+
   if (!loaded) return <LoadingState />;
   if (!student) return <NotFoundState title="Student not found" onBack={() => router.back()} />;
   if (loadError) return <NotFoundState title={loadError} onBack={() => router.back()} />;
@@ -190,6 +203,7 @@ function ScheduleScreenInner() {
   function logAsPast() {
     // Built by hand: RN's URLSearchParams polyfill lacks set().
     const query = `startedAt=${encodeURIComponent(date.toISOString())}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''}${from === 'lesson' ? '&from=lesson' : ''}`;
+    allowLeave();
     router.replace(`/student/${id}/log-past?${query}`);
   }
 
@@ -219,7 +233,7 @@ function ScheduleScreenInner() {
     const iso = date.toISOString();
     try {
       if (isReschedule && sessionId) {
-        rescheduleSession(sessionId, iso, { estimatedDurationMinutes: minutes, travelKm: travelKmToStore });
+        // One transaction: date, length, mode, topics and km together (D4).
         updateScheduled(sessionId, {
           scheduledFor: iso,
           estimatedDurationMinutes: minutes,
@@ -245,6 +259,7 @@ function ScheduleScreenInner() {
         });
         toast.show({ kind: 'success', message: `Lesson booked · ${formatScheduledTime(iso)}` });
       }
+      allowLeave();
       router.back();
     } catch (e) {
       savingRef.current = false;
@@ -395,6 +410,7 @@ function ScheduleScreenInner() {
         initialMinutes={minutes}
         onConfirm={mins => { setMinutes(mins); setShowDurationSheet(false); }}
         onCancel={() => setShowDurationSheet(false)}
+        step={billingRoundMinutes()}
       />
 
       {projected < 0 ? (

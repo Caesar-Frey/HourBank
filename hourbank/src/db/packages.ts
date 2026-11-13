@@ -1,8 +1,9 @@
 import { getDb } from './client';
-import { CreditPackage, LedgerEntry } from './schema';
+import { CreditPackage, LedgerEntry, TravelSettlement } from './schema';
 import { appendEntryInTx } from './ledger';
 import { newId } from './uuid';
 import { resolveSubjectIdInTx } from './subjects';
+import { settleTravelInTx } from './travel';
 
 /**
  * Record a top-up: credit package + ledger entry in one transaction.
@@ -22,13 +23,21 @@ export function createPackage(data: {
   paymentRef?: string;
   proofImageUri?: string;
   notes?: string;
-}): { pkg: CreditPackage; entry: LedgerEntry } {
+  /** When the parent paid (B1). Omitted = now. Must not be in the future. */
+  paidAt?: string;
+  /** Travel owed paid in the same payment: settled in the SAME transaction (B2). */
+  travelAmount?: number;
+}): { pkg: CreditPackage; entry: LedgerEntry; travel: TravelSettlement | null } {
   const db = getDb();
   const id = data.id ?? newId();
-  const now = new Date().toISOString();
+  const nowDate = new Date();
+  const paid = data.paidAt ? new Date(data.paidAt) : nowDate;
+  if (Number.isNaN(paid.getTime())) throw new Error('Invalid payment date');
+  const now = (paid.getTime() > nowDate.getTime() ? nowDate : paid).toISOString();
 
   let pkg: CreditPackage;
   let entry: LedgerEntry;
+  let travel: TravelSettlement | null = null;
 
   db.withTransactionSync(() => {
     if (data.id) {
@@ -43,6 +52,10 @@ export function createPackage(data: {
         }
         pkg = existing;
         entry = existingEntry;
+        travel = db.getFirstSync<TravelSettlement>(
+          'SELECT * FROM travel_settlements WHERE package_id = ? ORDER BY created_at ASC LIMIT 1',
+          [id]
+        ) ?? null;
         return;
       }
     }
@@ -84,8 +97,19 @@ export function createPackage(data: {
       hoursDelta: data.hoursAdded,
       relatedPackageId: id,
       subjectId,
+      createdAt: now,
     });
+
+    if (data.travelAmount && data.travelAmount > 0) {
+      travel = settleTravelInTx({
+        studentId: data.studentId,
+        amount: data.travelAmount,
+        packageId: id,
+        method: data.paymentMethod,
+        now: new Date(now),
+      });
+    }
   });
 
-  return { pkg: pkg!, entry: entry! };
+  return { pkg: pkg!, entry: entry!, travel };
 }
