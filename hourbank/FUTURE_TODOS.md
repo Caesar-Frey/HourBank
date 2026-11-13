@@ -43,9 +43,5 @@ Approved features deferred from current build. Pick up in future sessions.
 
 - Charge an item to credit (F1) and invoice template + settings (F2): specified in docs/plans/2026-11-12-polish-handoff.md, waiting for mockups M7, M8 and M9 to be approved.
 
-## Students
-
-- Grade R: the `students.grade` CHECK only allows 1 to 12, so offering Grade R needs a table-rebuild migration.
-
 ---
 *Updated by build: 2026-11-13 (polish packages A to E)*
